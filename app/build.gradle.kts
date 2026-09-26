@@ -34,6 +34,11 @@ android {
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
                 arguments += "-DGGML_VULKAN=${if (project.property("arce.ggml.vulkan") == "true") "ON" else "OFF"}"
                 arguments += "-DGGML_OPENCL=${if (project.property("arce.ggml.opencl") == "true") "ON" else "OFF"}"
+                // Reuse compiled objects between builds (CI sets -Parce.ccache=true; needs ccache on PATH)
+                if (providers.gradleProperty("arce.ccache").orNull == "true") {
+                    arguments += "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
+                    arguments += "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+                }
             }
         }
     }

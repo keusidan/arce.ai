@@ -45,14 +45,51 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      # The NDK (~1 GB) is kept between runs instead of being downloaded every time.
+      - name: Restore NDK and CMake
+        id: ndk-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/lib/android/sdk/ndk/29.0.13113456
+            /usr/local/lib/android/sdk/cmake/3.22.1
+          key: android-ndk-29.0.13113456-cmake-3.22.1
+
       # The runner image ships a different NDK and has not accepted this one's license,
       # so Gradle cannot install it on its own.
       - name: Install NDK and CMake
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
         run: |
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null
           "$sdkmanager" "ndk;29.0.13113456" "cmake;3.22.1" > /dev/null
           ls "$ANDROID_HOME/ndk"
+
+      # ccache keeps the compiled objects (.o) of llama.cpp and the JNI bridge. Only files
+      # whose source or flags changed are recompiled. The key ties the cache to the
+      # llama.cpp revision; restore-keys still reuse most objects after a llama.cpp update.
+      - name: Set up ccache
+        id: ccache
+        run: |
+          command -v ccache > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ccache; }
+          echo "llama=$(git rev-parse HEAD:third_party/llama.cpp)" >> "$GITHUB_OUTPUT"
+          {
+            echo "CCACHE_DIR=$HOME/.cache/ccache"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo "CCACHE_NOHASHDIR=true"
+            # the NDK may be reinstalled with new timestamps; compare the compiler by content
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_MAXSIZE=1G"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore ccache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ steps.ccache.outputs.llama }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ steps.ccache.outputs.llama }}-
+            ccache-
 
       - name: Resolve version
         id: version
@@ -85,17 +122,21 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
           echo "ARCE_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      - name: Unit tests
-        run: ./gradlew :core:test
-
-      - name: Build APK
+      # One Gradle run for both: the project is configured once, not twice.
+      - name: Unit tests and APK build
         env:
           ARCE_KEYSTORE_PASSWORD: ${{ secrets.ARCE_KEYSTORE_PASSWORD }}
           ARCE_KEY_ALIAS: ${{ secrets.ARCE_KEY_ALIAS }}
         run: >
-          ./gradlew :app:assembleRelease
+          ccache --zero-stats > /dev/null &&
+          ./gradlew :core:test :app:assembleRelease
+          -Parce.ccache=true
           -Parce.versionName=${{ steps.version.outputs.name }}
           -Parce.versionCode=${{ github.run_number }}
+
+      - name: ccache statistics
+        if: always()
+        run: ccache --show-stats
 
       - name: Collect APK and checksum
         id: apk
