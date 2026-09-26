@@ -1,10 +1,10 @@
 package ai.arce.app.ui
 
 import ai.arce.app.AppContainer
-import ai.arce.app.build.Installer
+import ai.arce.app.toolchain.Installer
 import ai.arce.app.sandbox.RunResult
 import ai.arce.app.system.ConsentManager
-import ai.arce.core.build.JavaSource
+import ai.arce.core.toolchain.JavaSource
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll

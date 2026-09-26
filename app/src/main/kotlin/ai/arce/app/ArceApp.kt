@@ -1,6 +1,6 @@
 package ai.arce.app
 
-import ai.arce.app.build.JavaToolchain
+import ai.arce.app.toolchain.JavaToolchain
 import ai.arce.app.data.ArceDatabase
 import ai.arce.app.data.ConversationEntity
 import ai.arce.app.data.SecretStore
