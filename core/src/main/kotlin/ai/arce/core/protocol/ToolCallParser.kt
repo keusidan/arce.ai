@@ -1,5 +1,6 @@
 package ai.arce.core.protocol
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -10,6 +11,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+@Serializable
 data class QuestionTile(
     val title: String,
     val options: List<String>,
@@ -23,6 +25,9 @@ data class QuestionTile(
 
 sealed interface ToolCall {
     data class AskUser(val tile: QuestionTile) : ToolCall
+    data class WebSearch(val query: String) : ToolCall
+    data class GetWeather(val location: String) : ToolCall
+    data class GetTime(val timezone: String?) : ToolCall
 }
 
 sealed interface ParseResult {
@@ -56,6 +61,11 @@ object ToolCallParser {
         return try {
             when (name) {
                 Protocol.askUser.name -> parseAskUser(args)
+                Protocol.webSearch.name -> requiredText(args, "query")?.let { ParseResult.Ok(ToolCall.WebSearch(it)) }
+                    ?: ParseResult.Invalid("search query is blank")
+                Protocol.getWeather.name -> requiredText(args, "location")?.let { ParseResult.Ok(ToolCall.GetWeather(it)) }
+                    ?: ParseResult.Invalid("weather location is blank")
+                Protocol.getTime.name -> ParseResult.Ok(ToolCall.GetTime(requiredText(args, "timezone")))
                 else -> ParseResult.Invalid("tool '$name' has no handler")
             }
         } catch (e: IllegalArgumentException) {
@@ -64,9 +74,11 @@ object ToolCallParser {
         }
     }
 
+    private fun requiredText(args: JsonObject, key: String): String? =
+        args[key]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+
     private fun parseAskUser(args: JsonObject): ParseResult {
-        val title = args["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        if (title.isEmpty()) return ParseResult.Invalid("question title is blank")
+        val title = requiredText(args, "title") ?: return ParseResult.Invalid("question title is blank")
 
         val options = args["options"]?.jsonArray
             ?.map { it.jsonPrimitive.contentOrNull?.trim().orEmpty() }

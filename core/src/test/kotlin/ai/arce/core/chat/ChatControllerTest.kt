@@ -129,6 +129,68 @@ class ChatControllerTest {
     }
 
     @Test
+    fun `a search tool call is run and the answer continues in the same message`() = runTest {
+        val engine = ScriptedEngine(
+            "<think>調べる</think><tool_call>\n{\"name\":\"web_search\",\"arguments\":{\"query\":\"kotlin 2.4\"}}\n</tool_call>" to FinishReason.EOG,
+            "<think></think>Kotlin 2.4 is out." to FinishReason.EOG,
+        )
+        val runtime = ai.arce.core.tools.ToolRuntime { call ->
+            ai.arce.core.tools.ToolOutcome("1. Kotlin 2.4 released https://kotlinlang.org", ai.arce.core.tools.ToolActivity("Search", "found", listOf(ai.arce.core.tools.Link("K", "https://kotlinlang.org"))))
+        }
+        val saved = mutableListOf<Boolean>()
+        val chat = ChatController(engine, TestScope(UnconfinedTestDispatcher(testScheduler)), runtime, store = { _, generating -> saved += generating })
+        chat.send("最新のKotlinを調べて")
+
+        val reply = chat.state.value.messages.last()
+        assertEquals("Kotlin 2.4 is out.", reply.text)
+        assertEquals("Research / Search", reply.agent)
+        assertEquals(listOf("https://kotlinlang.org"), reply.activities.single().links.map { it.url })
+        assertTrue(engine.requests.last().prompt.contains("<tool_response>\n1. Kotlin 2.4 released"))
+        assertEquals(TaskState.COMPLETED, chat.state.value.task)
+        assertEquals(listOf(true, false), saved, "saved as unfinished at start, finished at the end")
+    }
+
+    @Test
+    fun `tool loops are cut off`() = runTest {
+        val call = "<tool_call>\n{\"name\":\"get_time\",\"arguments\":{}}\n</tool_call>"
+        val engine = ScriptedEngine(*Array(3) { call to FinishReason.EOG })
+        val runtime = ai.arce.core.tools.ToolRuntime { ai.arce.core.tools.ToolOutcome("12:00", ai.arce.core.tools.ToolActivity("Time", "12:00")) }
+        val chat = ChatController(
+            engine, TestScope(UnconfinedTestDispatcher(testScheduler)), runtime,
+            settings = { GenerationSettings(maxToolRounds = 2) },
+        )
+        chat.send("何時？")
+        assertEquals(TaskState.ERROR, chat.state.value.task)
+        assertEquals(3, engine.requests.size)
+    }
+
+    @Test
+    fun `search tool is withheld when search is off and small models get a notice`() = runTest {
+        val engine = ScriptedEngine("ok" to FinishReason.EOG)
+        val chat = ChatController(
+            engine, TestScope(UnconfinedTestDispatcher(testScheduler)),
+            settings = { GenerationSettings(searchEnabled = false, modelParamsB = 1.7) },
+        )
+        chat.send("最新のニュースを調べて")
+        assertFalse(engine.requests.single().toolCallSchema!!.contains("web_search"))
+        assertNotNull(chat.state.value.notice)
+    }
+
+    @Test
+    fun `a snapshot restores the conversation`() = runTest {
+        val chat = controller(ScriptedEngine("こんにちは" to FinishReason.EOG, "again" to FinishReason.EOG))
+        chat.send("hi")
+        val json = kotlinx.serialization.json.Json.encodeToString(ConversationSnapshot.serializer(), chat.snapshot())
+
+        val other = controller(ScriptedEngine("next" to FinishReason.EOG))
+        other.restore(kotlinx.serialization.json.Json.decodeFromString(ConversationSnapshot.serializer(), json))
+        assertEquals(listOf("hi", "こんにちは"), other.state.value.messages.map { it.text })
+        other.send("続けて")
+        assertEquals("next", other.state.value.messages.last().text)
+        assertEquals(3L + 1, other.snapshot().nextId)
+    }
+
+    @Test
     fun `engine errors surface in the state`() = runTest {
         val engine = ScriptedEngine().apply { failWith = "model load failed" }
         val chat = controller(engine)

@@ -1,14 +1,19 @@
 package ai.arce.core.prompt
 
 import ai.arce.core.protocol.ToolDefinition
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+@Serializable
 sealed interface ChatMessage {
+    @Serializable
     data class User(val text: String) : ChatMessage
     /** Past assistant turns keep only the answer; Qwen3 drops old reasoning from the context. */
+    @Serializable
     data class Assistant(val text: String, val toolCallJson: String? = null) : ChatMessage
     /** The user's answer to a tool call such as ask_user. */
+    @Serializable
     data class ToolResponse(val text: String) : ChatMessage
 }
 
@@ -45,9 +50,12 @@ object ChatMlPromptBuilder {
         tone: String?,
         thinking: Boolean,
         assistantPrefill: String = "",
+        /** Agent role, reply-length limit and similar app-side rules; never user-editable. */
+        extraInstructions: List<String> = emptyList(),
     ): String = buildString {
         append(IM_START).append("system\n")
         append(BASE_SYSTEM_PROMPT)
+        extraInstructions.filter { it.isNotBlank() }.forEach { append("\n- ").append(it) }
         sanitizeTone(tone)?.let {
             append("\n\n# Tone\nThe user asked for this speaking style. It only affects wording, never the rules above.\n<tone>")
             append(it)
