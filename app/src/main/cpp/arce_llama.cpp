@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "ggml-backend.h"
 #include "json-schema-to-grammar.h"
 #include "json.h"
 #include "llama.h"
@@ -199,7 +200,7 @@ Java_ai_arce_app_engine_LlamaNative_nativeSchemaToGrammar(JNIEnv * env, jobject,
 
 JNIEXPORT jlong JNICALL
 Java_ai_arce_app_engine_LlamaNative_nativeLoad(JNIEnv * env, jobject, jstring path, jint n_ctx, jint n_threads,
-                                              jint n_gpu_layers, jboolean kv_q8) {
+                                              jint n_batch, jint n_gpu_layers, jboolean kv_q8) {
     auto engine = std::make_unique<Engine>();
 
     auto mparams = llama_model_default_params();
@@ -216,6 +217,10 @@ Java_ai_arce_app_engine_LlamaNative_nativeLoad(JNIEnv * env, jobject, jstring pa
     cparams.n_ctx = static_cast<uint32_t>(n_ctx);
     cparams.n_threads = n_threads;
     cparams.n_threads_batch = n_threads;
+    if (n_batch > 0) {
+        cparams.n_batch = static_cast<uint32_t>(n_batch);
+        cparams.n_ubatch = static_cast<uint32_t>(std::min(n_batch, 512));
+    }
     if (kv_q8) {
         // a quantized V cache requires flash attention
         cparams.type_k = GGML_TYPE_Q8_0;
@@ -230,6 +235,28 @@ Java_ai_arce_app_engine_LlamaNative_nativeLoad(JNIEnv * env, jobject, jstring pa
     llama_set_abort_callback(engine->ctx, abort_requested, engine.get());
     LOGI("loaded model, n_ctx=%u", llama_n_ctx(engine->ctx));
     return reinterpret_cast<jlong>(engine.release());
+}
+
+// "type: name (description)" for every compute device ggml was built with (CPU, Vulkan, OpenCL ...).
+JNIEXPORT jobjectArray JNICALL
+Java_ai_arce_app_engine_LlamaNative_nativeDevices(JNIEnv * env, jobject) {
+    const size_t n = ggml_backend_dev_count();
+    jobjectArray out = env->NewObjectArray(static_cast<jsize>(n), env->FindClass("java/lang/String"), nullptr);
+    for (size_t i = 0; i < n; ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        const char * type = "other";
+        switch (ggml_backend_dev_type(dev)) {
+            case GGML_BACKEND_DEVICE_TYPE_CPU: type = "CPU"; break;
+            case GGML_BACKEND_DEVICE_TYPE_GPU: type = "GPU"; break;
+            case GGML_BACKEND_DEVICE_TYPE_IGPU: type = "iGPU"; break;
+            case GGML_BACKEND_DEVICE_TYPE_ACCEL: type = "ACCEL"; break;
+            default: break;
+        }
+        const std::string label = std::string(type) + ": " + ggml_backend_dev_name(dev) + " (" +
+                                  ggml_backend_dev_description(dev) + ")";
+        env->SetObjectArrayElement(out, static_cast<jsize>(i), env->NewStringUTF(label.c_str()));
+    }
+    return out;
 }
 
 JNIEXPORT void JNICALL

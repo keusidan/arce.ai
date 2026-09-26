@@ -34,6 +34,7 @@ class LlamaCppEngine : InferenceEngine {
             params.path,
             params.contextLength,
             params.threads,
+            params.batchSize,
             params.gpuLayers,
             params.kvCache == KvCacheType.Q8_0,
         )
@@ -78,6 +79,9 @@ class LlamaCppEngine : InferenceEngine {
             LlamaNative.nativeEnd(session)
         }
     }.flowOn(dispatcher)
+
+    /** Compute devices available to llama.cpp in this build. */
+    fun devices(): List<String> = LlamaNative.nativeDevices().toList()
 
     override fun cancel() {
         val handle = engine

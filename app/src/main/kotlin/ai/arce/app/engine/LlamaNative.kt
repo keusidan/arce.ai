@@ -15,7 +15,10 @@ internal object LlamaNative {
     external fun nativeSchemaToGrammar(schemaJson: String): String?
 
     /** Returns an engine handle, or 0 on failure (see [nativeLastError]). */
-    external fun nativeLoad(path: String, nCtx: Int, nThreads: Int, nGpuLayers: Int, kvQ8: Boolean): Long
+    external fun nativeLoad(path: String, nCtx: Int, nThreads: Int, nBatch: Int, nGpuLayers: Int, kvQ8: Boolean): Long
+
+    /** Compute devices llama.cpp was built with, e.g. "CPU: CPU (...)". */
+    external fun nativeDevices(): Array<String>
     external fun nativeFree(engine: Long)
 
     /** Returns a session handle, or 0 on failure. [promptUtf8] is UTF-8 because JNI strings cannot carry emoji. */

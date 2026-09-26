@@ -8,6 +8,8 @@ data class LoadParams(
     val path: String,
     val contextLength: Int = 4096,
     val threads: Int = 4,
+    /** 0 = llama.cpp default. */
+    val batchSize: Int = 0,
     val gpuLayers: Int = 0,
     val kvCache: KvCacheType = KvCacheType.F16,
 )

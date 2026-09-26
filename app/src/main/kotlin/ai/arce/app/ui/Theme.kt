@@ -36,6 +36,7 @@ private val Dark = darkColorScheme(
 )
 
 @Composable
-fun ArceTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)
+fun ArceTheme(dark: Boolean? = null, content: @Composable () -> Unit) {
+    // null follows the system setting
+    MaterialTheme(colorScheme = if (dark ?: isSystemInDarkTheme()) Dark else Light, content = content)
 }
