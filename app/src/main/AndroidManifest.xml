@@ -42,6 +42,19 @@
                 android:value="On-device LLM inference that continues while the app is in the background" />
         </service>
 
+        <!-- Generated Java runs here: own throw-away UID, no permissions, no app files. -->
+        <service
+            android:name=".sandbox.JavaSandboxService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":javasandbox" />
+
+        <!-- Generated Python (Chaquopy) runs in its own process so a runaway script can be killed. -->
+        <service
+            android:name=".sandbox.PythonSandboxService"
+            android:exported="false"
+            android:process=":python" />
+
         <receiver
             android:name=".update.InstallResultReceiver"
             android:exported="false" />

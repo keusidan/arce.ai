@@ -48,6 +48,9 @@ class ConsentManager(private val dao: ConsentDao) {
 
     companion object {
         const val SCOPE_RUN_CODE = "code.run"
+        const val SCOPE_RUN_PYTHON = "code.run.python"
+        const val SCOPE_RUN_JAVA = "code.run.java"
+        const val SCOPE_BUILD_APP = "app.build"
         const val SCOPE_EXPORT_HISTORY = "history.export"
     }
 }

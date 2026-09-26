@@ -1,5 +1,6 @@
 package ai.arce.app
 
+import ai.arce.app.build.JavaToolchain
 import ai.arce.app.data.ArceDatabase
 import ai.arce.app.data.ConversationEntity
 import ai.arce.app.data.SecretStore
@@ -7,6 +8,7 @@ import ai.arce.app.engine.LiteRtEngine
 import ai.arce.app.engine.LlamaCppEngine
 import ai.arce.app.engine.RoutingEngine
 import ai.arce.app.model.ModelController
+import ai.arce.app.sandbox.SandboxClient
 import ai.arce.app.settings.AppSettings
 import ai.arce.app.settings.SettingsRepository
 import ai.arce.app.system.ConsentManager
@@ -45,6 +47,9 @@ class ArceApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // The sandbox processes (":python", ":javasandbox") run generated code only. The isolated
+        // one cannot even open app files, so the database, models and settings stay out of them.
+        if (Application.getProcessName() != packageName) return
         Notifications.createChannels(this)
         container = AppContainer(this)
     }
@@ -71,6 +76,9 @@ class AppContainer(val app: Application) {
     val updates = UpdateManager(app)
     val engine = RoutingEngine(LlamaCppEngine(), LiteRtEngine(app))
     val models = ModelController(app, engine, device, settings, scope)
+
+    val toolchain by lazy { JavaToolchain(app) }
+    val sandbox = SandboxClient(app)
 
     private val http = UrlConnectionHttp()
 

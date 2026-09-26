@@ -121,7 +121,10 @@ fun ColumnScope.SettingsScreen(container: AppContainer, go: (Screen) -> Unit) {
 }
 
 private fun scopeLabel(scope: String) = when (scope) {
-    ConsentManager.SCOPE_RUN_CODE -> "コードの実行"
+    ConsentManager.SCOPE_RUN_CODE -> "JavaScriptの実行"
+    ConsentManager.SCOPE_RUN_PYTHON -> "Pythonの実行"
+    ConsentManager.SCOPE_RUN_JAVA -> "Javaの実行"
+    ConsentManager.SCOPE_BUILD_APP -> "APKのビルドとインストール"
     ConsentManager.SCOPE_EXPORT_HISTORY -> "会話の書き出し・共有"
     else -> scope
 }

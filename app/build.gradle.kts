@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.chaquopy)
 }
 
 // Release signing comes from the environment (GitHub Actions secrets, see
@@ -85,7 +86,42 @@ android {
         jniLibs {
             // Store .so files uncompressed and page-aligned so they load straight from the APK.
             useLegacyPackaging = false
+            // LiteRT-LM and Chaquopy may both bring the shared C++ runtime.
+            pickFirsts += "**/libc++_shared.so"
         }
+        resources {
+            // Jar metadata of ECJ / R8 / apksig that nothing reads at runtime and that collides.
+            excludes += listOf("META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA", "META-INF/eclipse.inf",
+                "META-INF/versions/**", "META-INF/LICENSE*", "META-INF/NOTICE*", "about.html", "about_files/**")
+        }
+    }
+}
+
+// Python for the code runner (Chaquopy). No pip packages, so no build-time Python is needed.
+chaquopy {
+    defaultConfig {
+        version = "3.13"
+        pyc {
+            src = false
+        }
+    }
+}
+
+// The on-device Java compiler (ECJ) and dexer (D8) need the Android class library to compile
+// against. Ship the SDK's android.jar (classes only) as an asset.
+val androidJarAsset = tasks.register<Zip>("androidJarAsset") {
+    from(zipTree(android.sdkDirectory.resolve("platforms/android-${android.compileSdk}/android.jar"))) {
+        include("**/*.class")
+    }
+    archiveFileName.set("android.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("generated/arceAssets"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(androidJarAsset, Zip::getDestinationDirectory)
     }
 }
 
@@ -110,6 +146,9 @@ dependencies {
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.work.runtime)
     implementation(libs.litertlm.android)
+    implementation(libs.ecj)
+    implementation(libs.r8)
+    implementation(libs.apksig)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

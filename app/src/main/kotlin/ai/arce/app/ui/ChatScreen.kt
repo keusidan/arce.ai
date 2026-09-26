@@ -323,6 +323,9 @@ private fun CodeBlock(container: AppContainer, block: Block.Code, finished: Bool
                 }
                 TextButton(onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("code", block.code))) } }) { Text("コピー") }
             }
+            if (block.closed && finished && (isPython(block.language) || isJava(block.language))) {
+                CodeActions(container, block.code, block.language)
+            }
             when (mode) {
                 "preview" -> ArtifactWebView(block.code)
                 "run" -> ArtifactWebView(javascriptPage(block.code), heightDp = 120)

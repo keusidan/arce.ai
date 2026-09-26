@@ -33,7 +33,9 @@ object Agents {
         displayName = "Coding",
         instructions = "You are writing code. Give complete, runnable files, each in its own fenced block " +
             "with the language (```kotlin, ```python, ```html ...). Ask with ask_user when a key choice " +
-            "(language, platform, scope) is missing instead of guessing.",
+            "(language, platform, scope) is missing instead of guessing. The app can run Python and Java and " +
+            "build JAR/APK files on the phone: Java must be one file in Java 8 syntax (no `var`); an Android " +
+            "app extends android.app.Activity and builds its UI in code, because XML layouts and images are not supported.",
         tools = listOf(Protocol.askUser, Protocol.webSearch),
         minModelParamsB = 4.0,
         keywords = listOf("作って", "実装", "コード", "プログラム", "関数", "バグ", "エラー", "code", "implement",

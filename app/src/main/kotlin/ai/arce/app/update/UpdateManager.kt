@@ -200,7 +200,7 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : CoroutineW
     }
 }
 
-/** Receives PackageInstaller results; asks the system to show its confirmation when needed. */
+/** Receives PackageInstaller results (updates and built apps); asks the system to show its confirmation when needed. */
 class InstallResultReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
@@ -211,7 +211,7 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
             PackageInstaller.STATUS_SUCCESS -> Unit
             else -> Notifications.post(
-                context, Notifications.ID_UPDATE, Notifications.CHANNEL_UPDATES, "アップデートに失敗しました",
+                context, Notifications.ID_UPDATE, Notifications.CHANNEL_UPDATES, "インストールに失敗しました",
                 intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "不明なエラー",
             )
         }

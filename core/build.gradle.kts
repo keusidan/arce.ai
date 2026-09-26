@@ -27,3 +27,7 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
+
+tasks.withType<Test>().configureEach {
+    providers.gradleProperty("arce.axmlOut").orNull?.let { systemProperty("arce.axmlOut", it) }
+}

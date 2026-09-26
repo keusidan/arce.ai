@@ -54,7 +54,7 @@ class ModelController(
 
     /** NPU builds are offered only on the SoC they were compiled for. */
     val catalog: List<ModelSpec> get() = ModelCatalog.all.filter { spec ->
-        spec.npuSoc == null || device.soc().contains(spec.npuSoc, ignoreCase = true)
+        spec.npuSoc.let { soc -> soc == null || device.soc().contains(soc, ignoreCase = true) }
     }
 
     val basic: ModelSpec get() = ModelCatalog.basic
