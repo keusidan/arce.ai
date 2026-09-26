@@ -48,7 +48,7 @@ Android 10以降も、**APKの中にnative library（`lib*.so`）として同梱
 - Source: https://android.googlesource.com/platform/tools/apksig/
 - Source: https://chaquo.com/chaquopy/
 
-**→ 決めてほしいこと**：上の代替案で進めてよいか。特に、EXE生成をPCに任せるか、対象外にするか。
+**→ 決定（2026-09-26）**：上の代替案（Termuxなし）で進める。EXE生成の扱いは未決定。
 
 ---
 
@@ -140,6 +140,6 @@ GBNFで出力の「形式」は保証できる。それ以外の部分を補う�
 
 ## 7. 決めてほしいこと
 
-1. Termuxを使わない代替案（1章）で進めてよいか
-2. EXE生成を、PCビルドサーバーに任せるか、対象外にするか
+1. ~~Termuxを使わない代替案（1章）で進めてよいか~~ → 決定済み（代替案で進める）
+2. EXE生成を、PCビルドサーバーに任せるか、端末内でZigを使うか、対象外にするか
 3. 以上を反映した企画書v3を作るか、それともコード（Phase 0の試作）に進むか
