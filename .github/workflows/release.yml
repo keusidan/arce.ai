@@ -1,0 +1,127 @@
+# Builds the APK and publishes it as a GitHub Release.
+#
+#   git tag v0.1.0 && git push origin v0.1.0     -> signed release "v0.1.0"
+#   Actions tab -> "Release APK" -> Run workflow   -> same, for the version you type
+#   ... with "dry run" checked                     -> unsigned APK as a build artifact only
+#
+# Setup (keystore and secrets): docs/ARCE_AI_release-workflow_*.md
+name: Release APK
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version name without 'v' (e.g. 0.1.0)"
+        required: true
+      dry_run:
+        description: "Build only: no signing, no release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # create the release and its tag
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${INPUT_VERSION#v}"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$'; then
+            echo "::error::'$version' is not a version like 1.2.3"
+            exit 1
+          fi
+          echo "name=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Restore signing keystore
+        if: env.DRY_RUN != 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ARCE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ARCE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ARCE_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ]; then
+            echo "::error::Signing secrets are missing. An unsigned or debug-signed APK could not update the installed app. See docs/ARCE_AI_release-workflow_*.md"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          echo "ARCE_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: ./gradlew :core:test
+
+      - name: Build APK
+        env:
+          ARCE_KEYSTORE_PASSWORD: ${{ secrets.ARCE_KEYSTORE_PASSWORD }}
+          ARCE_KEY_ALIAS: ${{ secrets.ARCE_KEY_ALIAS }}
+        run: >
+          ./gradlew :app:assembleRelease
+          -Parce.versionName=${{ steps.version.outputs.name }}
+          -Parce.versionCode=${{ github.run_number }}
+
+      - name: Collect APK and checksum
+        id: apk
+        run: |
+          dir=app/build/outputs/apk/release
+          if [ "$DRY_RUN" = "true" ]; then src="$dir/app-release-unsigned.apk"; else src="$dir/app-release.apk"; fi
+          name="ARCE.AI-${{ steps.version.outputs.tag }}.apk"
+          mkdir -p dist
+          cp "$src" "dist/$name"
+          (cd dist && sha256sum "$name" > "$name.sha256")
+          echo "dir=dist" >> "$GITHUB_OUTPUT"
+          cat "dist/$name.sha256"
+
+      - name: Verify signature
+        if: env.DRY_RUN != 'true'
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          "$apksigner" verify --print-certs dist/*.apk
+
+      - name: Upload build artifact (dry run)
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: arce-ai-${{ steps.version.outputs.tag }}-unsigned
+          path: dist/
+          retention-days: 7
+
+      - name: Publish release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # A tag push already has the tag; a manual run creates it on this commit.
+          gh release create "$TAG" dist/* \
+            --title "ARCE.AI $TAG" \
+            --target "$GITHUB_SHA" \
+            --generate-notes

@@ -4,6 +4,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Release signing comes from the environment (GitHub Actions secrets, see
+// docs/ARCE_AI_release-workflow_*.md). Without it, assembleRelease produces an unsigned APK.
+val releaseKeystore: String? = System.getenv("ARCE_KEYSTORE_PATH")
+val releasePassword: String? = System.getenv("ARCE_KEYSTORE_PASSWORD")
+val releaseKeyAlias: String? = System.getenv("ARCE_KEY_ALIAS")
+val hasReleaseSigning = listOf(releaseKeystore, releasePassword, releaseKeyAlias).all { !it.isNullOrEmpty() }
+
 android {
     namespace = "ai.arce.app"
     compileSdk = 36
@@ -14,8 +21,10 @@ android {
         // Android 12 (2021) through the current release: "latest minus five years"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-phase0"
+        // CI passes -Parce.versionCode=<run number> and -Parce.versionName=<tag without "v">.
+        // versionCode must only grow, or Android refuses the update.
+        versionCode = providers.gradleProperty("arce.versionCode").orNull?.toInt() ?: 1
+        versionName = providers.gradleProperty("arce.versionName").orNull ?: "0.1.0-dev"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -36,9 +45,22 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystore!!)
+                // keytool's default PKCS12 keystores use one password for the store and the key
+                storePassword = releasePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releasePassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 
