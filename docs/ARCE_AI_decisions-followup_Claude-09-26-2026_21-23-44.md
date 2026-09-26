@@ -14,6 +14,10 @@
 | 4 | 重要なアプリデータへのアクセスは、権限ウィンドウで事前にユーザーの承諾を得る |
 | 5 | NPUのライブラリは自由に選んでよい |
 | 6 | 最新のAndroidから5年前のバージョンまでをサポートする |
+| 7 | Termuxを使わない代替案（1章）で進める |
+| 8 | EXE生成は対象外とし、ソースコードの生成までにする |
+| 9 | GitHubのアップデートを定期的に確認し、ユーザーが承認したら自動でダウンロードする（8章） |
+| 10 | Google Play Storeに関する記述はすべて取り下げる（個人利用に一貫させるため） |
 
 ---
 
@@ -38,7 +42,7 @@ Android 10以降も、**APKの中にnative library（`lib*.so`）として同梱
 | JAR生成 | ECJ(Eclipse Compiler for Java)：Java製のコンパイラで、アプリ内で動く | 高い |
 | APK生成 | ECJ → D8（`.class`を`.dex`に変換、Java製） → aapt2（native、APKに同梱） → apksig（署名、Java製）を**アプリ内で順番に呼ぶ独自のビルド処理**。Gradleは使わない | 中（依存ライブラリの解決は自前で実装する必要がある） |
 | Python実行 | Chaquopy（前回外したものを復活） | 高い（ただしpipのパッケージはアプリのビルド時に決まる） |
-| EXE生成 | ArchのPCをビルドサーバーにしてビルドを任せる（案B）、または対象外にする | 端末単体では困難 |
+| EXE生成 | **対象外（ソースコードの生成まで）**に決定 | ― |
 
 - 過去にはAIDEが、Gradleを使わずに端末上でAPKをビルドしていた。同じ方式である。
 - **Termuxをやめたことで、targetSdkを28に固定する必要もなくなった**（6章の決定と両立する）。
@@ -48,7 +52,7 @@ Android 10以降も、**APKの中にnative library（`lib*.so`）として同梱
 - Source: https://android.googlesource.com/platform/tools/apksig/
 - Source: https://chaquo.com/chaquopy/
 
-**→ 決定（2026-09-26）**：上の代替案（Termuxなし）で進める。EXE生成の扱いは未決定。
+**→ 決定（2026-09-26）**：上の代替案（Termuxなし）で進める。EXE生成は対象外とする。
 
 ---
 
@@ -138,8 +142,77 @@ GBNFで出力の「形式」は保証できる。それ以外の部分を補う�
 
 ---
 
-## 7. 決めてほしいこと
+## 7. Google Play Storeに関する記述の取り下げ
+
+ARCEv2の次の箇所から、Play Storeへの言及を削除する（v3で反映）。
+
+| 箇所 | 現在の記述 | v3での記述 |
+|---|---|---|
+| 冒頭（L9） | GitHub Releases等による配布を基本とする | GitHub Releasesで配布する（個人利用） |
+| 38章 | Play Storeのみを前提とした設計にはしない | 削除 |
+| 39章 | Play Storeの自動更新に依存しない | 削除し、8章の更新機能に置き換える |
+
+---
+
+## 8. アップデート機能（GitHub Releasesからの自動取得）
+
+### 処理の流れ
+
+```
+定期確認（バックグラウンド）
+  ↓ 新しい版がある
+通知「ARCE.AI vX.Y.Z があります」
+  ↓ ユーザーが承認
+APKを自動でダウンロード
+  ↓
+SHA256で改ざん・破損を確認
+  ↓
+Androidのインストール確認画面（1タップ）
+  ↓
+更新完了（モデル・履歴・設定はそのまま残る）
+```
+
+### 仕様
+
+| 項目 | 内容 |
+|---|---|
+| 定期確認 | WorkManagerの`PeriodicWorkRequest`で実行。間隔は設定で選べる（例：6時間／12時間／1日。最短15分はAndroidの制限） |
+| 確認先 | GitHub REST APIの「最新リリースの取得」（`GET /repos/{owner}/{repo}/releases/latest`） |
+| 版の比較 | リリースのタグ（例：`v1.2.0`）と、アプリの`versionName`・`versionCode`を比べる |
+| 通知の内容 | 現在の版、新しい版、更新内容（リリースノート）、ダウンロード容量 |
+| ダウンロード | 承認後に自動で開始。「Wi-Fiのときだけ」を設定で選べる。途中で切れた場合は続きから再開する |
+| 検証 | リリースにAPKのSHA256を載せておき、ダウンロード後に照合する。一致しなければインストールしない |
+| インストール | `PackageInstaller`のSession APIを使う |
+| 署名 | 更新前と同じ署名鍵でないと、Androidがインストールを拒否する。鍵をなくすと更新できなくなるので、バックアップを取る |
+
+### 必要な準備と注意点
+
+1. **非公開リポジトリの場合はaccess tokenが必要**
+   - GitHubのリポジトリを非公開にする場合、APIの利用とAPKのダウンロードに、読み取り専用のfine-grained personal access tokenが必要。
+   - tokenは初回に設定画面から入力し、Android Keystoreで暗号化して保存する。
+   - tokenなしのAPIは1時間に60回までの制限があるが、数時間おきの確認なら問題ない。
+2. **「提供元不明のアプリ」の許可**
+   - 初回だけ、Androidの設定で「ARCE.AIからのアプリのインストール」を許可する必要がある（`REQUEST_INSTALL_PACKAGES`権限）。
+3. **インストール確認画面**
+   - 通常、Androidは更新のたびに確認画面を1回表示する。
+   - Android 12以降は、ARCE.AI自身が前回のインストールを行っていれば、この確認画面を省略できる（`setRequireUserAction`）。ただし、アプリ内での「承認」は必ず残す（決定9のとおり）。
+4. **データは消えない**
+   - 同じ署名鍵で更新すれば、モデル・Room DB・設定はそのまま引き継がれる（「モデルを再ダウンロードしない」方針と一致する）。
+
+- Source: https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work#schedule_periodic_work
+- Source: https://docs.github.com/en/rest/releases/releases#get-the-latest-release
+- Source: https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
+- Source: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+- Source: https://developer.android.com/reference/android/content/pm/PackageInstaller
+- Source: https://developer.android.com/reference/android/content/pm/PackageInstaller.SessionParams#setRequireUserAction(int)
+- Source: https://developer.android.com/privacy-and-security/keystore
+- Source: https://developer.android.com/studio/publish/app-signing
+
+---
+
+## 9. 決めてほしいこと
 
 1. ~~Termuxを使わない代替案（1章）で進めてよいか~~ → 決定済み（代替案で進める）
-2. EXE生成を、PCビルドサーバーに任せるか、端末内でZigを使うか、対象外にするか
-3. 以上を反映した企画書v3を作るか、それともコード（Phase 0の試作）に進むか
+2. ~~EXE生成の扱い~~ → 決定済み（対象外）
+3. GitHubのリポジトリを公開にするか、非公開にするか（8章：非公開ならaccess tokenが必要）
+4. 以上を反映した企画書v3を作るか、それともコード（Phase 0の試作）に進むか
