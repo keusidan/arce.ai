@@ -9,9 +9,6 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
-    <!-- OpenCL for the optional GPU backend; not required to run. -->
-    <uses-native-library android:name="libOpenCL.so" android:required="false" />
-
     <application
         android:name=".ArceApp"
         android:allowBackup="false"
@@ -19,6 +16,9 @@
         android:largeHeap="true"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <!-- OpenCL for the optional GPU backend; not required to run. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
 
         <activity
             android:name=".MainActivity"
