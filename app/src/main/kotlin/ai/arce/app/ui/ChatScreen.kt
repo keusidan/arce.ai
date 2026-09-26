@@ -74,7 +74,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val model by viewModel.model.collectAsStateWithLifecycle()
 
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.safeDrawingPadding())  // includes the keyboard (IME) inset {
+        // safeDrawing includes the keyboard (IME) inset
+        Column(Modifier.safeDrawingPadding()) {
             StatusBar(model, chat, viewModel)
             Messages(chat, viewModel, Modifier.weight(1f))
             chat.error?.let { Text("エラー: $it", color = Color(0xFFC62828), modifier = Modifier.padding(horizontal = 12.dp)) }
