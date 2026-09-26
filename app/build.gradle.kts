@@ -109,6 +109,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.litertlm.android)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

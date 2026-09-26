@@ -26,6 +26,7 @@ internal object LlamaNative {
         engine: Long,
         promptUtf8: ByteArray,
         toolSchema: String?,
+        strictSchema: String?,
         thinking: Boolean,
         maxTokens: Int,
         temperature: Float,

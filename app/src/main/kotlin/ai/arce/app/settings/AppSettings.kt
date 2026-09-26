@@ -30,6 +30,7 @@ data class AppSettings(
     val backgroundGeneration: Boolean = true,
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val agentOverride: String = "",
+    val aiAgentSelection: Boolean = true,
     val lastModelPath: String = "",
     // developer
     val contextLength: Int = 4096,
@@ -56,6 +57,7 @@ data class AppSettings(
         speedAccuracy = speedAccuracy,
         modelParamsB = modelParamsB,
         agentOverride = agentOverride.ifBlank { null },
+        aiAgentSelection = aiAgentSelection,
     )
 
     /** Threads: explicit value, else all cores under HyperLoad, else half (spec §4 HyperLoad). */
@@ -88,6 +90,7 @@ class SettingsRepository(private val context: Context) {
         val background = booleanPreferencesKey("background")
         val theme = stringPreferencesKey("theme")
         val agent = stringPreferencesKey("agent")
+        val aiAgent = booleanPreferencesKey("ai_agent_selection")
         val lastModel = stringPreferencesKey("last_model")
         val ctx = intPreferencesKey("context_length")
         val threads = intPreferencesKey("threads")
@@ -119,6 +122,7 @@ class SettingsRepository(private val context: Context) {
             backgroundGeneration = p[K.background] ?: d.backgroundGeneration,
             theme = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: d.theme,
             agentOverride = p[K.agent] ?: d.agentOverride,
+            aiAgentSelection = p[K.aiAgent] ?: d.aiAgentSelection,
             lastModelPath = p[K.lastModel] ?: d.lastModelPath,
             contextLength = p[K.ctx] ?: d.contextLength,
             threads = p[K.threads] ?: d.threads,
@@ -149,6 +153,7 @@ class SettingsRepository(private val context: Context) {
             p[K.background] = s.backgroundGeneration
             p[K.theme] = s.theme.name
             p[K.agent] = s.agentOverride
+            p[K.aiAgent] = s.aiAgentSelection
             p[K.lastModel] = s.lastModelPath
             p[K.ctx] = s.contextLength
             p[K.threads] = s.threads

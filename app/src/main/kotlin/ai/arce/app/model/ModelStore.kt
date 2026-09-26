@@ -15,14 +15,14 @@ class ModelStore(private val context: Context) {
     val directory: File = File(context.getExternalFilesDir(null), "models").apply { mkdirs() }
 
     fun list(): List<File> =
-        directory.listFiles { file -> file.isFile && file.extension.equals("gguf", ignoreCase = true) }
+        directory.listFiles { file -> file.isFile && file.extension.lowercase() in EXTENSIONS }
             ?.sortedBy { it.name }
             .orEmpty()
 
     /** Copies a file picked with the system file picker. Writes to a temp name first so a failed copy leaves no half file. */
     suspend fun import(uri: Uri, onProgress: (copiedBytes: Long) -> Unit): File = withContext(Dispatchers.IO) {
         val name = displayName(uri) ?: "model-${System.currentTimeMillis()}.gguf"
-        require(name.endsWith(".gguf", ignoreCase = true)) { "GGUFファイルを選んでください: $name" }
+        require(name.substringAfterLast('.').lowercase() in EXTENSIONS) { "GGUFまたはLiteRT-LM(.litertlm)ファイルを選んでください: $name" }
 
         val target = File(directory, name)
         val temp = File(directory, "$name.part")
@@ -48,4 +48,8 @@ class ModelStore(private val context: Context) {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         }
+
+    companion object {
+        val EXTENSIONS = setOf("gguf", "litertlm")
+    }
 }

@@ -81,11 +81,66 @@ object Agents {
 object AgentSelector {
     fun select(request: String, hasAttachments: Boolean, override: String?): AgentDefinition {
         Agents.byId(override)?.let { return it }
+        // ties keep the order of Agents.all, i.e. the more specific agent listed first wins
+        return rank(request, hasAttachments).firstOrNull()?.first ?: Agents.general
+    }
+
+    /** Agents with at least one hit, best first (stable for ties). */
+    fun rank(request: String, hasAttachments: Boolean): List<Pair<AgentDefinition, Int>> {
         val text = request.lowercase()
-        val scored = Agents.all
+        return Agents.all
             .map { agent -> agent to agent.keywords.count { it in text } + if (hasAttachments && agent == Agents.fileAnalysis) 2 else 0 }
             .filter { it.second > 0 }
-        // ties keep the order of Agents.all, i.e. the more specific agent listed first wins
-        return scored.maxByOrNull { it.second }?.first ?: Agents.general
+            .sortedByDescending { it.second }
+    }
+
+    /**
+     * The rules are unsure when nothing matched in a real sentence, or when the best two tie.
+     * Short greetings ("こんにちは") are plainly general chat and need no model call.
+     */
+    fun isAmbiguous(request: String, hasAttachments: Boolean): Boolean {
+        val ranked = rank(request, hasAttachments)
+        return when {
+            ranked.isEmpty() -> request.trim().length >= 20
+            ranked.size >= 2 -> ranked[0].second == ranked[1].second
+            else -> false
+        }
+    }
+}
+
+/**
+ * Final selection by the loaded model (spec §17.1): only when [AgentSelector] is unsure.
+ * The model must answer `{"agent": "<id>"}` under a strict JSON grammar, so it cannot invent
+ * an agent; any failure or timeout falls back to the rule-based choice.
+ */
+class AgentRouter(private val classify: suspend (prompt: String, schema: String) -> String?) {
+    suspend fun select(request: String, hasAttachments: Boolean, override: String?, useModel: Boolean): AgentDefinition {
+        Agents.byId(override)?.let { return it }
+        val byRules = AgentSelector.select(request, hasAttachments, null)
+        if (!useModel || !AgentSelector.isAmbiguous(request, hasAttachments)) return byRules
+        val answer = runCatching { classify(prompt(request, hasAttachments), SCHEMA) }.getOrNull() ?: return byRules
+        return parse(answer) ?: byRules
+    }
+
+    companion object {
+        val SCHEMA: String = buildString {
+            append("""{"type":"object","properties":{"agent":{"type":"string","enum":[""")
+            append(Agents.all.joinToString(",") { "\"${it.id}\"" })
+            append("""]}},"required":["agent"],"additionalProperties":false}""")
+        }
+
+        fun prompt(request: String, hasAttachments: Boolean): String = buildString {
+            append("<|im_start|>system\n")
+            append("Pick the one assistant role that fits the user's request best. Roles:\n")
+            Agents.all.forEach { append("- ${it.id}: ${it.displayName}. ${it.instructions}\n") }
+            append("Reply only with JSON like {\"agent\": \"general\"}.<|im_end|>\n")
+            append("<|im_start|>user\n")
+            if (hasAttachments) append("(files attached)\n")
+            append(request.take(1000))
+            append("<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n")
+        }
+
+        fun parse(answer: String): AgentDefinition? =
+            Regex("\"agent\"\\s*:\\s*\"([a-z-]+)\"").find(answer)?.groupValues?.get(1)?.let(Agents::byId)
     }
 }

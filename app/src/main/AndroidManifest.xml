@@ -17,8 +17,10 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
-        <!-- OpenCL for the optional GPU backend; not required to run. -->
+        <!-- Vendor GPU/NPU libraries for llama.cpp OpenCL and LiteRT-LM; none is required to run. -->
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
 
         <activity
             android:name=".MainActivity"

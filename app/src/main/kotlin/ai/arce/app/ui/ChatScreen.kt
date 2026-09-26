@@ -2,6 +2,7 @@ package ai.arce.app.ui
 
 import ai.arce.app.AppContainer
 import ai.arce.app.Screen
+import ai.arce.app.model.DownloadState
 import ai.arce.app.model.ModelState
 import ai.arce.app.system.ConsentManager
 import ai.arce.app.system.DeviceInfo
@@ -93,7 +94,7 @@ fun ColumnScope.ChatScreen(container: AppContainer, go: (Screen) -> Unit) {
 
     // spec §32 status line
     Text(
-        "Model: ${model.loadedName ?: "未選択"} / Backend: ${if (model.gpuDevices.isEmpty()) "CPU" else "GPU"} / " +
+        "Model: ${model.loadedName ?: "未選択"} / Backend: ${model.backend ?: "-"}${if (model.backend == "llama.cpp") if (model.gpuDevices.isEmpty()) " CPU" else " GPU" else ""} / " +
             "Thinking: ${if (chat.thinkingEnabled) "ON" else "OFF"} / HyperLoad: ${if (settings.hyperLoad) "ON" else "OFF"} / " +
             "Agent: ${Agents.byId(settings.agentOverride)?.displayName ?: "自動"}",
         style = MaterialTheme.typography.labelSmall,
@@ -107,9 +108,45 @@ fun ColumnScope.ChatScreen(container: AppContainer, go: (Screen) -> Unit) {
     }
     chat.notice?.let { Text(it, color = Indigo, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 12.dp)) }
 
+    if (model.loadedPath == null && model.busy == null && chat.messages.isEmpty()) BasicModelCard(container, model)
     Messages(container, chat, Modifier.weight(1f))
     chat.error?.let { Text("エラー: $it", color = ErrorRed, modifier = Modifier.padding(horizontal = 12.dp)) }
     InputBar(container, chat, model, go)
+}
+
+/** Empty app -> working chat in one tap: downloads (if needed) and loads the basic model. */
+@Composable
+internal fun BasicModelCard(container: AppContainer, model: ModelState) {
+    val basic = container.models.basic
+    val download = model.downloads[basic.id] ?: container.models.downloadStateOf(basic)
+    Card(Modifier.fillMaxWidth().padding(12.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("基本モデル: ${basic.displayName}", style = MaterialTheme.typography.titleSmall)
+            Text("約${"%.0f".format(basic.fileBytes / 1e6)} MB・どの端末でも動く軽量モデルです。ダウンロード後に自動で読み込みます。", style = MaterialTheme.typography.bodySmall)
+            when (download) {
+                is DownloadState.Running -> {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { if (download.total > 0) download.done.toFloat() / download.total else 0f },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    )
+                    TextButton(onClick = { container.models.pauseDownload(basic) }) { Text("一時停止") }
+                }
+                DownloadState.Verifying -> Text("整合性チェック中…")
+                else -> {
+                    if (download is DownloadState.Failed) Text(download.reason, color = ErrorRed, style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = container.models::addBasicModel) {
+                        Text(
+                            when (download) {
+                                DownloadState.Installed -> "読み込んで使う"
+                                is DownloadState.Paused -> "ダウンロードを再開"
+                                else -> "ワンタップで追加"
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** Sending history out of the app goes through the consent window. */
@@ -421,7 +458,14 @@ private fun InputBar(container: AppContainer, chat: ChatState, model: ModelState
                                 onClick = { modelMenu = false; container.models.load(file) },
                             )
                         }
-                        DropdownMenuItem(text = { Text("＋モデルを追加") }, onClick = { modelMenu = false; go(Screen.MODELS) })
+                        if (model.installed.none { it.name == container.models.basic.fileName }) {
+                            DropdownMenuItem(
+                                text = { Text("＋ ${container.models.basic.displayName} を追加（ワンタップ）") },
+                                enabled = !chat.isGenerating,
+                                onClick = { modelMenu = false; container.models.addBasicModel() },
+                            )
+                        }
+                        DropdownMenuItem(text = { Text("＋ 他のモデルを追加") }, onClick = { modelMenu = false; go(Screen.MODELS) })
                     }
                 }
                 Text("Thinking", color = onPanel, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 8.dp))

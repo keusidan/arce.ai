@@ -3,7 +3,9 @@ package ai.arce.app
 import ai.arce.app.data.ArceDatabase
 import ai.arce.app.data.ConversationEntity
 import ai.arce.app.data.SecretStore
+import ai.arce.app.engine.LiteRtEngine
 import ai.arce.app.engine.LlamaCppEngine
+import ai.arce.app.engine.RoutingEngine
 import ai.arce.app.model.ModelController
 import ai.arce.app.settings.AppSettings
 import ai.arce.app.settings.SettingsRepository
@@ -67,7 +69,7 @@ class AppContainer(val app: Application) {
     val device = DeviceInfo(app)
     val consent = ConsentManager(db.consents())
     val updates = UpdateManager(app)
-    val engine = LlamaCppEngine()
+    val engine = RoutingEngine(LlamaCppEngine(), LiteRtEngine(app))
     val models = ModelController(app, engine, device, settings, scope)
 
     private val http = UrlConnectionHttp()

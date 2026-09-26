@@ -1,7 +1,7 @@
 package ai.arce.core.chat
 
 import ai.arce.core.agent.AgentDefinition
-import ai.arce.core.agent.AgentSelector
+import ai.arce.core.agent.AgentRouter
 import ai.arce.core.engine.EngineException
 import ai.arce.core.engine.GenerateRequest
 import ai.arce.core.engine.GenerationEvent
@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -98,6 +99,22 @@ class ChatController(
     private val history = mutableListOf<ChatMessage>()
     private var nextId = 0L
     private var agent: AgentDefinition? = null
+    /** The request the agent is chosen for; selection runs lazily at the start of generation. */
+    private var agentRequest: Pair<String, Boolean> = "" to false
+
+    private val router = AgentRouter { prompt, schema ->
+        withTimeoutOrNull(20_000) {
+            buildString {
+                engine.generate(
+                    GenerateRequest(
+                        prompt, toolCallSchema = null, thinking = false, maxTokens = 32,
+                        sampling = SamplingParams(temperature = 0.1f, topP = 1f, topK = 1, minP = 0f, dryMultiplier = 0f),
+                        strictJsonSchema = schema,
+                    ),
+                ).collect { if (it is GenerationEvent.Piece) append(it.text) }
+            }
+        }
+    }
 
     fun setThinking(enabled: Boolean) = _state.update { it.copy(thinkingEnabled = enabled) }
 
@@ -107,6 +124,9 @@ class ChatController(
         history.clear()
         history += snapshot.history
         nextId = snapshot.nextId
+        // Choose the agent again for the restored conversation, from its last request.
+        agent = null
+        agentRequest = (snapshot.messages.lastOrNull { it.role == Role.USER }?.text ?: "") to false
         val waiting = snapshot.messages.lastOrNull()?.question != null
         _state.update { ChatState(snapshot.messages, if (waiting) TaskState.USER_WAIT else TaskState.WAITING, it.thinkingEnabled) }
     }
@@ -117,7 +137,8 @@ class ChatController(
         if ((text.isBlank() && attachments.isEmpty()) || _state.value.isGenerating) return
         history += ChatMessage.User(AttachmentPolicy.compose(text, attachments))
         append(UiMessage(nextId++, Role.USER, text, attachments = attachments.map { it.name }))
-        agent = AgentSelector.select(text, attachments.isNotEmpty(), settings().agentOverride)
+        agent = null
+        agentRequest = text to attachments.isNotEmpty()
         start(prefill = "")
     }
 
@@ -175,7 +196,10 @@ class ChatController(
 
     private suspend fun generate(prefill: String) {
         val config = settings()
-        val agent = agent ?: AgentSelector.select("", false, config.agentOverride).also { agent = it }
+        val agent = agent ?: router.select(
+            agentRequest.first, agentRequest.second, config.agentOverride,
+            useModel = config.aiAgentSelection && engine.isLoaded,
+        ).also { agent = it }
         val tools = agent.tools.filter { config.searchEnabled || it != Protocol.webSearch }
         val schema = if (tools.isEmpty()) null else Protocol.toolCallSchema(tools).toString()
         val retry = RetryPolicy(config.retryLimit)

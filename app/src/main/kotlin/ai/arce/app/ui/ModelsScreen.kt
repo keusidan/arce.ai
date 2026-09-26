@@ -56,7 +56,11 @@ fun ColumnScope.ModelsScreen(container: AppContainer, go: (Screen) -> Unit) {
         state.error?.let { Text(it, color = ErrorRed) }
         if (chat.isGenerating) Text("生成中はモデルを切り替えられません", style = MaterialTheme.typography.bodySmall)
 
-        SectionTitle("Qwen3 カタログ（Hugging Face）")
+        if (state.installed.none { it.name == models.basic.fileName }) BasicModelCard(container, state)
+        if (state.backend != null) Text("実行エンジン: ${state.backend}", style = MaterialTheme.typography.bodySmall)
+
+        SectionTitle("カタログ（Hugging Face）")
+        Text("GGUFはllama.cpp、.litertlmはLiteRT-LM（GPU/NPU）で動きます。", style = MaterialTheme.typography.bodySmall)
         models.catalog.forEach { spec ->
             CatalogCard(container, spec, state.downloads[spec.id] ?: models.downloadStateOf(spec), settings.forceExecution, loaded = state.loadedPath == models.fileOf(spec).absolutePath, generating = chat.isGenerating)
         }
@@ -75,7 +79,7 @@ fun ColumnScope.ModelsScreen(container: AppContainer, go: (Screen) -> Unit) {
             }
         }
         TextButton(onClick = { importer.launch(arrayOf("application/octet-stream", "*/*")) }, enabled = state.busy == null) {
-            Text("＋ GGUFファイルを取り込む")
+            Text("＋ GGUF / LiteRT-LMファイルを取り込む")
         }
         if (state.gpuDevices.isNotEmpty()) Text("GPU: " + state.gpuDevices.joinToString(), style = MaterialTheme.typography.bodySmall)
         TextButton(onClick = { go(Screen.CHAT) }) { Text("チャットに戻る") }
@@ -101,7 +105,7 @@ private fun CatalogCard(container: AppContainer, spec: ModelSpec, download: Down
     val usable = fits || force
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).alpha(if (usable) 1f else 0.45f)) {
         Column(Modifier.padding(12.dp)) {
-            Text((if (loaded) "● " else "") + spec.displayName, style = MaterialTheme.typography.titleSmall)
+            Text((if (loaded) "● " else "") + spec.displayName + if (spec.id == models.basic.id) "（基本）" else "", style = MaterialTheme.typography.titleSmall)
             Text(
                 "${spec.fileName}・${ModelController.gb(spec.fileBytes)}・推定RAM ${ModelController.gb(MemoryEstimator.totalBytes(spec, settings.contextLength, settings.kvCache))}",
                 style = MaterialTheme.typography.bodySmall,
@@ -123,7 +127,7 @@ private fun CatalogCard(container: AppContainer, spec: ModelSpec, download: Down
             Row {
                 when (download) {
                     DownloadState.Idle, is DownloadState.Failed ->
-                        TextButton(onClick = { models.startDownload(spec) }, enabled = usable) { Text("ダウンロード") }
+                        TextButton(onClick = { models.startDownload(spec, loadWhenDone = true) }, enabled = usable && !generating) { Text("追加して使う") }
                     is DownloadState.Running -> TextButton(onClick = { models.pauseDownload(spec) }) { Text("一時停止") }
                     is DownloadState.Paused -> TextButton(onClick = { models.startDownload(spec) }, enabled = usable) { Text("再開") }
                     DownloadState.Verifying -> Unit

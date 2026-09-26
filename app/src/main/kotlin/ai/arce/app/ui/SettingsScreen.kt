@@ -69,6 +69,7 @@ fun ColumnScope.SettingsScreen(container: AppContainer, go: (Screen) -> Unit) {
         Slider(value = s.speedAccuracy, onValueChange = { v -> set { it.copy(speedAccuracy = v) } })
         Text("左ほど速さ優先（短い思考）、右ほど精度優先", style = MaterialTheme.typography.bodySmall)
 
+        SwitchRow("AIによるAgent選択", s.aiAgentSelection, "キーワードで決めきれないとき、読み込み中のモデルに役割を選ばせます") { v -> set { it.copy(aiAgentSelection = v) } }
         SwitchRow("HyperLoad", s.hyperLoad, "全コアとGPUを最大限使います。発熱・電池消費が増えます") { v -> set { it.copy(hyperLoad = v) } }
         SwitchRow("通知", s.notifications) { v -> set { it.copy(notifications = v) } }
         SwitchRow("バックグラウンド生成", s.backgroundGeneration, "アプリを離れても生成を続けます（常駐通知あり）") { v -> set { it.copy(backgroundGeneration = v) } }

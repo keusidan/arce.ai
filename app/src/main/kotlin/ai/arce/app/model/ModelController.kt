@@ -1,6 +1,6 @@
 package ai.arce.app.model
 
-import ai.arce.app.engine.LlamaCppEngine
+import ai.arce.app.engine.RoutingEngine
 import ai.arce.app.settings.AppSettings
 import ai.arce.app.system.DeviceInfo
 import ai.arce.app.system.Notifications
@@ -34,11 +34,13 @@ data class ModelState(
     val memoryWarning: MemoryWarning? = null,
     val downloads: Map<String, DownloadState> = emptyMap(),
     val gpuDevices: List<String> = emptyList(),
+    /** "llama.cpp" or "LiteRT-LM (GPU)" */
+    val backend: String? = null,
 )
 
 class ModelController(
     private val context: Context,
-    private val engine: LlamaCppEngine,
+    private val engine: RoutingEngine,
     private val device: DeviceInfo,
     private val settings: StateFlow<AppSettings>,
     private val scope: CoroutineScope,
@@ -50,16 +52,21 @@ class ModelController(
     private val _state = MutableStateFlow(ModelState(installed = store.list()))
     val state: StateFlow<ModelState> = _state.asStateFlow()
 
-    val catalog: List<ModelSpec> get() = ModelCatalog.qwen3
+    /** NPU builds are offered only on the SoC they were compiled for. */
+    val catalog: List<ModelSpec> get() = ModelCatalog.all.filter { spec ->
+        spec.npuSoc == null || device.soc().contains(spec.npuSoc, ignoreCase = true)
+    }
+
+    val basic: ModelSpec get() = ModelCatalog.basic
 
     fun refresh() = _state.update { it.copy(installed = store.list(), gpuDevices = gpuDevices()) }
 
-    private fun gpuDevices() = runCatching { engine.devices() }.getOrDefault(emptyList()).filterNot { it.startsWith("CPU") }
+    private fun gpuDevices() = runCatching { engine.llama.devices() }.getOrDefault(emptyList()).filterNot { it.startsWith("CPU") }
 
     /** Estimated RAM for a file: catalog figures when known, otherwise size plus a KV-cache margin. */
     fun estimateBytes(file: File): Long {
         val s = settings.value
-        val spec = catalog.firstOrNull { it.fileName == file.name }
+        val spec = ModelCatalog.byFileName(file.name)
         return spec?.let { MemoryEstimator.totalBytes(it, s.contextLength, s.kvCache) }
             ?: (file.length() + file.length() / 5)
     }
@@ -94,7 +101,8 @@ class ModelController(
                 _state.update {
                     it.copy(
                         loadedPath = file.absolutePath, loadedName = file.nameWithoutExtension,
-                        loadedParamsB = paramsB(file.name), busy = null, gpuDevices = gpu,
+                        loadedParamsB = ModelCatalog.byFileName(file.name)?.paramsB ?: paramsB(file.name), busy = null, gpuDevices = gpu,
+                        backend = engine.activeName,
                     )
                 }
                 rememberLastModel(file.absolutePath)
@@ -136,9 +144,18 @@ class ModelController(
         refresh()
     }
 
+    /**
+     * One tap from an empty app to a working chat: downloads the basic model (Qwen3.5-0.8B)
+     * if needed and loads it as soon as it is verified.
+     */
+    fun addBasicModel() {
+        val file = fileOf(basic)
+        if (file.exists()) load(file) else startDownload(basic, loadWhenDone = true)
+    }
+
     // --- downloads (spec §19: user-driven pause/resume, capacity check, integrity check) ---
 
-    fun startDownload(spec: ModelSpec) {
+    fun startDownload(spec: ModelSpec, loadWhenDone: Boolean = false) {
         if (jobs[spec.id]?.isActive == true) return
         jobs[spec.id] = scope.launch {
             try {
@@ -160,6 +177,8 @@ class ModelController(
                 setDownload(spec, DownloadState.Installed)
                 Notifications.cancel(context, Notifications.ID_DOWNLOAD)
                 refresh()
+                // Load right away when asked to, or when nothing is loaded yet.
+                if (loadWhenDone || _state.value.loadedPath == null) load(downloader.target(spec))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 val part = downloader.partial(spec)
                 setDownload(spec, DownloadState.Paused(part.length(), spec.fileBytes, null))
@@ -201,6 +220,7 @@ class ModelController(
 
     fun environmentJson(s: AppSettings): String = buildJsonObject {
         put("model", _state.value.loadedName)
+        put("backend", _state.value.backend)
         put("contextLength", s.contextLength)
         put("threads", s.effectiveThreads(device.cores))
         put("batch", s.batchSize)

@@ -50,6 +50,7 @@ class LlamaCppEngine : InferenceEngine {
             handle,
             request.prompt.toByteArray(Charsets.UTF_8),
             request.toolCallSchema,
+            request.strictJsonSchema,
             request.thinking,
             request.maxTokens,
             request.sampling.temperature,

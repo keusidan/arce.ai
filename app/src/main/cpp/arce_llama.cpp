@@ -38,6 +38,9 @@ struct Engine {
     llama_model * model = nullptr;
     llama_context * ctx = nullptr;
     std::atomic<bool> cancel{false};
+    // Tokens currently held in the KV cache (sequence 0), in order. The next prompt reuses
+    // the longest common prefix instead of re-evaluating the whole conversation.
+    std::vector<llama_token> cached;
 
     ~Engine() {
         if (ctx) llama_free(ctx);
@@ -129,13 +132,24 @@ std::string tool_call_grammar(const std::string & schema_json) {
     return "root ::= \"<tool_call>\" [ \\t\\n]* tool-json [ \\t\\n]* \"</tool_call>\"\n" + renamed;
 }
 
-llama_sampler * make_sampler(const llama_model * model, const std::string & tool_schema, bool thinking,
-                             float temperature, float top_p, int top_k, float min_p, float dry_multiplier) {
+llama_sampler * make_sampler(const llama_model * model, const std::string & tool_schema,
+                             const std::string & strict_schema, bool thinking, float temperature, float top_p,
+                             int top_k, float min_p, float dry_multiplier) {
     const llama_vocab * vocab = llama_model_get_vocab(model);
     auto params = llama_sampler_chain_default_params();
     llama_sampler * chain = llama_sampler_chain_init(params);
 
-    if (!tool_schema.empty()) {
+    if (!strict_schema.empty()) {
+        // The whole output must match (e.g. the agent classification).
+        const std::string grammar = json_schema_to_grammar(common_json::parse(strict_schema));
+        llama_sampler * grammar_sampler = llama_sampler_init_grammar(vocab, grammar.c_str(), "root");
+        if (!grammar_sampler) {
+            llama_sampler_free(chain);
+            set_error("strict grammar failed to parse");
+            return nullptr;
+        }
+        llama_sampler_chain_add(chain, grammar_sampler);
+    } else if (!tool_schema.empty()) {
         const std::string grammar = tool_call_grammar(tool_schema);
         // With thinking on, only a call after </think> counts; the reasoning may mention the tag.
         const char * pattern = thinking ? "</think>[\\s\\S]*?(<tool_call>)" : "(<tool_call>)";
@@ -161,15 +175,44 @@ llama_sampler * make_sampler(const llama_model * model, const std::string & tool
     return chain;
 }
 
-bool decode_prompt(Engine * engine, std::vector<llama_token> & tokens) {
+void forget_cache(Engine * engine) {
+    llama_memory_clear(llama_get_memory(engine->ctx), true);
+    engine->cached.clear();
+}
+
+// Keeps the KV entries shared with the new prompt and drops the rest. Returns how many
+// prompt tokens are already evaluated. At least one token is always left to decode so
+// the sampler gets fresh logits.
+size_t reuse_prefix(Engine * engine, const std::vector<llama_token> & tokens) {
+    size_t n = 0;
+    const size_t limit = std::min(engine->cached.size(), tokens.size());
+    while (n < limit && engine->cached[n] == tokens[n]) n++;
+    if (n == tokens.size() && n > 0) n--;
+    if (n == 0) {
+        forget_cache(engine);
+        return 0;
+    }
+    // Recurrent/hybrid models (e.g. Qwen3.5) cannot drop a tail of their state; start over then.
+    if (!llama_memory_seq_rm(llama_get_memory(engine->ctx), 0, static_cast<llama_pos>(n), -1)) {
+        forget_cache(engine);
+        return 0;
+    }
+    engine->cached.resize(n);
+    return n;
+}
+
+bool decode_prompt(Engine * engine, const std::vector<llama_token> & tokens, size_t from) {
     const int n_batch = static_cast<int>(llama_n_batch(engine->ctx));
-    for (size_t i = 0; i < tokens.size(); i += n_batch) {
+    for (size_t i = from; i < tokens.size(); i += n_batch) {
         const int n = static_cast<int>(std::min<size_t>(n_batch, tokens.size() - i));
-        const int rc = llama_decode(engine->ctx, llama_batch_get_one(tokens.data() + i, n));
+        const int rc = llama_decode(engine->ctx, llama_batch_get_one(const_cast<llama_token *>(tokens.data()) + i, n));
         if (rc != 0) {
+            // A half-evaluated batch leaves the cache in an unknown state.
+            forget_cache(engine);
             set_error(rc == 2 ? "cancelled" : "prompt decode failed: " + std::to_string(rc));
             return false;
         }
+        engine->cached.insert(engine->cached.end(), tokens.begin() + i, tokens.begin() + i + n);
     }
     return true;
 }
@@ -266,7 +309,8 @@ Java_ai_arce_app_engine_LlamaNative_nativeFree(JNIEnv *, jobject, jlong engine) 
 
 JNIEXPORT jlong JNICALL
 Java_ai_arce_app_engine_LlamaNative_nativeStart(JNIEnv * env, jobject, jlong engine_ptr, jbyteArray prompt_utf8,
-                                               jstring tool_schema, jboolean thinking, jint max_tokens,
+                                               jstring tool_schema, jstring strict_schema, jboolean thinking,
+                                               jint max_tokens,
                                                jfloat temperature, jfloat top_p, jint top_k, jfloat min_p,
                                                jfloat dry_multiplier) {
     auto * engine = reinterpret_cast<Engine *>(engine_ptr);
@@ -275,16 +319,14 @@ Java_ai_arce_app_engine_LlamaNative_nativeStart(JNIEnv * env, jobject, jlong eng
     auto session = std::make_unique<Session>();
     session->engine = engine;
     try {
-        session->sampler = make_sampler(engine->model, to_string(env, tool_schema), thinking, temperature, top_p,
+        session->sampler = make_sampler(engine->model, to_string(env, tool_schema), to_string(env, strict_schema), thinking,
+                                        temperature, top_p,
                                         top_k, min_p, dry_multiplier);
     } catch (const std::exception & e) {
         set_error(std::string("tool schema rejected: ") + e.what());
         return 0;
     }
     if (!session->sampler) return 0;
-
-    // The prototype re-evaluates the whole prompt each turn; prefix reuse comes later.
-    llama_memory_clear(llama_get_memory(engine->ctx), true);
 
     const std::string prompt = from_bytes(env, prompt_utf8);
     const llama_vocab * vocab = llama_model_get_vocab(engine->model);
@@ -305,7 +347,9 @@ Java_ai_arce_app_engine_LlamaNative_nativeStart(JNIEnv * env, jobject, jlong eng
     }
     session->max_tokens = std::min<int>(max_tokens, n_ctx - n_prompt);
 
-    if (!decode_prompt(engine, tokens)) return 0;
+    const size_t reused = reuse_prefix(engine, tokens);
+    LOGI("prompt %d tokens, %zu reused from the KV cache", n_prompt, reused);
+    if (!decode_prompt(engine, tokens, reused)) return 0;
     return reinterpret_cast<jlong>(session.release());
 }
 
@@ -344,9 +388,13 @@ Java_ai_arce_app_engine_LlamaNative_nativeNext(JNIEnv * env, jobject, jlong sess
     s->generated++;
 
     const int rc = llama_decode(engine->ctx, llama_batch_get_one(&token, 1));
-    if (rc == 2) {
+    if (rc == 0) {
+        engine->cached.push_back(token);
+    } else if (rc == 2) {
+        forget_cache(engine);
         s->finish = CANCELLED;
-    } else if (rc != 0) {
+    } else {
+        forget_cache(engine);
         set_error("decode failed: " + std::to_string(rc));
         s->finish = ERROR;
     }

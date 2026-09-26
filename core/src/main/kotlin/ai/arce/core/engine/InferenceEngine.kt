@@ -36,6 +36,8 @@ data class GenerateRequest(
     val thinking: Boolean,
     val maxTokens: Int,
     val sampling: SamplingParams,
+    /** JSON Schema the whole output must match (no lazy trigger); used for short classifications. */
+    val strictJsonSchema: String? = null,
 )
 
 sealed interface GenerationEvent {
@@ -46,7 +48,7 @@ sealed interface GenerationEvent {
 class EngineException(message: String) : Exception(message)
 
 /**
- * Common surface of all inference backends (llama.cpp now; MLC-LLM and LiteRT-LM later),
+ * Common surface of all inference backends (llama.cpp and LiteRT-LM),
  * so chat, agents and Generation Tasks never depend on a specific engine.
  */
 interface InferenceEngine {

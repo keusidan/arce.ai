@@ -17,6 +17,8 @@ data class GenerationSettings(
     val modelParamsB: Double? = null,
     /** Agent chosen by the user; null lets the selector decide. */
     val agentOverride: String? = null,
+    /** Let the loaded model settle the agent when the keyword rules are unsure (spec §17.1). */
+    val aiAgentSelection: Boolean = false,
 ) {
     /**
      * The fast end of the slider skips reasoning and shortens replies; the accurate end keeps
