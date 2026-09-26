@@ -169,6 +169,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
+          # Logs HTTP requests and response headers; on a 403 GitHub's
+          # x-accepted-github-permissions header names the permission it wanted.
+          GH_DEBUG: api
         run: |
           # A tag push already has the tag; a manual run creates it on this commit.
           gh release create "$TAG" dist/* \
