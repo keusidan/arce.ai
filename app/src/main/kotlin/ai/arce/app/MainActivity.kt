@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         GlobalDialogs(container)
+                        CrashDialog((application as ArceApp).crashes)
                     }
                 }
             }
@@ -160,6 +161,32 @@ private fun DrawerContent(container: AppContainer, current: Screen, go: (Screen)
                 go(Screen.CHAT)
             })
         }
+    }
+}
+
+@Composable
+private fun CrashDialog(crashes: ai.arce.app.system.CrashReports) {
+    var report by androidx.compose.runtime.remember { mutableStateOf(runCatching { crashes.pending() }.getOrNull()) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    report?.let { text ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("前回、アプリが異常終了しました") },
+            text = {
+                Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        clipboard.setClipEntry(androidx.compose.ui.platform.ClipEntry(android.content.ClipData.newPlainText("ARCE.AI crash", text)))
+                    }
+                }) { Text("コピー") }
+            },
+            dismissButton = { TextButton(onClick = { crashes.markSeen(); report = null }) { Text("閉じる") } },
+        )
     }
 }
 

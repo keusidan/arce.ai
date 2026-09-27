@@ -30,7 +30,10 @@ android {
         versionName = providers.gradleProperty("arce.versionName").orNull ?: "0.1.0-dev"
 
         ndk {
-            abiFilters += "arm64-v8a"
+            // arm64-v8a for phones; x86_64 so the Android Studio emulator runs native code instead
+            // of translating ARM (slow, and it crashes on instructions the translator lacks).
+            // Phone-only builds: -Parce.abis=arm64-v8a
+            abiFilters += (providers.gradleProperty("arce.abis").orNull ?: "arm64-v8a,x86_64").split(",").map { it.trim() }
         }
         externalNativeBuild {
             cmake {

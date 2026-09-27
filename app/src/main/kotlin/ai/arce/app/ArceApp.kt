@@ -12,6 +12,7 @@ import ai.arce.app.sandbox.SandboxClient
 import ai.arce.app.settings.AppSettings
 import ai.arce.app.settings.SettingsRepository
 import ai.arce.app.system.ConsentManager
+import ai.arce.app.system.CrashReports
 import ai.arce.app.system.DeviceInfo
 import ai.arce.app.system.GenerationService
 import ai.arce.app.system.Notifications
@@ -44,12 +45,15 @@ import kotlinx.serialization.json.Json
 class ArceApp : Application() {
     lateinit var container: AppContainer
         private set
+    lateinit var crashes: CrashReports
+        private set
 
     override fun onCreate() {
         super.onCreate()
         // The sandbox processes (":python", ":javasandbox") run generated code only. The isolated
         // one cannot even open app files, so the database, models and settings stay out of them.
         if (Application.getProcessName() != packageName) return
+        crashes = CrashReports(this).apply { install() }
         Notifications.createChannels(this)
         container = AppContainer(this)
     }

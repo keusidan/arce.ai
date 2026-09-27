@@ -26,6 +26,14 @@ if(ANDROID)
     if(ANDROID_ABI STREQUAL "arm64-v8a")
         set(GGML_CPU_KLEIDIAI ON CACHE BOOL "" FORCE)
         set(GGML_OPENMP ON CACHE BOOL "" FORCE)
+    elseif(ANDROID_ABI STREQUAL "x86_64")
+        # Emulator build: the emulator passes the host CPU through, and any PC able to run
+        # Android Studio's emulator well has AVX2/FMA/F16C.
+        set(GGML_AVX ON CACHE BOOL "" FORCE)
+        set(GGML_AVX2 ON CACHE BOOL "" FORCE)
+        set(GGML_FMA ON CACHE BOOL "" FORCE)
+        set(GGML_F16C ON CACHE BOOL "" FORCE)
+        set(GGML_OPENMP ON CACHE BOOL "" FORCE)
     endif()
     # Devices with 16 KB memory pages refuse libraries aligned to 4 KB.
     add_link_options("-Wl,-z,max-page-size=16384")

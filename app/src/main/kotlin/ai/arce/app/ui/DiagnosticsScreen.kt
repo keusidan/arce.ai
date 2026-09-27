@@ -51,7 +51,7 @@ fun ColumnScope.DiagnosticsScreen(container: AppContainer, go: (Screen) -> Unit)
         val memory = device.memory()
         buildString {
             appendLine("ARCE.AI ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-            appendLine("Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+            appendLine("Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT}) / ABI ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
             appendLine("端末: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
             appendLine("SoC: ${device.soc()}")
             appendLine("CPUコア: ${device.cores}（使用スレッド ${settings.effectiveThreads(device.cores)}）")
@@ -61,7 +61,7 @@ fun ColumnScope.DiagnosticsScreen(container: AppContainer, go: (Screen) -> Unit)
             appendLine("OpenCL: ${device.openClLibrary() ?: "なし"}")
             appendLine("GPUデバイス（llama.cpp）: ${models.gpuDevices.ifEmpty { listOf("なし") }.joinToString()}")
             appendLine("温度状態: ${DeviceInfo.thermalLabel(thermal)}（headroom ${"%.2f".format(device.thermalHeadroom())}）")
-            appendLine("モデル: ${models.loadedName ?: "未読み込み"}")
+            appendLine("モデル: ${models.loadedName ?: "未読み込み"}（${models.backend ?: "-"}）")
             appendLine("Context ${settings.contextLength} / Batch ${settings.batchSize} / KV ${settings.kvCache} / GPU ${settings.gpuOffload} / HyperLoad ${settings.hyperLoad}")
             result?.let {
                 appendLine("Benchmark: pp ${"%.1f".format(it.promptTokensPerSecond)} t/s（${it.promptTokens} tok）/ tg ${"%.1f".format(it.generateTokensPerSecond)} t/s（${it.generatedPieces} tok）")
@@ -74,6 +74,13 @@ fun ColumnScope.DiagnosticsScreen(container: AppContainer, go: (Screen) -> Unit)
         TextButton(onClick = { refresh++ }) { Text("再取得") }
         TextButton(onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("ARCE.AI diagnostics", report))) } }) {
             Text("診断結果をコピー")
+        }
+
+        SectionTitle("直近の異常終了")
+        val crash = remember(refresh) { runCatching { (container.app as ai.arce.app.ArceApp).crashes.latest() }.getOrNull() }
+        Text(crash ?: "記録はありません", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+        if (crash != null) TextButton(onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("ARCE.AI crash", crash))) } }) {
+            Text("異常終了の記録をコピー")
         }
 
         SectionTitle("ベンチマーク")
