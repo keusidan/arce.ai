@@ -51,7 +51,7 @@ Flutter版も同じ `applicationId`（`ai.arce.app`）と同じ鍵で署名す�
 
 ### 3.2 ブランチ
 
-ブランチは `main` だけです（既定）。自動リリースは `pubspec.yaml` の変更をpushすると動きます。ワークフローが既定ブランチにあるので、Actionsタブに「Run workflow」の手動実行のボタンも出ます。
+既定ブランチは `main` です。自動リリースは `pubspec.yaml` の変更をpushすると動きます。ワークフローが既定ブランチにあるので、Actionsタブに「Run workflow」の手動実行のボタンも出ます。
 
 `main` を作った直後のpushでは、リリースが動かないように、コミットの先頭に `[skip ci]` を付けます（新しいブランチのpushは、`pubspec.yaml` が変わったと扱われるおそれがあるため。未確認）。
 
