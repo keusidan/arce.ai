@@ -8,8 +8,8 @@
 #   - Actions tab -> "Release" -> Run workflow        -> the same, for a version you type
 #     ... with "dry run" checked                      -> builds only; files stay as workflow artifacts
 #
-# Platforms: the repository variable RELEASE_PLATFORMS (Settings -> Variables) lists them, e.g.
-# `android,windows,linux,macos,ios`. Unset means `android` only.
+# Platforms: the "platforms" input of a manual run, else the repository variable RELEASE_PLATFORMS
+# (Settings -> Variables), e.g. `android,windows,linux,macos,ios`. Unset means `android` only.
 #
 # Android signing secrets (ARCE_KEYSTORE_BASE64, ARCE_KEYSTORE_PASSWORD, ARCE_KEY_ALIAS) are the
 # ones the earlier Android-only workflow used. Setup: docs/ARCE_AI_flutter-release_*.md
@@ -29,12 +29,17 @@ on:
         description: "Build only: no release is created"
         type: boolean
         default: false
+      platforms:
+        description: "Comma-separated, e.g. linux,windows,macos,ios. Empty = the RELEASE_PLATFORMS variable, else android"
+        required: false
 
 permissions:
   contents: write # create the release and its tag
 
+# Real releases queue one behind the other (they create the same tag); a dry run builds on its own,
+# so it can run next to a release, for example to warm the caches of the other platforms.
 concurrency:
-  group: release
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && github.run_id || 'publish' }}
   cancel-in-progress: false
 
 env:
@@ -99,7 +104,7 @@ jobs:
 
   android:
     needs: [prepare, test]
-    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',android,')
+    if: contains(format(',{0},', inputs.platforms || vars.RELEASE_PLATFORMS || 'android'), ',android,')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -211,7 +216,7 @@ jobs:
 
   linux:
     needs: [prepare, test]
-    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',linux,')
+    if: contains(format(',{0},', inputs.platforms || vars.RELEASE_PLATFORMS || 'android'), ',linux,')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -244,7 +249,7 @@ jobs:
 
   windows:
     needs: [prepare, test]
-    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',windows,')
+    if: contains(format(',{0},', inputs.platforms || vars.RELEASE_PLATFORMS || 'android'), ',windows,')
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v7
@@ -277,7 +282,7 @@ jobs:
 
   macos:
     needs: [prepare, test]
-    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',macos,')
+    if: contains(format(',{0},', inputs.platforms || vars.RELEASE_PLATFORMS || 'android'), ',macos,')
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
@@ -305,7 +310,7 @@ jobs:
 
   ios:
     needs: [prepare, test]
-    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',ios,')
+    if: contains(format(',{0},', inputs.platforms || vars.RELEASE_PLATFORMS || 'android'), ',ios,')
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
