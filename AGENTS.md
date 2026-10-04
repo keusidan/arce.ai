@@ -1,4 +1,4 @@
-# ARCE.AI — notes for Claude
+# ARCE.AI — notes for coding agents
 
 Flutter app (Android, iOS, Windows, macOS, Linux). Local AI chat and coding assistant; on-device inference is Android only.
 
@@ -18,6 +18,6 @@ flutter build linux --release        # needs the Linux packages listed in README
 - Android `versionCode` comes from the version (`major*1000000 + minor*1000 + patch`), never from a run number.
 - Release versions are `X.Y.Z` only (Windows).
 - Tests mirror the Kotlin `core/` tests in `test/core`; when you change `lib/core`, change them too.
-- Reply to the user in Japanese, times in JST. New docs files get the suffix `Claude-MM-dd-yyyy_HH-mm-ss`. No pull request unless asked. Commit trailers: see the spec, section 11.
+- Reply to the user in Japanese, times in JST. New docs files get the suffix `Claude-MM-dd-yyyy_HH-mm-ss` (this file keeps its fixed name). No pull request unless asked. Commit trailers: see the spec, section 11.
 - Branch: the user names the branch to work on and push to (normally `main`, the default). Do not create or delete branches unless asked. `claude/great-lovelace-3lg7st` (the Flutter rewrite) and `claude/new-session-5wz0e3` (the old Kotlin app) are kept for history; both are contained in `main`.
 - Do not commit signing keys.
