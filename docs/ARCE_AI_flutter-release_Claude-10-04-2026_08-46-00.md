@@ -19,6 +19,9 @@
 
 ## 2. リリースの出し方
 
+作るOSは、リポジトリの変数 `RELEASE_PLATFORMS`（Settings → Secrets and variables → Actions → Variables）で選びます。未設定のときは `android` だけです。全部作るには `android,windows,linux,macos,ios` を設定します。
+
+
 | 方法 | 動作 |
 |---|---|
 | `pubspec.yaml` の `version:` を上げて、どのブランチでもpush | その版のReleaseが無ければ、自動でビルドして公開する（あれば何もしない）。`release.yml` を直してpushしたときも動くので、失敗したリリースは修正のpushだけで再試行される |

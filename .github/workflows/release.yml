@@ -8,6 +8,9 @@
 #   - Actions tab -> "Release" -> Run workflow        -> the same, for a version you type
 #     ... with "dry run" checked                      -> builds only; files stay as workflow artifacts
 #
+# Platforms: the repository variable RELEASE_PLATFORMS (Settings -> Variables) lists them, e.g.
+# `android,windows,linux,macos,ios`. Unset means `android` only.
+#
 # Android signing secrets (ARCE_KEYSTORE_BASE64, ARCE_KEYSTORE_PASSWORD, ARCE_KEY_ALIAS) are the
 # ones the earlier Android-only workflow used. Setup: docs/ARCE_AI_flutter-release_*.md
 name: Release
@@ -96,6 +99,7 @@ jobs:
 
   android:
     needs: [prepare, test]
+    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',android,')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -207,6 +211,7 @@ jobs:
 
   linux:
     needs: [prepare, test]
+    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',linux,')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -239,6 +244,7 @@ jobs:
 
   windows:
     needs: [prepare, test]
+    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',windows,')
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v7
@@ -271,6 +277,7 @@ jobs:
 
   macos:
     needs: [prepare, test]
+    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',macos,')
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
@@ -298,6 +305,7 @@ jobs:
 
   ios:
     needs: [prepare, test]
+    if: contains(format(',{0},', vars.RELEASE_PLATFORMS || 'android'), ',ios,')
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
@@ -323,7 +331,11 @@ jobs:
 
   publish:
     needs: [prepare, android, linux, windows, macos, ios]
-    if: needs.prepare.outputs.release == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    # platforms that are switched off are skipped, which must not stop the release
+    if: >-
+      always() && !failure() && !cancelled()
+      && needs.prepare.outputs.release == 'true'
+      && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
