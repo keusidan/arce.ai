@@ -59,9 +59,13 @@ add_subdirectory("runner")
 # DLL next to that executable once it is linked, rather than asking the install script to locate
 # a multi-config target output directory. `arce_llama` is defined in a child directory, so use a
 # custom target (not a TARGET post-build command, which must be declared in the same directory).
+# Flutter's Visual Studio generator places the runner target in runner/<configuration>.
+# Do not use TARGET_FILE_DIR for the runner here: that creates an implicit reverse dependency
+# and therefore a cycle when the runner depends on this copy target.
+set(ARCE_WINDOWS_BUNDLE_DIR "${CMAKE_BINARY_DIR}/runner/$<CONFIG>")
 add_custom_target(arce_llama_bundle
-  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${BINARY_NAME}>"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:arce_llama>" "$<TARGET_FILE_DIR:${BINARY_NAME}>"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${ARCE_WINDOWS_BUNDLE_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:arce_llama>" "${ARCE_WINDOWS_BUNDLE_DIR}"
   DEPENDS arce_llama
   VERBATIM
 )
