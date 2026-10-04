@@ -1,8 +1,9 @@
 # Builds ARCE.AI for Android, iOS, Windows, macOS and Linux and publishes the files as a
 # GitHub Release. The app's own updater downloads from that release.
 #
-#   - Bump `version:` in pubspec.yaml (e.g. 0.5.0+1) and push it to main
-#       -> a release v0.5.0 is built and published automatically (skipped if v0.5.0 already exists)
+#   - Bump `version:` in pubspec.yaml (e.g. 0.5.0+1) and push it (any branch)
+#       -> a release v0.5.0 is built and published automatically (skipped if v0.5.0 already exists).
+#          A change to this file also runs it, so a fix to a failed release is retried by itself.
 #   - git tag v0.5.0 && git push origin v0.5.0       -> the same, for that tag
 #   - Actions tab -> "Release" -> Run workflow        -> the same, for a version you type
 #     ... with "dry run" checked                      -> builds only; files stay as workflow artifacts
@@ -13,8 +14,8 @@ name: Release
 
 on:
   push:
-    branches: [main]
-    paths: [pubspec.yaml]
+    branches: ["**"]
+    paths: [pubspec.yaml, .github/workflows/release.yml]
     tags: ["v*"]
   workflow_dispatch:
     inputs:

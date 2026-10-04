@@ -21,7 +21,7 @@
 
 | 方法 | 動作 |
 |---|---|
-| `pubspec.yaml` の `version:` を上げて `main` に push | その版のReleaseが無ければ、自動でビルドして公開する（あれば何もしない） |
+| `pubspec.yaml` の `version:` を上げて、どのブランチでもpush | その版のReleaseが無ければ、自動でビルドして公開する（あれば何もしない）。`release.yml` を直してpushしたときも動くので、失敗したリリースは修正のpushだけで再試行される |
 | `git tag v0.5.0 && git push origin v0.5.0` | そのタグでビルドして公開する |
 | Actionsタブ →「Release」→「Run workflow」 | 入力した版（空なら `pubspec.yaml` の版）で同じ処理 |
 | 上記で「dry run」にチェック | Releaseは作らず、ビルド結果をArtifact（7日間保存）に残すだけ |
@@ -39,10 +39,9 @@ Flutter版も同じ `applicationId`（`ai.arce.app`）と同じ鍵で署名す�
 
 まだなら、鍵の作り方とSecretsの登録は前身の文書の「2. 最初に1回だけ行うこと」と同じです。鍵を失うと、二度とAndroidの更新を配れなくなります。
 
-### 3.2 `main` ブランチ
+### 3.2 ブランチ
 
-自動リリースは `main` への push で動きます。このリポジトリの既定ブランチは現在 `claude/new-session-5wz0e3` という名前です。
-`main` を既定にするか、`release.yml` の `branches: [main]` を既定ブランチの名前に書き換えてください。タグのpushと手動実行は、ブランチ名に関係なく使えます。
+自動リリースはブランチを問わず、`pubspec.yaml` か `release.yml` を変えたpushで動きます。`workflow_dispatch`（手動実行）はワークフローが既定ブランチにあるときだけActionsタブに出るため、既定ブランチに入れるまではpushかタグで動かしてください。
 
 ### 3.3 Actionsの権限
 
