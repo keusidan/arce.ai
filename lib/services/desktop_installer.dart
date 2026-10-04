@@ -20,16 +20,17 @@ abstract final class DesktopInstaller {
 
     await _extract(archive, extracted);
 
-    final script = File(p.join(work.path, Platform.isWindows ? 'update.cmd' : 'update.sh'));
+    final script = File(p.join(work.path, Platform.isWindows ? 'update.ps1' : 'update.sh'));
     final executable = Platform.resolvedExecutable;
     final pidText = '$pid';
 
     if (Platform.isWindows) {
       final installDir = p.dirname(executable);
       await script.writeAsString(_windowsScript);
+      // PowerShell takes its arguments as they are; cmd.exe would mangle a path with spaces
       await Process.start(
-        'cmd',
-        ['/c', script.path, pidText, extracted.path, installDir, executable],
+        'powershell.exe',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script.path, pidText, extracted.path, installDir, executable],
         mode: ProcessStartMode.detached,
       );
     } else if (Platform.isMacOS) {
@@ -56,24 +57,21 @@ abstract final class DesktopInstaller {
       // ditto keeps permissions and the app bundle's symlinks, which a plain unzip can lose
       result = await Process.run('/usr/bin/ditto', ['-x', '-k', archive.path, into.path]);
     } else if (Platform.isWindows) {
-      // Windows 10+ ships bsdtar as tar.exe, which also reads .zip
-      result = await Process.run('tar', ['-xf', archive.path, '-C', into.path]);
+      // Windows 10+ ships bsdtar as tar.exe, which also reads .zip. The full path matters: a
+      // GNU tar earlier in PATH (e.g. from Git for Windows) cannot read zip files.
+      final tar = p.join(Platform.environment['SystemRoot'] ?? r'C:\Windows', 'System32', 'tar.exe');
+      result = await Process.run(tar, ['-xf', archive.path, '-C', into.path]);
     } else {
       result = await Process.run('tar', ['-xzf', archive.path, '-C', into.path]);
     }
     if (result.exitCode != 0) throw StateError('アップデートを展開できませんでした: ${result.stderr}');
   }
 
-  static const _windowsScript = r'''@echo off
-rem args: pid, new files dir, install dir, executable
-:wait
-tasklist /FI "PID eq %1" 2>nul | find "%1" >nul
-if not errorlevel 1 (
-  ping -n 2 127.0.0.1 >nul
-  goto wait
-)
-xcopy /E /Y /I /Q "%~2\*" "%~3\" >nul
-start "" "%~4"
+  static const _windowsScript = r'''# args: pid, new files dir, install dir, executable
+param([int]$AppPid, [string]$Source, [string]$Target, [string]$Exe)
+Wait-Process -Id $AppPid -ErrorAction SilentlyContinue
+Copy-Item -Path (Join-Path $Source '*') -Destination $Target -Recurse -Force
+Start-Process -FilePath $Exe
 ''';
 
   static const _linuxScript = r'''#!/bin/sh
