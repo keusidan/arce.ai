@@ -38,7 +38,7 @@ jobs:
           # Machine output lets GitHub surface each analyzer finding inline, rather than only
           # reporting a failed command at the workflow line.
           set +e
-          flutter analyze --format machine > /tmp/arce-analyze.log 2>&1
+          flutter analyze --machine > /tmp/arce-analyze.log 2>&1
           status=$?
           cat /tmp/arce-analyze.log
           if [ "$status" -ne 0 ]; then
