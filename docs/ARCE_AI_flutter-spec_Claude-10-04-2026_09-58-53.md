@@ -109,14 +109,17 @@
 - AndroidのAPKがGitHub Actions上でビルドでき、署名の検証まで通ること（run 37192843146。約25分、132 MB）。
 
 **未確認**
-- **公開の修正後の動き**：修正した公開（7.3）は、まだ実際のReleaseで動かしていない。
+- **公開の修正後の動き**：`reuse_run` の経路と、タグを先頭に付け直す経路は、実際のReleaseで動いた（7.3）。**未確認**：ビルドと公開を1回の実行で通す普通の経路（次の版を出すときに初めて動く）、人が先に押したタグに対する公開、iOS・Windows・macOS・Linux の公開（共通の公開手順に差し替えたあと、一度も動いていない）。
 - Windows・macOS・iOS のビルドと、各OSの自己更新の実機での動き。
 - 実機のAndroidでの、モデルの読み込みと推論。
 - GitHub のドキュメントなどの外部URL（`docs/` に載せた出典の一部）は、この環境から開けず未確認。
 
-### 7.3 リリースの状況と、公開が断られた原因（2026-10-04 19:25 時点）
+### 7.3 リリースの状況と、公開が断られた原因（2026-10-04 19:30 JST 時点）
 
-**v0.4.0 のAndroid（run 37192843146）**：ビルド（約25分）と署名の検証は成功した。**公開だけが `403 Resource not accessible by integration` で失敗**し、Releaseは作られていない（APKはArtifact `android` に残っている。7日間）。
+**v0.4.0 のAndroid は公開済み**（https://github.com/keusidan/arce.ai/releases/tag/v0.4.0 ）。`ARCE.AI-v0.4.0-android.apk`（131,994,622 バイト、SHA-256 は `584a5a5a…bc3a4`）と `.sha256` が載り、「Latest」になっている。
+
+- ビルド：run 37192843146（18:43〜19:08 JST、約25分）。署名の検証まで成功したが、**公開だけが `403 Resource not accessible by integration` で失敗**した。
+- 公開：run 37195273978（19:24 JST。`release-android.yml` の手動実行で `reuse_run=37192843146`）。ビルドはせず、上のAPKをArtifactから取って公開した。ビルドしたコミット（60bb9ec）にはタグを付けられず、**タグはブランチの先頭に付いた**（Releaseの本文に、ビルド元のコミットを書いてある）。
 
 **原因（切り分けて確認済み）**：`GITHUB_TOKEN` は `workflows` 権限を持てず、**`.github/workflows/` のファイルを追加・変更したコミットにはタグを付けられない**（APIは403、`git push` は `refusing to allow a GitHub App to create or update workflow ... without workflows permission`）。ただし**ブランチの先頭のコミットは対象外**。この run のコミット（60bb9ec）は `release-android.yml` を新規追加したコミットで、ビルド中にこちらが push したため、先頭ではなくなっていた。切り分けの結果（使い捨ての検証用ワークフローで実施。実行 37194771866 / 37194843041 / 37195030866）：
 
