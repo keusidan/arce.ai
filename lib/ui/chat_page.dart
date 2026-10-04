@@ -132,7 +132,7 @@ class _ChatPageState extends State<ChatPage> {
     final c = context.c;
     final chat = app.chat.state;
     final settings = app.settings.value;
-    final canSend = _input.text.trim().isNotEmpty || _attachments.isNotEmpty;
+    final canSend = (_input.text.trim().isNotEmpty || _attachments.isNotEmpty) && chat.candidates == null;
     return Padding(
       padding: const EdgeInsets.fromLTRB(11, 0, 11, 7),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -276,6 +276,11 @@ class _Messages extends StatelessWidget {
                           key: ValueKey(state.messages.length),
                           tile: state.pendingQuestion!,
                           onAnswer: (selected, free) => app.chat.answer(selected, free),
+                        ),
+                      if (state.candidates != null)
+                        CandidateChoiceCard(
+                          candidates: state.candidates!,
+                          onSelect: app.chat.selectCandidate,
                         ),
                       if (state.notice != null) NoticeBanner(text: state.notice!, tone: BannerTone.warning),
                       if (state.error != null)

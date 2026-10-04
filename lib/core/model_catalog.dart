@@ -5,6 +5,10 @@ enum ModelFormat { gguf, litertLm }
 
 enum ThinkingSupport { switchable, alwaysOn, none }
 
+/// Inputs a model can consume. A control in the composer is only exposed when the loaded
+/// model declares the corresponding capability; text-only models never receive a binary file.
+enum ModelCapability { text, image, video, audio }
+
 /// A downloadable model.
 ///
 /// The hybrid Qwen3 releases are listed on purpose: they switch reasoning on and off per
@@ -21,6 +25,7 @@ class ModelSpec {
     required this.headDim,
     required this.thinking,
     this.format = ModelFormat.gguf,
+    this.capabilities = const {ModelCapability.text},
     // Set for NPU builds, which only run on the SoC they were compiled for (e.g. "mt6993").
     this.npuSoc,
   });
@@ -35,7 +40,12 @@ class ModelSpec {
   final int headDim;
   final ThinkingSupport thinking;
   final ModelFormat format;
+  final Set<ModelCapability> capabilities;
   final String? npuSoc;
+
+  bool get acceptsImages => capabilities.contains(ModelCapability.image);
+  bool get acceptsVideos => capabilities.contains(ModelCapability.video);
+  bool get acceptsAudio => capabilities.contains(ModelCapability.audio);
 
   /// "Qwen3.5-0.8B" -> 0.8
   double? get paramsB => paramsFromName(displayName.split(' ').first);

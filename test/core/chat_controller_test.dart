@@ -170,6 +170,26 @@ void main() {
     expect(chat.state.notice, isNotNull);
   });
 
+  test('alternatives stay out of history until the user selects one', () async {
+    final engine = ScriptedEngine([
+      ('最初の回答', FinishReason.eog),
+      ('候補A', FinishReason.eog),
+      ('候補B', FinishReason.eog),
+    ]);
+    final chat = ChatController(engine);
+    await chat.send('比較して');
+    await chat.generateAlternatives(3);
+
+    expect(chat.state.candidates?.replies.map((r) => r.text), ['最初の回答', '候補A', '候補B']);
+    expect(chat.state.messages.map((m) => m.text), ['比較して']);
+    expect(chat.snapshot().history, hasLength(1), reason: 'the assistant replies are still temporary');
+
+    chat.selectCandidate(2);
+    expect(chat.state.candidates, isNull);
+    expect(chat.state.messages.map((m) => m.text), ['比較して', '候補B']);
+    expect(chat.snapshot().history, hasLength(2));
+  });
+
   test('a snapshot restores the conversation', () async {
     final chat = ChatController(ScriptedEngine([('こんにちは', FinishReason.eog)]));
     await chat.send('hi');

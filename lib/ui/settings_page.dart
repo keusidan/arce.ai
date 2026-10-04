@@ -139,6 +139,17 @@ class _SettingsPageState extends State<SettingsPage> {
                       onChanged: (v) => set((x) => x.copyWith(maxChars: v)),
                     ),
                   ),
+                  SettingRow(
+                    icon: ArceSvg.grid,
+                    title: '比較する候補数',
+                    subtitle: '返信の「候補」から同じ質問への回答を作り、選んだものだけ履歴に残します',
+                    trailing: _Cycle<int>(
+                      value: s.candidateCount,
+                      values: const [2, 3, 4],
+                      label: (v) => '$v 件',
+                      onChanged: (v) => set((x) => x.copyWith(candidateCount: v)),
+                    ),
+                  ),
                   _TextRow(
                     icon: ArceSvg.globe,
                     title: 'SearXNG のアドレス',

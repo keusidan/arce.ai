@@ -282,7 +282,7 @@ class _ModelCard extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   '${formatGb(spec.fileBytes)} · 推定RAM ${formatGb(ram)}（ctx $ctx）\n'
-                  '${spec.format == ModelFormat.gguf ? 'GGUF · llama.cpp' : 'LiteRT-LM'}${spec.npuSoc != null ? ' · NPU' : ''}'
+                  '${spec.format == ModelFormat.gguf ? 'GGUF · llama.cpp' : 'LiteRT-LM'}${spec.npuSoc != null ? ' · NPU' : ''}${_capabilityLabel(spec)}'
                   '${fits ? '' : '\nこの端末のメモリでは動作しない可能性があります（強制実行で解除）'}',
                   style: ts(context, 10, color: c.muted, height: 1.5),
                 ),
@@ -352,6 +352,15 @@ class _ModelCard extends StatelessWidget {
         return PrimaryButton(label: 'ダウンロード', onTap: usable ? () => models.startDownload(spec) : null);
     }
   }
+}
+
+String _capabilityLabel(ModelSpec spec) {
+  final labels = <String>[
+    if (spec.acceptsImages) '画像入力',
+    if (spec.acceptsVideos) '動画入力',
+    if (spec.acceptsAudio) '音声入力',
+  ];
+  return labels.isEmpty ? '' : ' · ${labels.join('・')}';
 }
 
 class _ImportedCard extends StatelessWidget {

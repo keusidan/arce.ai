@@ -33,6 +33,7 @@ class AppSettings {
     this.gpuOffload = GpuOffload.auto,
     this.kvCache = KvCacheType.f16,
     this.maxTokens = 2048,
+    this.candidateCount = 2,
     this.retryLimit = 2,
     this.maxToolRounds = 4,
     this.forceExecution = false,
@@ -61,6 +62,9 @@ class AppSettings {
   final GpuOffload gpuOffload;
   final KvCacheType kvCache;
   final int maxTokens;
+
+  /// Number of alternatives shown when the user requests candidate generation.
+  final int candidateCount;
   final int retryLimit;
   final int maxToolRounds;
   final bool forceExecution;
@@ -87,6 +91,7 @@ class AppSettings {
     GpuOffload? gpuOffload,
     KvCacheType? kvCache,
     int? maxTokens,
+    int? candidateCount,
     int? retryLimit,
     int? maxToolRounds,
     bool? forceExecution,
@@ -113,6 +118,7 @@ class AppSettings {
         gpuOffload: gpuOffload ?? this.gpuOffload,
         kvCache: kvCache ?? this.kvCache,
         maxTokens: maxTokens ?? this.maxTokens,
+        candidateCount: candidateCount ?? this.candidateCount,
         retryLimit: retryLimit ?? this.retryLimit,
         maxToolRounds: maxToolRounds ?? this.maxToolRounds,
         forceExecution: forceExecution ?? this.forceExecution,
@@ -140,6 +146,7 @@ class AppSettings {
         'gpuOffload': gpuOffload.name,
         'kvCache': kvCache.name,
         'maxTokens': maxTokens,
+        'candidateCount': candidateCount,
         'retryLimit': retryLimit,
         'maxToolRounds': maxToolRounds,
         'forceExecution': forceExecution,
@@ -181,6 +188,7 @@ class AppSettings {
       gpuOffload: option(GpuOffload.values, 'gpuOffload', d.gpuOffload),
       kvCache: option(KvCacheType.values, 'kvCache', d.kvCache),
       maxTokens: whole('maxTokens', d.maxTokens),
+      candidateCount: whole('candidateCount', d.candidateCount).clamp(2, 4).toInt(),
       retryLimit: whole('retryLimit', d.retryLimit),
       maxToolRounds: whole('maxToolRounds', d.maxToolRounds),
       forceExecution: flag('forceExecution', d.forceExecution),

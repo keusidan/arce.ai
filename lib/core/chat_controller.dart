@@ -88,6 +88,36 @@ class UiMessage {
       );
 }
 
+/// One independently generated response to the same user turn. It remains outside the
+/// conversation history until the user explicitly adopts it.
+class CandidateReply {
+  const CandidateReply({
+    required this.text,
+    required this.thinking,
+    required this.finish,
+    this.agent,
+  });
+
+  final String text;
+  final String thinking;
+  final FinishReason finish;
+  final String? agent;
+
+  factory CandidateReply.fromMessage(UiMessage message) => CandidateReply(
+        text: message.text,
+        thinking: message.thinking,
+        finish: message.finish ?? FinishReason.error,
+        agent: message.agent,
+      );
+}
+
+/// A temporary choice point. Candidates are deliberately not serialized: only the response
+/// chosen by the user becomes part of a durable conversation.
+class CandidateSet {
+  const CandidateSet(this.replies);
+  final List<CandidateReply> replies;
+}
+
 const _unset = Object();
 
 class ChatState {
@@ -97,6 +127,7 @@ class ChatState {
     this.thinkingEnabled = true,
     this.error,
     this.notice,
+    this.candidates,
   });
 
   final List<UiMessage> messages;
@@ -106,6 +137,9 @@ class ChatState {
 
   /// e.g. the selected agent expects a larger model than the one loaded (spec §17.2).
   final String? notice;
+
+  /// Non-persisted alternatives awaiting an explicit user choice.
+  final CandidateSet? candidates;
 
   bool get isGenerating =>
       task == TaskState.thinking || task == TaskState.generation || task == TaskState.search;
@@ -128,6 +162,7 @@ class ChatState {
     bool? thinkingEnabled,
     Object? error = _unset,
     Object? notice = _unset,
+    Object? candidates = _unset,
   }) =>
       ChatState(
         messages: messages ?? this.messages,
@@ -135,6 +170,7 @@ class ChatState {
         thinkingEnabled: thinkingEnabled ?? this.thinkingEnabled,
         error: identical(error, _unset) ? this.error : error as String?,
         notice: identical(notice, _unset) ? this.notice : notice as String?,
+        candidates: identical(candidates, _unset) ? this.candidates : candidates as CandidateSet?,
       );
 }
 
@@ -272,6 +308,7 @@ class ChatController extends ChangeNotifier {
   /// The request the agent is chosen for; selection runs lazily at the start of generation.
   (String, bool) _agentRequest = ('', false);
   bool _busy = false;
+  bool _alternativeMode = false;
 
   void _update(ChatState Function(ChatState) change) {
     _state = change(_state);
@@ -307,7 +344,9 @@ class ChatController extends ChangeNotifier {
 
   /// Returns when the reply has finished (or stopped for a question); callers may ignore it.
   Future<void> send(String text, {List<Attachment> attachments = const []}) {
-    if ((text.trim().isEmpty && attachments.isEmpty) || _state.isGenerating || _busy) return Future.value();
+    if ((text.trim().isEmpty && attachments.isEmpty) || _state.isGenerating || _state.candidates != null || _busy) {
+      return Future.value();
+    }
     _history.add(UserTurn(AttachmentPolicy.compose(text, attachments)));
     _append(UiMessage(
       id: _nextId++,
@@ -352,6 +391,75 @@ class ChatController extends ChangeNotifier {
     return _start(partial.text);
   }
 
+  /// Re-runs the final plain-text reply under the same context and presents the original plus
+  /// new alternatives. Tool calls and question tiles are intentionally excluded: repeating an
+  /// action (search, a future device job, or a question) invisibly would be surprising.
+  Future<void> generateAlternatives(int count) async {
+    final original = _state.messages.isEmpty ? null : _state.messages.last;
+    if (_busy ||
+        _state.isGenerating ||
+        original == null ||
+        original.role != Role.assistant ||
+        original.finish == FinishReason.error ||
+        original.question != null ||
+        original.activities.isNotEmpty) {
+      return;
+    }
+    final total = count.clamp(2, 4).toInt();
+    final replies = <CandidateReply>[CandidateReply.fromMessage(original)];
+
+    // The original must not bias the regenerated candidates. The user message and all earlier
+    // context remain, while each generated alternative is removed again before the next one.
+    _dropLastReplyFromHistory();
+    _update((s) => s.copyWith(messages: s.messages.sublist(0, s.messages.length - 1), candidates: null));
+    _alternativeMode = true;
+    try {
+      for (var i = 1; i < total; i++) {
+        await _start('');
+        final reply = _state.messages.isEmpty ? null : _state.messages.last;
+        if (reply == null || reply.role != Role.assistant || reply.finish == FinishReason.error || reply.question != null) {
+          break;
+        }
+        replies.add(CandidateReply.fromMessage(reply));
+        _dropLastReplyFromHistory();
+        _update((s) => s.copyWith(messages: s.messages.sublist(0, s.messages.length - 1), task: TaskState.waiting));
+      }
+    } finally {
+      _alternativeMode = false;
+    }
+    if (replies.length < 2) {
+      // Keep a usable reply when the engine could not make an alternative.
+      _commitCandidate(replies.first);
+      _update((s) => s.copyWith(error: '別の候補を生成できませんでした。元の回答を残しました。'));
+      return;
+    }
+    _update((s) => s.copyWith(candidates: CandidateSet(List.unmodifiable(replies)), task: TaskState.waiting, error: null));
+    _store(snapshot(), generating: false);
+  }
+
+  /// Makes exactly one candidate durable. Until this is called none of the generated replies
+  /// is part of the prompt history or the saved conversation.
+  void selectCandidate(int index) {
+    final choices = _state.candidates;
+    if (choices == null || index < 0 || index >= choices.replies.length || _busy) return;
+    _commitCandidate(choices.replies[index]);
+  }
+
+  void _commitCandidate(CandidateReply candidate) {
+    _history.add(AssistantTurn(candidate.text, null));
+    _append(UiMessage(
+      id: _nextId++,
+      role: Role.assistant,
+      text: candidate.text,
+      thinking: candidate.thinking,
+      finish: candidate.finish,
+      agent: candidate.agent,
+      time: DateTime.now(),
+    ));
+    _update((s) => s.copyWith(candidates: null, task: TaskState.completed));
+    _store(snapshot(), generating: false);
+  }
+
   /// Removes the assistant turns (and tool responses) since the last user or answer message.
   void _dropLastReplyFromHistory() {
     while (_history.isNotEmpty) {
@@ -387,7 +495,9 @@ class ChatController extends ChangeNotifier {
       config.agentOverride,
       useModel: config.aiAgentSelection && _engine.isLoaded,
     );
-    final tools = [for (final t in agent.tools) if (config.searchEnabled || t != Protocol.webSearch) t];
+    final tools = _alternativeMode
+        ? const <ToolDefinition>[]
+        : [for (final t in agent.tools) if (config.searchEnabled || t != Protocol.webSearch) t];
     final schema = tools.isEmpty ? null : jsonEncodeSchema(Protocol.toolCallSchema(tools));
     final retry = RetryPolicy(config.retryLimit);
     final instructions = [

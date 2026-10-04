@@ -92,6 +92,10 @@ class ModelManager extends ChangeNotifier {
   String? loadedPath;
   String? loadedName;
   double? loadedParamsB;
+
+  /// Input controls in the composer reflect the model that is actually loaded, not the
+  /// filename an arbitrary imported file happens to have.
+  Set<ModelCapability> loadedCapabilities = const {ModelCapability.text};
   String? busy;
   String? error;
   MemoryWarning? memoryWarning;
@@ -171,7 +175,9 @@ class ModelManager extends ChangeNotifier {
       final name = file.uri.pathSegments.last;
       loadedPath = file.path;
       loadedName = name.contains('.') ? name.substring(0, name.lastIndexOf('.')) : name;
-      loadedParamsB = ModelCatalog.byFileName(name)?.paramsB ?? paramsFromFileName(name);
+      final spec = ModelCatalog.byFileName(name);
+      loadedParamsB = spec?.paramsB ?? paramsFromFileName(name);
+      loadedCapabilities = spec?.capabilities ?? const {ModelCapability.text};
       gpuDevices = gpu;
       backend = _engine.backendName;
       busy = null;
@@ -179,6 +185,7 @@ class ModelManager extends ChangeNotifier {
     } on EngineException catch (e) {
       loadedPath = null;
       loadedName = null;
+      loadedCapabilities = const {ModelCapability.text};
       busy = null;
       error = e.message;
     }

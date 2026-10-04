@@ -24,6 +24,22 @@ void main() {
     });
   });
 
+  test('model capabilities are explicit and text is the safe default', () {
+    const textOnly = ModelSpec(
+      id: 'text', displayName: 'Text-1B', hfRepo: 'owner/text', fileName: 'text.gguf', fileBytes: 1,
+      layers: 1, kvHeads: 1, headDim: 1, thinking: ThinkingSupport.none,
+    );
+    const vision = ModelSpec(
+      id: 'vision', displayName: 'Vision-1B', hfRepo: 'owner/vision', fileName: 'vision.gguf', fileBytes: 1,
+      layers: 1, kvHeads: 1, headDim: 1, thinking: ThinkingSupport.none,
+      capabilities: {ModelCapability.text, ModelCapability.image},
+    );
+
+    expect(textOnly.acceptsImages, isFalse);
+    expect(vision.acceptsImages, isTrue);
+    expect(vision.acceptsVideos, isFalse);
+  });
+
   group('ModelCatalog', () {
     test('basic model is the small Qwen3.5 and fits a 4 GB phone', () {
       expect(ModelCatalog.basic.paramsB, 0.8);

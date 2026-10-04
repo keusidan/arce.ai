@@ -1,17 +1,15 @@
 # ARCE.AI
 
 端末の中だけで動くローカルAIのチャット / コーディングアシスタントです。
-Flutter で書かれていて、Android・iOS・Windows・macOS・Linux で同じ画面が動きます。
+Flutter で書かれていて、Android・Windows・Linux で同じ画面が動きます。
 
 | OS | 配布物 (OS ごとの GitHub Release) | 推論エンジン | アプリ内更新 |
 |---|---|---|---|
 | Android | `ARCE.AI-vX.Y.Z-android.apk` | llama.cpp / LiteRT-LM（実推論） | 自動インストール |
-| Windows | `ARCE.AI-vX.Y.Z-windows-x64.zip` | 未接続（デモ応答） | 自動置き換え＋再起動 |
-| macOS | `ARCE.AI-vX.Y.Z-macos.zip` | 未接続（デモ応答） | 自動置き換え＋再起動 |
-| Linux | `ARCE.AI-vX.Y.Z-linux-x64.tar.gz` | 未接続（デモ応答） | 自動置き換え＋再起動 |
-| iOS | `ARCE.AI-vX.Y.Z-ios-unsigned.ipa`（未署名） | 未接続（デモ応答） | リリースページを開く |
+| Windows | `ARCE.AI-vX.Y.Z-windows-x64.zip` | llama.cpp（対応中） | 自動置き換え＋再起動 |
+| Linux | `ARCE.AI-vX.Y.Z-linux-x64.tar.gz` | llama.cpp（対応中） | 自動置き換え＋再起動 |
 
-Android 以外では、推論エンジンの代わりに固定のデモ応答が返ります。チャット・履歴・設定・Artifact・更新機能は全 OS で動きます。
+Windows / Linux の llama.cpp 実推論を追加中です。未接続時は固定のデモ応答が返ります。チャット・履歴・設定・Artifact・更新機能は3 OSで動きます。iOS / macOS の既存ソースは互換性のため残しますが、ビルド・リリース対象ではありません。
 
 ## 画面
 
@@ -28,7 +26,7 @@ Android 以外では、推論エンジンの代わりに固定のデモ応答が
 git clone --recurse-submodules https://github.com/keusidan/arce.ai   # llama.cpp は Android のビルドにだけ必要
 flutter pub get
 flutter analyze && flutter test
-flutter run -d linux      # windows / macos / android / ios も同様
+flutter run -d linux      # windows / android も同様
 ```
 
 Flutter 3.47.6（Dart 3.13）で確認しています。Linux でビルドするには `clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev` が必要です。
@@ -48,7 +46,7 @@ android/        ネイティブ側: llama.cpp の JNI（src/main/cpp）、エン
 
 ## リリースと更新
 
-`pubspec.yaml` の `version:` を上げて push すると、5つのワークフロー（Android・iOS・Windows・macOS・Linux）が別々に動き、プラットフォームごとの GitHub Release（`v0.4.0`、`ios-v0.4.0`、`windows-v0.4.0` …）にファイルが並びます。
+`pubspec.yaml` の `version:` を上げて push すると、3つのワークフロー（Android・Windows・Linux）が別々に動き、プラットフォームごとの GitHub Release（`v0.4.0`、`windows-v0.4.0`、`linux-v0.4.0`）にファイルが並びます。
 アプリは起動時（と起動中は一定間隔）にこのリリースを確認し、設定の「アップデート」から更新できます。
 
 手順と必要な Secrets は [docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md](docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md) を参照してください。

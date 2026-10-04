@@ -8,6 +8,7 @@ import '../core/chat_controller.dart';
 import '../core/generation.dart';
 import '../core/markdown_lite.dart';
 import '../core/protocol.dart';
+import '../core/syntax_highlight.dart';
 import '../core/tool_runtime.dart';
 import '../services/app_controller.dart';
 import '../services/settings.dart';
@@ -219,8 +220,13 @@ class CodeCard extends StatelessWidget {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.all(10),
-            child: Text(
-              block.code,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  for (final span in SyntaxHighlighter.highlight(block.code, block.language))
+                    TextSpan(text: span.text, style: _syntaxStyle(context, span.token)),
+                ],
+              ),
               style: ts(context, 12, height: 1.5, family: 'monospace', color: c.ink),
             ),
           ),
@@ -228,6 +234,20 @@ class CodeCard extends StatelessWidget {
       ),
     );
   }
+}
+
+TextStyle _syntaxStyle(BuildContext context, SyntaxToken token) {
+  final c = context.c;
+  return switch (token) {
+    SyntaxToken.keyword => TextStyle(color: c.accent, fontWeight: FontWeight.w700),
+    SyntaxToken.string => const TextStyle(color: Color(0xFF0E8A63)),
+    SyntaxToken.comment => TextStyle(color: c.muted, fontStyle: FontStyle.italic),
+    SyntaxToken.number => const TextStyle(color: Color(0xFF9A5E00)),
+    SyntaxToken.type => const TextStyle(color: Color(0xFF7A43A8)),
+    SyntaxToken.tag => const TextStyle(color: Color(0xFF0A7590)),
+    SyntaxToken.attribute => const TextStyle(color: Color(0xFF9A5E00)),
+    SyntaxToken.plain => const TextStyle(),
+  };
 }
 
 class _MiniAction extends StatelessWidget {
@@ -266,9 +286,84 @@ class MessageActions extends StatelessWidget {
         _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, message.text)),
         if (isLast && !state.isGenerating && message.question == null)
           _MiniAction(label: '再試行', svg: ArceSvg.retry, onTap: () => app.chat.regenerate()),
+        if (isLast && !state.isGenerating && message.question == null && state.candidates == null)
+          _MiniAction(
+            label: '候補',
+            svg: ArceSvg.grid,
+            onTap: () => app.chat.generateAlternatives(app.settings.value.candidateCount),
+          ),
         if (isLast && state.canContinue)
           _MiniAction(label: '続行', svg: ArceSvg.chevronRight, onTap: () => app.chat.continueReply()),
       ]),
+    );
+  }
+}
+
+/// Shows independently generated alternatives. Nothing is committed to the prompt history until
+/// a card is chosen, so the user rather than an automatic scorer decides what is better.
+class CandidateChoiceCard extends StatelessWidget {
+  const CandidateChoiceCard({super.key, required this.candidates, required this.onSelect});
+
+  final CandidateSet candidates;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(39, 4, 0, 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: c.accentSoft,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.accent.withValues(alpha: .45)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('回答候補から選ぶ', style: ts(context, 12, weight: FontWeight.w700, color: c.accent)),
+        const SizedBox(height: 3),
+        Text('選んだ候補だけが会話履歴に保存されます。', style: ts(context, 10, color: c.muted)),
+        const SizedBox(height: 10),
+        for (var i = 0; i < candidates.replies.length; i++)
+          _CandidateOption(number: i + 1, reply: candidates.replies[i], onTap: () => onSelect(i)),
+      ]),
+    );
+  }
+}
+
+class _CandidateOption extends StatelessWidget {
+  const _CandidateOption({required this.number, required this.reply, required this.onTap});
+
+  final int number;
+  final CandidateReply reply;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(11), border: Border.all(color: c.line)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(11),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(6)),
+                child: Text('候補 $number', style: ts(context, 10, weight: FontWeight.w700, color: c.accent)),
+              ),
+              const Spacer(),
+              Text('この候補を選ぶ', style: ts(context, 10, weight: FontWeight.w600, color: c.accent)),
+            ]),
+            const SizedBox(height: 8),
+            RichReply(text: reply.text),
+          ]),
+        ),
+      ),
     );
   }
 }

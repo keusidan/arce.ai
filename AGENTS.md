@@ -1,8 +1,8 @@
 # ARCE.AI — notes for coding agents
 
-Flutter app (Android, iOS, Windows, macOS, Linux). Local AI chat and coding assistant; on-device inference is Android only.
+Flutter app. Build and release targets are Android, Windows and Linux only. Local AI chat and coding assistant; Android currently has native inference, while Windows/Linux are being connected to the shared llama.cpp runtime.
 
-**Read first:** `docs/ARCE_AI_flutter-spec_Claude-10-04-2026_09-58-53.md` (architecture, decisions, what is and is not verified, environment limits). Release procedure: `docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md`.
+**Read first:** `docs/ARCE_AI_flutter-spec_Claude-10-04-2026_09-58-53.md` (architecture, decisions, what is and is not verified, environment limits) and `docs/ARCE_AI_local-agents-multimodal_Claude-10-04-2026_23-30-11.md` (local runtime, Agent, multimodal and candidate-comparison scope). Release procedure: `docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md`.
 
 ## Commands
 
