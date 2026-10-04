@@ -57,12 +57,15 @@ add_subdirectory("runner")
 
 # The Flutter Windows template builds its `INSTALL` target after the executable. Copy the FFI
 # DLL next to that executable once it is linked, rather than asking the install script to locate
-# a multi-config target output directory.
-add_dependencies(${BINARY_NAME} arce_llama)
-add_custom_command(TARGET arce_llama POST_BUILD
+# a multi-config target output directory. `arce_llama` is defined in a child directory, so use a
+# custom target (not a TARGET post-build command, which must be declared in the same directory).
+add_custom_target(arce_llama_bundle
   COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${BINARY_NAME}>"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:arce_llama>" "$<TARGET_FILE_DIR:${BINARY_NAME}>"
+  DEPENDS arce_llama
+  VERBATIM
 )
+add_dependencies(${BINARY_NAME} arce_llama_bundle)
 
 
 # Generated plugin build rules, which manage building the plugins and adding
