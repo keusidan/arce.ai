@@ -134,7 +134,9 @@ extension ArceTheme on BuildContext {
   ArceColors get c => Theme.of(this).extension<ArceColors>()!;
 }
 
-/// Japanese-capable system fonts, so text looks the same on every platform without bundling a font.
+/// Noto Sans JP is bundled (see pubspec.yaml); these system fonts only cover what it lacks.
+const _fontFamily = 'NotoSansJP';
+
 const _fontFallback = [
   'Noto Sans JP',
   'Noto Sans CJK JP',
@@ -165,6 +167,7 @@ ThemeData buildTheme(Brightness brightness) {
     scaffoldBackgroundColor: c.bg,
     canvasColor: c.bg,
     dividerColor: c.line,
+    fontFamily: _fontFamily,
     fontFamilyFallback: _fontFallback,
     splashFactory: InkRipple.splashFactory,
     textSelectionTheme: TextSelectionThemeData(cursorColor: c.accent, selectionColor: c.accent.withValues(alpha: .25)),

@@ -35,6 +35,14 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  # Noto Sans JP from Google Fonts (SIL OFL 1.1, assets/fonts/OFL.txt). Bundled so Japanese text
+  # uses Japanese glyphs on every platform; without it Linux and Android pick the Chinese variant
+  # of a system CJK font for characters shared between the languages (直, 骨, 角 ...).
+  fonts:
+    - family: NotoSansJP
+      fonts:
+        - asset: assets/fonts/NotoSansJP[wght].ttf
+
 # Regenerate the launcher icons of every platform from assets/icon: dart run flutter_launcher_icons
 flutter_launcher_icons:
   image_path: "assets/icon/icon.png"
