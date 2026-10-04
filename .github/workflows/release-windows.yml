@@ -87,8 +87,14 @@ jobs:
           flutter build windows --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ needs.prepare.outputs.build_number }} *>&1 | Tee-Object -FilePath "$env:TEMP/arce-build.log"
           $status = $LASTEXITCODE
           if ($status -ne 0) {
-            # Native toolchains emit many non-fatal warnings; retain the trailing fatal output.
-            $details = (Get-Content "$env:TEMP/arce-build.log" -Tail 80) -join ' '
+            # Native toolchains emit many non-fatal warnings. Emit only diagnostic lines so
+            # GitHub's annotation limit does not hide the actual compiler or linker error.
+            $failures = Select-String -Path "$env:TEMP/arce-build.log" -Pattern 'fatal error|: error [A-Z]+\d+|error:|FAILED:|CMake Error|error MSB\d+'
+            if ($failures) {
+              $details = (($failures | Select-Object -Last 25 | ForEach-Object { $_.Line }) -join ' ')
+            } else {
+              $details = (Get-Content "$env:TEMP/arce-build.log" -Tail 10) -join ' '
+            }
             Write-Output "::error::$details"
             exit $status
           }
