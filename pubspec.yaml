@@ -1,5 +1,5 @@
 name: arce_ai
-description: "ARCE.AI - local AI chat & coding assistant for Android, iOS, Windows, macOS and Linux."
+description: "ARCE.AI - local AI chat & coding assistant for Android, Windows, and Linux."
 publish_to: 'none'
 
 # build-name is the version users see and the updater compares; build-number is the Android
