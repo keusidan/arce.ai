@@ -134,17 +134,22 @@ class UpdateService extends ChangeNotifier {
     }
   }
 
+  /// The newest release made for this platform. Every platform has its own releases, so the list is read
+  /// instead of "latest" (which is whichever platform was published last).
   Future<Release> latest() async {
+    final platform = target;
+    if (platform == null) throw StateError('このOSには更新ファイルがありません');
     final repo = _settings.value.updateRepo;
     final response = await _client
         .get(
-          Uri.parse('https://api.github.com/repos/$repo/releases/latest'),
+          Uri.parse('https://api.github.com/repos/$repo/releases?per_page=50'),
           headers: _headers('application/vnd.github+json', withToken: true),
         )
         .timeout(const Duration(seconds: 20));
     switch (response.statusCode) {
       case 200:
-        return ReleaseParser.parse(response.body) ?? (throw StateError('最新のリリースにバージョンタグがありません'));
+        return ReleaseParser.latestFor(response.body, platform) ??
+            (throw StateError('この端末（${platform.name}）向けのリリースがまだありません'));
       case 401 || 403:
         throw StateError('GitHub がトークンを受け付けませんでした（HTTP ${response.statusCode}）。設定のトークンを確認してください');
       case 404:

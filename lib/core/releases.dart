@@ -47,16 +47,19 @@ class ReleaseAsset {
   final int sizeBytes;
 }
 
-/// The platform builds a release can carry. [suffix] is what the release workflow appends to the file name.
+/// The platform builds. Every platform has its own release: [suffix] is what the release workflow appends
+/// to the file name, [tagPrefix] what it puts before the version in the tag (Android keeps the plain
+/// `v0.5.0`, because the earlier native app reads that; the others use `ios-v0.5.0` and so on).
 enum UpdateTarget {
-  android('-android.apk'),
-  ios('-ios-unsigned.ipa'),
-  windows('-windows-x64.zip'),
-  macos('-macos.zip'),
-  linux('-linux-x64.tar.gz');
+  android('-android.apk', ''),
+  ios('-ios-unsigned.ipa', 'ios-'),
+  windows('-windows-x64.zip', 'windows-'),
+  macos('-macos.zip', 'macos-'),
+  linux('-linux-x64.tar.gz', 'linux-');
 
-  const UpdateTarget(this.suffix);
+  const UpdateTarget(this.suffix, this.tagPrefix);
   final String suffix;
+  final String tagPrefix;
 }
 
 class Release {
@@ -85,13 +88,32 @@ class Release {
 }
 
 abstract final class ReleaseParser {
-  /// Parses GitHub's "get the latest release" response.
-  static Release? parse(String json) {
+  /// Parses one release of GitHub's API. A tag that does not start with [tagPrefix] belongs to another
+  /// platform and gives null.
+  static Release? parse(String json, {String tagPrefix = ''}) {
     final decoded = jsonDecode(json);
-    if (decoded is! Map) return null;
+    return decoded is Map ? _fromMap(decoded, tagPrefix) : null;
+  }
+
+  /// The newest published release of [target] in GitHub's list of releases: the highest version among
+  /// the tags with the platform's prefix that carry a file for it.
+  static Release? latestFor(String listJson, UpdateTarget target) {
+    final decoded = jsonDecode(listJson);
+    if (decoded is! List) return null;
+    Release? best;
+    for (final item in decoded) {
+      if (item is! Map || item['draft'] == true || item['prerelease'] == true) continue;
+      final release = _fromMap(item, target.tagPrefix);
+      if (release == null || release.assetFor(target) == null) continue;
+      if (best == null || release.version > best.version) best = release;
+    }
+    return best;
+  }
+
+  static Release? _fromMap(Map<dynamic, dynamic> decoded, String tagPrefix) {
     final tag = decoded['tag_name'];
-    if (tag is! String) return null;
-    final version = Version.parse(tag);
+    if (tag is! String || !tag.startsWith(tagPrefix)) return null;
+    final version = Version.parse(tag.substring(tagPrefix.length));
     if (version == null) return null;
     final assets = <ReleaseAsset>[
       for (final a in (decoded['assets'] as List? ?? const []))

@@ -1,11 +1,11 @@
-# Builds the unsigned iOS app (.ipa) and attaches it to the GitHub Release of the version.
-# It has to be signed with your own Apple ID (AltStore, Sideloadly) before it installs on a device.
+# Builds the iOS app and adds it to its own release ios-v<version> (the other platforms have theirs).
 #
-#   - Bump `version:` in pubspec.yaml and push (any branch) -> built if the release has no iOS file yet
-#   - git tag v0.5.0 && git push origin v0.5.0              -> the same, for that tag
-#   - Actions tab -> "Release iOS" -> Run workflow           -> the same, for a version you type
-#     ... with "dry run" checked                             -> builds only; the ipa stays a workflow artifact
+#   - Bump `version:` in pubspec.yaml and push (any branch) -> built if its release has no iOS file yet
+#   - git tag ios-v0.5.0 && git push origin ios-v0.5.0 -> the same, for that tag
+#   - Actions tab -> "Release iOS" -> Run workflow -> the same, for a version you type
+#     ... with "dry run" checked -> builds only; the file stays a workflow artifact
 #
+# It is unsigned: sign it with your own Apple ID (AltStore, Sideloadly) before it installs on a device.
 # macOS runners count 10x against the free minutes of a private repository.
 name: Release iOS
 
@@ -13,7 +13,7 @@ on:
   push:
     branches: ["**"]
     paths: [pubspec.yaml]
-    tags: ["v*"]
+    tags: ["ios-v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -25,8 +25,9 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: write # create the release and its tag
 
+# Releases of one platform queue behind each other; a dry run builds on its own.
 concurrency:
   group: release-ios-${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && github.run_id || 'publish' }}
   cancel-in-progress: false
@@ -48,6 +49,7 @@ jobs:
       - id: p
         uses: ./.github/actions/prepare
         with:
+          platform: ios
           suffix: -ios-unsigned.ipa
           version: ${{ inputs.version }}
           token: ${{ github.token }}
@@ -73,7 +75,7 @@ jobs:
           --build-number ${{ needs.prepare.outputs.build_number }}
       - name: Collect
         run: |
-          name="ARCE.AI-${{ needs.prepare.outputs.tag }}-ios-unsigned.ipa"
+          name="ARCE.AI-v${{ needs.prepare.outputs.version }}-ios-unsigned.ipa"
           mkdir -p dist work/Payload
           cp -R build/ios/iphoneos/Runner.app work/Payload/
           (cd work && zip -qry "../dist/$name" Payload)
@@ -89,7 +91,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
+          # Every platform has its own release. Only the Android one is "latest": the earlier native app
+          # reads /releases/latest and expects an APK in it.
           gh release view "$TAG" > /dev/null 2>&1 \
-            || gh release create "$TAG" --title "ARCE.AI $TAG" --target "$GITHUB_SHA" --generate-notes \
+            || gh release create "$TAG" --title "ARCE.AI v${TAG##*v} (iOS)" --target "$GITHUB_SHA" --generate-notes --latest=false \
             || gh release view "$TAG" > /dev/null
           gh release upload "$TAG" dist/* --clobber

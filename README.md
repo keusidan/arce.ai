@@ -3,7 +3,7 @@
 端末の中だけで動くローカルAIのチャット / コーディングアシスタントです。
 Flutter で書かれていて、Android・iOS・Windows・macOS・Linux で同じ画面が動きます。
 
-| OS | 配布物 (GitHub Releases) | 推論エンジン | アプリ内更新 |
+| OS | 配布物 (OS ごとの GitHub Release) | 推論エンジン | アプリ内更新 |
 |---|---|---|---|
 | Android | `ARCE.AI-vX.Y.Z-android.apk` | llama.cpp / LiteRT-LM（実推論） | 自動インストール |
 | Windows | `ARCE.AI-vX.Y.Z-windows-x64.zip` | 未接続（デモ応答） | 自動置き換え＋再起動 |
@@ -43,12 +43,12 @@ lib/engine/     InferenceEngine の実装: NativeEngine（Android の llama.cpp/
 lib/services/   設定・履歴・モデル管理・更新・プレビューサーバー
 lib/ui/         画面（ライト/ダークのトークンは theme.dart）
 android/        ネイティブ側: llama.cpp の JNI（src/main/cpp）、エンジン、APK インストーラー
-.github/        ci.yml（解析とテスト）、release-android.yml / release-ios.yml / release-desktop.yml（OS ごとのビルドとリリース）
+.github/        ci.yml（解析とテスト）、release-<OS>.yml（OS ごとのビルドとリリース）
 ```
 
 ## リリースと更新
 
-`pubspec.yaml` の `version:` を上げて push すると、Android・iOS・デスクトップ（Windows/macOS/Linux）の3つのワークフローが別々に動き、同じ版の GitHub Release にファイルが並びます。
+`pubspec.yaml` の `version:` を上げて push すると、5つのワークフロー（Android・iOS・Windows・macOS・Linux）が別々に動き、プラットフォームごとの GitHub Release（`v0.4.0`、`ios-v0.4.0`、`windows-v0.4.0` …）にファイルが並びます。
 アプリは起動時（と起動中は一定間隔）にこのリリースを確認し、設定の「アップデート」から更新できます。
 
 手順と必要な Secrets は [docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md](docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md) を参照してください。

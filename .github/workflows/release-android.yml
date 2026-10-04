@@ -1,5 +1,5 @@
-# Builds the signed Android APK and attaches it to the GitHub Release of the version.
-# The app's own updater downloads from that release.
+# Builds the signed Android APK and adds it to the release v<version> (the app's own updater, and the
+# earlier native app, read this one). Other platforms have their own releases and workflows.
 #
 #   - Bump `version:` in pubspec.yaml (e.g. 0.5.0+1) and push (any branch)
 #       -> ARCE.AI-v0.5.0-android.apk is built and added to release v0.5.0 (created if missing).
@@ -52,6 +52,7 @@ jobs:
       - id: p
         uses: ./.github/actions/prepare
         with:
+          platform: android
           suffix: -android.apk
           version: ${{ inputs.version }}
           token: ${{ github.token }}
@@ -184,7 +185,7 @@ jobs:
 
       - name: Collect
         run: |
-          name="ARCE.AI-${{ needs.prepare.outputs.tag }}-android.apk"
+          name="ARCE.AI-v${{ needs.prepare.outputs.version }}-android.apk"
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk "dist/$name"
           (cd dist && sha256sum "$name" > "$name.sha256")
@@ -201,8 +202,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          # The other platforms may be creating the same release at the same moment
+          # Every platform has its own release. Only the Android one is "latest": the earlier native app
+          # reads /releases/latest and expects an APK in it.
           gh release view "$TAG" > /dev/null 2>&1 \
-            || gh release create "$TAG" --title "ARCE.AI $TAG" --target "$GITHUB_SHA" --generate-notes \
+            || gh release create "$TAG" --title "ARCE.AI $TAG" --target "$GITHUB_SHA" --generate-notes --latest=true \
             || gh release view "$TAG" > /dev/null
           gh release upload "$TAG" dist/* --clobber

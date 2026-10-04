@@ -18,15 +18,20 @@ MockClient githubWith({required List<int> payload, required String checksum, int
     http.StreamedResponse reply(int code, List<int> bytes, [Map<String, String> headers = const {}]) =>
         http.StreamedResponse(Stream.value(bytes), code, headers: headers, request: request);
 
-    if (url.endsWith('/releases/latest')) {
-      return reply(status, utf8.encode(jsonEncode({
-        'tag_name': 'v0.5.0',
-        'body': 'new things',
-        'assets': [
-          {'id': 11, 'name': assetName, 'size': payload.length},
-          {'id': 12, 'name': '$assetName.sha256', 'size': 90},
-        ],
-      })));
+    if (url.contains('/releases?')) {
+      final prefix = UpdateService.target?.tagPrefix ?? '';
+      return reply(status, utf8.encode(jsonEncode([
+        {
+          'tag_name': '${prefix}v0.5.0',
+          'body': 'new things',
+          'assets': [
+            {'id': 11, 'name': assetName, 'size': payload.length},
+            {'id': 12, 'name': '$assetName.sha256', 'size': 90},
+          ],
+        },
+        // another platform's release must never be offered
+        {'tag_name': 'other-v9.9.9', 'assets': []},
+      ])));
     }
     if (url.contains('/releases/assets/')) {
       // GitHub answers an asset request with a redirect; the token must not follow it
@@ -65,7 +70,7 @@ void main() {
     final (newer, _) = await serviceFor(githubWith(payload: payload, checksum: good));
     await newer.check();
     expect(newer.state, isA<UpdateAvailable>());
-    expect((newer.state as UpdateAvailable).release.tag, 'v0.5.0');
+    expect((newer.state as UpdateAvailable).release.version, const Version(0, 5, 0));
 
     final (same, _) = await serviceFor(githubWith(payload: payload, checksum: good), current: '0.5.0');
     await same.check();

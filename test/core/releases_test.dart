@@ -25,4 +25,20 @@ void main() {
     expect(ReleaseParser.parseChecksum('${'ab' * 32}  ARCE.AI-v0.4.1-android.apk\n'), 'ab' * 32);
     expect(ReleaseParser.parseChecksum('nope'), isNull);
   });
+
+  test('each platform has its own tags and the newest one of its own is picked', () {
+    const list = '''[
+      {"tag_name":"ios-v0.5.0","assets":[{"id":1,"name":"ARCE.AI-v0.5.0-ios-unsigned.ipa","size":1}]},
+      {"tag_name":"v0.4.0","assets":[{"id":2,"name":"ARCE.AI-v0.4.0-android.apk","size":1}]},
+      {"tag_name":"v0.3.1","assets":[{"id":3,"name":"ARCE.AI-v0.3.1.apk","size":1}]},
+      {"tag_name":"windows-v0.4.5","assets":[{"id":4,"name":"ARCE.AI-v0.4.5-windows-x64.zip","size":1}]},
+      {"tag_name":"windows-v0.4.9","draft":true,"assets":[{"id":5,"name":"ARCE.AI-v0.4.9-windows-x64.zip","size":1}]},
+      {"tag_name":"v0.6.0","assets":[]}
+    ]''';
+    expect(ReleaseParser.latestFor(list, UpdateTarget.android)!.tag, 'v0.4.0',
+        reason: 'the plain tag is Android; v0.6.0 has no APK; ios- and windows- tags are other platforms');
+    expect(ReleaseParser.latestFor(list, UpdateTarget.ios)!.version, const Version(0, 5, 0));
+    expect(ReleaseParser.latestFor(list, UpdateTarget.windows)!.tag, 'windows-v0.4.5', reason: 'a draft is ignored');
+    expect(ReleaseParser.latestFor(list, UpdateTarget.linux), isNull);
+  });
 }

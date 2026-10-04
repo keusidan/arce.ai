@@ -1,37 +1,42 @@
 # ARCE.AI（Flutter版）全OSの自動リリースとアプリ内更新
 
 - 作成日：2026-10-04
-- 設定ファイル：`.github/workflows/release-android.yml`、`release-ios.yml`、`release-desktop.yml`（ビルドと公開。共通の判定は `.github/actions/prepare`）、`ci.yml`（解析・テスト）
+- 設定ファイル：`.github/workflows/release-android.yml`、`release-ios.yml`、`release-windows.yml`、`release-macos.yml`、`release-linux.yml`（ビルドと公開。共通の判定は `.github/actions/prepare`）、`ci.yml`（解析・テスト）
 - 関連コード：`lib/services/update_service.dart`、`lib/services/desktop_installer.dart`、`android/app/src/main/kotlin/ai/arce/app/update/ApkInstaller.kt`
 - 前身：Android専用版の `ARCE_AI_release-workflow_Claude-09-26-2026_22-36-16.md`（署名鍵の作り方は同じ）
 
 ## 1. 何がリリースされるか
 
-| OS | ファイル名 | 中身 | 作るジョブ |
-|---|---|---|---|
-| Android | `ARCE.AI-vX.Y.Z-android.apk` | arm64 と x86_64 を1つにした署名付きAPK | `release-android.yml` |
-| Windows | `ARCE.AI-vX.Y.Z-windows-x64.zip` | `Release` フォルダの中身（`arce_ai.exe` が最上位）＋VC++ランタイムDLL | `release-desktop.yml` |
-| macOS | `ARCE.AI-vX.Y.Z-macos.zip` | `ARCE.AI.app`（ad-hoc署名・公証なし） | `release-desktop.yml` |
-| Linux | `ARCE.AI-vX.Y.Z-linux-x64.tar.gz` | `bundle` フォルダの中身（`arce_ai` が最上位） | `release-desktop.yml` |
-| iOS | `ARCE.AI-vX.Y.Z-ios-unsigned.ipa` | 未署名のipa | `release-ios.yml` |
+プラットフォームごとに、別のGitHub Release（別のタグ）です。1つのReleaseに全部を詰め込まないので、ビルドもファイルの置き場も、他のプラットフォームに邪魔されません。
 
-どのファイルにも、同じ名前に `.sha256` を付けた検証ファイルが並びます（`sha256sum` の形式）。アプリ内更新はこれを使って、ダウンロードしたファイルが壊れていないか確認します。
+| OS | Releaseのタグ | ファイル名 | 中身 | ワークフロー |
+|---|---|---|---|---|
+| Android | `v0.4.0` | `ARCE.AI-v0.4.0-android.apk` | arm64 と x86_64 を1つにした署名付きAPK | `release-android.yml` |
+| iOS | `ios-v0.4.0` | `ARCE.AI-v0.4.0-ios-unsigned.ipa` | 未署名のipa | `release-ios.yml` |
+| Windows | `windows-v0.4.0` | `ARCE.AI-v0.4.0-windows-x64.zip` | `Release` フォルダの中身（`arce_ai.exe` が最上位）＋VC++ランタイムDLL | `release-windows.yml` |
+| macOS | `macos-v0.4.0` | `ARCE.AI-v0.4.0-macos.zip` | `ARCE.AI.app`（ad-hoc署名・公証なし） | `release-macos.yml` |
+| Linux | `linux-v0.4.0` | `ARCE.AI-v0.4.0-linux-x64.tar.gz` | `bundle` フォルダの中身（`arce_ai` が最上位） | `release-linux.yml` |
+
+- Androidだけ、タグが `v` で始まるだけの形です。前のKotlin版のアプリが、`releases/latest`（最後に公開された通常のRelease）の `vX.Y.Z` と `.apk` を読むためです。AndroidのReleaseだけを「Latest」にしてあり、他のReleaseは「Latest」になりません。そのおかげで、入っているv0.3.xが、そのまま更新できます。
+- Flutter版のアプリは、`releases` の一覧から、自分のOSのタグ（`ios-` などの接頭辞）の中で最も新しい版を選びます。
+- どのファイルにも、同じ名前に `.sha256` を付けた検証ファイルが並びます（`sha256sum` の形式）。アプリ内更新はこれを使って、ダウンロードしたファイルが壊れていないか確認します。
 
 ## 2. リリースの出し方
 
-Android、iOS、デスクトップ（Windows・macOS・Linux）は、別のワークフローです。1つが失敗しても、他は止まりません。どれも、同じ版のGitHub Releaseに、自分のファイルを足していきます（Releaseが無ければ最初に終わったものが作ります）。
+5つのワークフローは、別々に動きます。1つが失敗しても、他は止まりません。
 
 | 方法 | 動作 |
 |---|---|
-| `pubspec.yaml` の `version:` を上げて、どのブランチでもpush | 3つのワークフローが動き、その版のReleaseにまだ無いファイルだけをビルドする。失敗した分は、修正をpushすれば、足りない分だけ作り直される |
-| `git tag v0.5.0 && git push origin v0.5.0` | そのタグで3つとも動く |
-| Actionsタブ → 「Release Android」「Release iOS」「Release Desktop」のどれか →「Run workflow」 | 選んだワークフローだけ、入力した版（空なら `pubspec.yaml` の版）で動く |
+| `pubspec.yaml` の `version:` を上げて、どのブランチでもpush | 5つが動き、それぞれ自分のReleaseにまだ無いファイルだけをビルドする。失敗した分は、修正をpushすれば、足りない分だけ作り直される |
+| `git tag v0.5.0 && git push origin v0.5.0` | Androidだけが動く（iOSは `ios-v0.5.0`、他も `windows-v0.5.0` のように、OSごとのタグ） |
+| Actionsタブ → 「Release Android」などから1つ選んで「Run workflow」 | 選んだワークフローだけ、入力した版（空なら `pubspec.yaml` の版）で動く |
 | 上記で「dry run」にチェック | Releaseは作らず、ビルド結果をArtifact（7日間保存）に残すだけ。他のワークフローと並行して動く |
 
-- Androidだけは、`release-android.yml` を直してpushしたときも動きます（失敗の再試行のため）。iOSとデスクトップは、`pubspec.yaml` の変更、タグ、手動実行だけです。
+- Androidだけは、`release-android.yml` を直してpushしたときも動きます（失敗の再試行のため）。他の4つは、`pubspec.yaml` の変更、タグ、手動実行だけです。
 - 版は `X.Y.Z` の3つの数字だけです。Windowsは版を数字として埋め込むため、`-beta` のような付け足しは使えません。
 - ビルド番号（Androidの `versionCode`）は `主版 × 1,000,000 + 副版 × 1,000 + 修正版` です（0.4.0 は 4000）。以前のAndroid版（v0.3.x、実行番号の14以下）より大きいので、上書き更新できます。ワークフローを分けても、番号は版だけで決まります。
-- どのワークフローも、先に解析とテスト（`flutter analyze` と `flutter test`）が通らないとビルドしません。
+- どのワークフローも、自分のビルドの前に解析とテスト（`flutter analyze` と `flutter test`）を行い、通らなければ公開しません。
+- Androidのジョブは、最初に使わないソフト（.NET、Haskellなど）を消して、ランナーのディスクの空きを確保します（llama.cppのコンパイルで容量が足りなくなったため）。
 
 ## 3. 最初に1回だけ行うこと
 
@@ -54,7 +59,7 @@ Releaseの作成には `contents: write` が要ります。ワークフローに
 
 ```
 起動時（と、起動中は設定した間隔ごと）
-  GET /repos/<owner>/<repo>/releases/latest   ← 非公開ならトークンを付ける
+  GET /repos/<owner>/<repo>/releases           ← 非公開ならトークンを付ける。自分のOSのタグの中で最新の版を選ぶ
   → 自分の版より新しければ、画面上部に帯を出す（自動ダウンロードはしない）
 
 ユーザーが「ダウンロードして更新」
