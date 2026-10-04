@@ -19,4 +19,5 @@ flutter build linux --release        # needs the Linux packages listed in README
 - Release versions are `X.Y.Z` only (Windows).
 - Tests mirror the Kotlin `core/` tests in `test/core`; when you change `lib/core`, change them too.
 - Reply to the user in Japanese, times in JST. New docs files get the suffix `Claude-MM-dd-yyyy_HH-mm-ss`. No pull request unless asked. Commit trailers: see the spec, section 11.
+- Branch: `main` is the only branch (and the default). Work and push there; no other branches. The old Kotlin app is in its history.
 - Do not commit signing keys.

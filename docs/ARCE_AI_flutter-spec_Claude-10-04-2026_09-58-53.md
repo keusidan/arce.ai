@@ -2,7 +2,7 @@
 
 - 作成日：2026-10-04（日本時間 18:58 時点の内容）
 - 目的：新しいセッションが、会話の履歴なしで、この文書だけを読んで作業を続けられるようにする。コードを読めば分かること（個々の関数の動き）は書かず、**意図・決定・制約・未確認のこと**を書く。
-- 作業ブランチ：`claude/great-lovelace-3lg7st`（既定ブランチは `claude/new-session-5wz0e3`。`main` は無い）
+- ブランチ：**`main` だけ（既定）**。2026-10-04 に、作業ブランチ `claude/great-lovelace-3lg7st` の先頭から作った。以前の既定ブランチ `claude/new-session-5wz0e3`（Kotlin版）のコミットは、すべて `main` の履歴に含まれている。
 - リポジトリ：`keusidan/arce.ai`（非公開）
 
 ## 1. 何のアプリか
@@ -158,7 +158,7 @@ v0.1.0（2026-09-26）が失敗した理由も同じ。以前の v0.1.1〜v0.3.1
 - 返答は日本語。時刻は**日本時間**で書く（UTC のまま書いて混乱させたことがあった）。
 - 略称は初出で「略称(正式名称)」。英語由来の技術用語は英単語のまま。説明には出典を付ける。
 - ファイル名の末尾に `Claude-MM-dd-yyyy_HH-mm-ss` を付ける（`docs/` の文書や、送る画像）。コードのファイルには付けない。
-- PR は、頼まれるまで作らない。ブランチは `claude/great-lovelace-3lg7st` に push する。
+- PR は、頼まれるまで作らない。`main` に push する（ブランチは増やさない）。
 - コミットの末尾に、次の2行を付ける：
   `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` と `Claude-Session: https://claude.ai/code/session_01DdPAuGoyns9ay81WpKxBKm`
 - 署名鍵（`*.jks`）をリポジトリに入れない（`.gitignore` 済み）。
