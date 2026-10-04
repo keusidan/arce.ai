@@ -1,0 +1,39 @@
+# Temporary probe: which release calls does GITHUB_TOKEN get a 403 for, on push vs. manual runs?
+# Every release it creates is deleted again. Removed once the cause is known.
+name: Probe release permission
+
+on:
+  push:
+    branches: ["claude/great-lovelace-3lg7st"]
+    paths: [.github/workflows/probe-release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Try the calls
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "event=$GITHUB_EVENT_NAME ref=$GITHUB_REF actor=$GITHUB_ACTOR triggering=$GITHUB_TRIGGERING_ACTOR sha=$GITHUB_SHA"
+          parent="$(git rev-parse HEAD~1)"
+          echo "parent=$parent"
+          try() { # name target draft
+            local tag="probe-$GITHUB_RUN_ID-$1" body out
+            body="$(jq -n --arg t "$tag" --arg c "$2" --argjson d "$3" \
+              '{tag_name:$t,target_commitish:$c,name:$t,draft:$d,prerelease:true}')"
+            out="$(gh api -i -X POST "repos/$GITHUB_REPOSITORY/releases" --input - <<< "$body" 2>&1)" || true
+            echo "--- $1: target=$2 draft=$3"
+            echo "$out" | grep -iE '^(HTTP/|x-accepted-github-permissions|"message"|\{"message|gh: )' || true
+            gh release delete "$tag" --cleanup-tag --yes > /dev/null 2>&1 || true
+          }
+          try draft-head   "$GITHUB_SHA" true
+          try publish-head "$GITHUB_SHA" false
+          try publish-prev "$parent"     false
