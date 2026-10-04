@@ -13,6 +13,7 @@ void main() {
       kvCache: KvCacheType.q8_0,
       gpuOffload: GpuOffload.maxGpu,
       contextLength: 8192,
+      candidateCount: 3,
       updateRepo: 'someone/else',
     );
     final back = AppSettings.fromJson(original.toJson());

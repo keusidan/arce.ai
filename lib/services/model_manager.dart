@@ -56,9 +56,8 @@ class DownloadFailed extends DownloadState {
 
 String formatGb(int bytes) => '${(bytes / 1e9).toStringAsFixed(2)} GB';
 
-/// Models on this device: what is installed, what is loaded, and downloads.
-/// Everything here works only where [NativeEngine] exists (Android); other platforms list the
-/// catalog but cannot download or load.
+/// Models on this device: what is installed, what is loaded, and downloads. Android, Windows
+/// and Linux use [NativeEngine]; each platform stores models in its own app-support directory.
 class ModelManager extends ChangeNotifier {
   ModelManager._(this.directory, this._engine, this._settings, this._device) {
     _downloader = ModelDownloader(directory);

@@ -37,7 +37,7 @@ Android のビルドには Android SDK と NDK 29.0.13113456、CMake 3.22.1 が�
 ```
 lib/core/       チャット制御・エージェント選択・プロンプト生成・ツール呼び出しの解釈・検索/天気 など
                 （Kotlin 版 core/ を Dart に移したもの。テストも移植済み: test/core）
-lib/engine/     InferenceEngine の実装: NativeEngine（Android の llama.cpp/LiteRT-LM）、DemoEngine
+lib/engine/     InferenceEngine の実装: NativeEngine（Android の llama.cpp/LiteRT-LM、Windows/Linux の llama.cpp）、DemoEngine
 lib/services/   設定・履歴・モデル管理・更新・プレビューサーバー
 lib/ui/         画面（ライト/ダークのトークンは theme.dart）
 android/        ネイティブ側: llama.cpp の JNI（src/main/cpp）、エンジン、APK インストーラー

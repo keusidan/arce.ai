@@ -5,16 +5,19 @@ import 'package:flutter/services.dart';
 
 import '../core/engine.dart';
 import '../core/generation.dart';
+import 'desktop_llama_engine.dart';
 
-/// The on-device engines of the Android build (llama.cpp and LiteRT-LM), reached through a
-/// platform channel. The native side owns the model; this class only forwards calls and
-/// turns the event stream back into [GenerationEvent]s.
+/// Native inference on every supported build. Android uses its established platform-channel
+/// bridge (llama.cpp / LiteRT-LM); Windows and Linux load the bundled llama.cpp C ABI directly.
 class NativeEngine implements InferenceEngine {
   static const _method = MethodChannel('ai.arce.app/engine');
   static const _events = EventChannel('ai.arce.app/engine/events');
 
-  /// Only the Android build ships the native engines.
-  static bool get isSupportedPlatform => Platform.isAndroid;
+  static bool get isSupportedPlatform => Platform.isAndroid || DesktopLlamaEngine.isSupportedPlatform;
+
+  DesktopLlamaEngine? _desktop;
+  DesktopLlamaEngine get _desktopEngine => _desktop ??= DesktopLlamaEngine();
+  bool get _usesDesktopRuntime => DesktopLlamaEngine.isSupportedPlatform;
 
   bool _loaded = false;
   String? _backend;
@@ -23,10 +26,10 @@ class NativeEngine implements InferenceEngine {
   final _active = <int, StreamController<Map<Object?, Object?>>>{};
 
   @override
-  bool get isLoaded => _loaded;
+  bool get isLoaded => _usesDesktopRuntime ? (_desktop?.isLoaded ?? false) : _loaded;
 
   /// "llama.cpp" or "LiteRT-LM (GPU)" for the status line.
-  String? get backendName => _backend;
+  String? get backendName => _usesDesktopRuntime ? _desktop?.backendName : _backend;
 
   void _listen() {
     _subscription ??= _events.receiveBroadcastStream().listen((event) {
@@ -38,6 +41,7 @@ class NativeEngine implements InferenceEngine {
 
   /// Compute devices llama.cpp was built with, e.g. "Vulkan0: ...". Empty when unknown.
   Future<List<String>> devices() async {
+    if (_usesDesktopRuntime) return _desktopEngine.devices();
     try {
       return (await _method.invokeListMethod<String>('devices')) ?? const [];
     } on PlatformException {
@@ -47,6 +51,7 @@ class NativeEngine implements InferenceEngine {
 
   @override
   Future<void> load(LoadParams params) async {
+    if (_usesDesktopRuntime) return _desktopEngine.load(params);
     try {
       final result = await _method.invokeMapMethod<String, Object?>('load', {
         'path': params.path,
@@ -67,6 +72,7 @@ class NativeEngine implements InferenceEngine {
 
   @override
   Stream<GenerationEvent> generate(GenerateRequest request) {
+    if (_usesDesktopRuntime) return _desktopEngine.generate(request);
     _listen();
     final id = _nextId++;
     final events = StreamController<Map<Object?, Object?>>();
@@ -126,11 +132,19 @@ class NativeEngine implements InferenceEngine {
 
   @override
   void cancel() {
+    if (_usesDesktopRuntime) {
+      _desktop?.cancel();
+      return;
+    }
     _method.invokeMethod<void>('cancel').catchError((Object _) {});
   }
 
   @override
   Future<void> unload() async {
+    if (_usesDesktopRuntime) {
+      if (_desktop != null) await _desktop!.unload();
+      return;
+    }
     try {
       await _method.invokeMethod<void>('unload');
     } on PlatformException {

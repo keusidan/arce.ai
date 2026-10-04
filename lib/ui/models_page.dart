@@ -64,7 +64,7 @@ class _ModelsPageState extends State<ModelsPage> {
               if (!models.supported)
                 _Alert(
                   title: 'このOSでは推論エンジンが未対応です',
-                  text: 'モデルの読み込み・実推論は Android 版で利用できます。このOSでは画面の操作確認とデモ応答のみ行えます。',
+                  text: 'このOSのビルドには推論エンジンが含まれていません。Android・Windows・Linux の対応ビルドで利用できます。',
                 )
               else if (!loaded && models.busy == null)
                 _Alert(

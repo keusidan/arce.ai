@@ -69,7 +69,7 @@ void main() {
     await tester.tap(find.text('モデル管理').first);
     await tester.pump(const Duration(milliseconds: 300));
     expect(app.page, AppPage.models);
-    expect(find.text('このOSでは推論エンジンが未対応です'), findsOneWidget);
+    expect(find.text('モデルが読み込まれていません'), findsOneWidget);
 
     await app.settings.update((s) => s.copyWith(theme: ThemeMode.dark));
     await tester.pump(); // builds the frame that starts the theme animation

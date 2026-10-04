@@ -49,6 +49,9 @@ endfunction()
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
+# Desktop llama.cpp runtime. It is copied next to the executable by the install rules below.
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native" "${CMAKE_BINARY_DIR}/arce-native")
+
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 

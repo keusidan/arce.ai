@@ -79,7 +79,7 @@ for i, t in enumerate(todos):
     }
     return '「$request」を受け取りました。\n\n'
         '今は推論エンジンに接続されていないため、実際の回答は行っていません。\n\n'
-        'Android 版でモデルを読み込むと、同じ画面で端末内AIと会話できます。'
+        '対応するAndroid・Windows・Linux版でモデルを読み込むと、同じ画面で端末内AIと会話できます。'
         '履歴・設定・Artifact の表示は、このままお試しいただけます。';
   }
 
