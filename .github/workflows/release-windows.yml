@@ -74,7 +74,9 @@ jobs:
           flutter test *>&1 | Tee-Object -FilePath "$env:TEMP/arce-test.log"
           $status = $LASTEXITCODE
           if ($status -ne 0) {
-            $details = (Get-Content -Raw "$env:TEMP/arce-test.log") -replace "`r?`n", ' '
+            # The failure is at the end of Flutter's test output; preserve that rather than
+            # letting a long list of successful tests exhaust GitHub's annotation limit.
+            $details = (Get-Content "$env:TEMP/arce-test.log" -Tail 160) -join ' '
             Write-Output "::error::$details"
             exit $status
           }
