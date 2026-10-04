@@ -42,12 +42,10 @@ jobs:
           status=$?
           cat /tmp/arce-analyze.log
           if [ "$status" -ne 0 ]; then
-            while IFS='|' read -r severity kind code file line column length message; do
-              if [ "$severity" = "ERROR" ]; then
-                path="${file#file://$GITHUB_WORKSPACE/}"
-                echo "::error file=$path,line=$line,col=$column::$code: $message"
-              fi
-            done < /tmp/arce-analyze.log
+            # Action log downloads may be unavailable to some contributors, so retain the
+            # complete analyzer output as a check annotation as well.
+            details="$(tr '\n' ' ' < /tmp/arce-analyze.log)"
+            echo "::error::${details:0:60000}"
             exit "$status"
           fi
 
