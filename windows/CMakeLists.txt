@@ -55,6 +55,15 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native" "${CMAKE_BINARY_DIR}/ar
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# The Flutter Windows template builds its `INSTALL` target after the executable. Copy the FFI
+# DLL next to that executable once it is linked, rather than asking the install script to locate
+# a multi-config target output directory.
+add_dependencies(${BINARY_NAME} arce_llama)
+add_custom_command(TARGET arce_llama POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${BINARY_NAME}>"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:arce_llama>" "$<TARGET_FILE_DIR:${BINARY_NAME}>"
+)
+
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
@@ -76,8 +85,6 @@ set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
-  COMPONENT Runtime)
-install(TARGETS arce_llama RUNTIME DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
