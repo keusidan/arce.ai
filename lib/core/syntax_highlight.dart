@@ -159,7 +159,9 @@ abstract final class SyntaxHighlighter {
       }
       if (_isWordStart(current)) {
         var end = i + 1;
-        while (end < source.length && _isWordPart(source[end])) end++;
+        while (end < source.length && _isWordPart(source[end])) {
+          end++;
+        }
         final word = source.substring(i, end);
         final isKeyword = keywordSet.contains(word) || keywordSet.contains(word.toLowerCase());
         final isType = word.length > 1 && word[0].toUpperCase() == word[0] && lang != 'json';
@@ -169,7 +171,9 @@ abstract final class SyntaxHighlighter {
       }
       if (_isDigit(current) && (i == 0 || !_isWordPart(source[i - 1]))) {
         var end = i + 1;
-        while (end < source.length && RegExp(r'[0-9a-fA-F_xX.]').hasMatch(source[end])) end++;
+        while (end < source.length && RegExp(r'[0-9a-fA-F_xX.]').hasMatch(source[end])) {
+          end++;
+        }
         add(source.substring(i, end), SyntaxToken.number);
         i = end;
         continue;
