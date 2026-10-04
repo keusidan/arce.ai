@@ -1,4 +1,4 @@
-# Temporary probe: which release calls does GITHUB_TOKEN get a 403 for?
+# Temporary probe: which release calls get a 403 for GITHUB_TOKEN?
 # Every release it creates is deleted again. Removed once the cause is known.
 #
 # Round 1 runs at once, round 2 after a wait during which the branch is pushed to again,
