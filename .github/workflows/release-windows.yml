@@ -67,8 +67,28 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test
-      - run: flutter build windows --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ needs.prepare.outputs.build_number }}
+      - name: Run flutter test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          flutter test *>&1 | Tee-Object -FilePath "$env:TEMP/arce-test.log"
+          $status = $LASTEXITCODE
+          if ($status -ne 0) {
+            $details = (Get-Content -Raw "$env:TEMP/arce-test.log") -replace "`r?`n", ' '
+            Write-Output "::error::$details"
+            exit $status
+          }
+      - name: Build Windows release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          flutter build windows --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ needs.prepare.outputs.build_number }} *>&1 | Tee-Object -FilePath "$env:TEMP/arce-build.log"
+          $status = $LASTEXITCODE
+          if ($status -ne 0) {
+            $details = (Get-Content -Raw "$env:TEMP/arce-build.log") -replace "`r?`n", ' '
+            Write-Output "::error::$details"
+            exit $status
+          }
       - name: Collect
         shell: pwsh
         run: |

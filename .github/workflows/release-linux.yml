@@ -71,11 +71,31 @@ jobs:
           sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test
-      - run: >
-          flutter build linux --release
-          --build-name ${{ needs.prepare.outputs.version }}
-          --build-number ${{ needs.prepare.outputs.build_number }}
+      - name: Run flutter test
+        shell: bash
+        run: |
+          set +e
+          flutter test > /tmp/arce-test.log 2>&1
+          status=$?
+          cat /tmp/arce-test.log
+          if [ "$status" -ne 0 ]; then
+            echo "::error::$(tr '\n' ' ' < /tmp/arce-test.log)"
+            exit "$status"
+          fi
+      - name: Build Linux release
+        shell: bash
+        run: |
+          set +e
+          flutter build linux --release \
+            --build-name ${{ needs.prepare.outputs.version }} \
+            --build-number ${{ needs.prepare.outputs.build_number }} > /tmp/arce-build.log 2>&1
+          status=$?
+          cat /tmp/arce-build.log
+          if [ "$status" -ne 0 ]; then
+            details="$(tr '\n' ' ' < /tmp/arce-build.log)"
+            echo "::error::${details:0:60000}"
+            exit "$status"
+          fi
       - name: Collect
         run: |
           name="ARCE.AI-v${{ needs.prepare.outputs.version }}-linux-x64.tar.gz"
