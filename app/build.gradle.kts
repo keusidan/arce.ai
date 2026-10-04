@@ -1,77 +1,39 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.chaquopy)
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
-// Release signing comes from the environment (GitHub Actions secrets, see
-// docs/ARCE_AI_release-workflow_*.md). Without it, assembleRelease produces an unsigned APK.
-val releaseKeystore: String? = System.getenv("ARCE_KEYSTORE_PATH")
-val releasePassword: String? = System.getenv("ARCE_KEYSTORE_PASSWORD")
-val releaseKeyAlias: String? = System.getenv("ARCE_KEY_ALIAS")
-val hasReleaseSigning = listOf(releaseKeystore, releasePassword, releaseKeyAlias).all { !it.isNullOrEmpty() }
-
 android {
-    namespace = "ai.arce.app"
-    compileSdk = 36
-    ndkVersion = "29.0.13113456"
+    namespace = "com.arce.ai"
+    compileSdk = 34
 
     defaultConfig {
-        applicationId = "ai.arce.app"
-        // Android 12 (2021) through the current release: "latest minus five years"
-        minSdk = 31
-        targetSdk = 36
-        // CI passes -Parce.versionCode=<run number> and -Parce.versionName=<tag without "v">.
-        // versionCode must only grow, or Android refuses the update.
-        versionCode = providers.gradleProperty("arce.versionCode").orNull?.toInt() ?: 1
-        versionName = providers.gradleProperty("arce.versionName").orNull ?: "0.1.0-dev"
-
-        ndk {
-            // arm64-v8a for phones; x86_64 so the Android Studio emulator runs native code instead
-            // of translating ARM (slow, and it crashes on instructions the translator lacks).
-            // Phone-only builds: -Parce.abis=arm64-v8a
-            abiFilters += (providers.gradleProperty("arce.abis").orNull ?: "arm64-v8a,x86_64").split(",").map { it.trim() }
-        }
-        externalNativeBuild {
-            cmake {
-                arguments += "-DCMAKE_BUILD_TYPE=Release"
-                arguments += "-DGGML_VULKAN=${if (project.property("arce.ggml.vulkan") == "true") "ON" else "OFF"}"
-                arguments += "-DGGML_OPENCL=${if (project.property("arce.ggml.opencl") == "true") "ON" else "OFF"}"
-                // Reuse compiled objects between builds (CI sets -Parce.ccache=true; needs ccache on PATH)
-                if (providers.gradleProperty("arce.ccache").orNull == "true") {
-                    arguments += "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
-                    arguments += "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
-                }
-            }
-        }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
+        applicationId = "com.arce.ai"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0.0-full"
     }
 
     signingConfigs {
-        if (hasReleaseSigning) {
-            create("release") {
-                storeFile = file(releaseKeystore!!)
-                // keytool's default PKCS12 keystores use one password for the store and the key
-                storePassword = releasePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releasePassword
-            }
+        create("release") {
+            // Local build keystore (committed, for this project's self-signed release)
+            val ksFile = rootProject.file("keystore/arce-release.jks")
+            storeFile = ksFile.takeIf { it.exists() }
+            storePassword = System.getenv("ARCE_KS_PASS") ?: "arce2026"
+            keyAlias = "arce"
+            keyPassword = System.getenv("ARCE_KS_PASS") ?: "arce2026"
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            isMinifyEnabled = false
         }
     }
 
@@ -79,83 +41,41 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
+    kotlinOptions {
+        jvmTarget = "17"
+    }
     buildFeatures {
         compose = true
-        buildConfig = true
     }
-
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.14"
+    }
     packaging {
-        jniLibs {
-            // Store .so files uncompressed and page-aligned so they load straight from the APK.
-            useLegacyPackaging = false
-            // LiteRT-LM and Chaquopy may both bring the shared C++ runtime.
-            pickFirsts += "**/libc++_shared.so"
-        }
-        resources {
-            // Jar metadata of ECJ / R8 / apksig that nothing reads at runtime and that collides.
-            excludes += listOf("META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA", "META-INF/eclipse.inf",
-                "META-INF/versions/**", "META-INF/LICENSE*", "META-INF/NOTICE*", "about.html", "about_files/**")
-        }
-    }
-}
-
-// Python for the code runner (Chaquopy). No pip packages, so no build-time Python is needed.
-chaquopy {
-    defaultConfig {
-        version = "3.13"
-        pyc {
-            src = false
-        }
-    }
-}
-
-// The on-device Java compiler (ECJ) and dexer (D8) need the Android class library to compile
-// against. Ship the SDK's android.jar (classes only) as an asset.
-val androidJarAsset = tasks.register<Zip>("androidJarAsset") {
-    from(zipTree(android.sdkDirectory.resolve("platforms/android-${android.compileSdk}/android.jar"))) {
-        include("**/*.class")
-    }
-    archiveFileName.set("android.jar")
-    destinationDirectory.set(layout.buildDirectory.dir("generated/arceAssets"))
-    isPreserveFileTimestamps = false
-    isReproducibleFileOrder = true
-}
-
-androidComponents {
-    onVariants { variant ->
-        variant.sources.assets?.addGeneratedSourceDirectory(androidJarAsset, Zip::getDestinationDirectory)
-    }
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
 
 dependencies {
-    implementation(project(":core"))
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+    implementation("androidx.activity:activity-compose:1.9.0")
+    implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.androidx.datastore.preferences)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
-    implementation(libs.androidx.webkit)
-    implementation(libs.androidx.work.runtime)
-    implementation(libs.litertlm.android)
-    implementation(libs.ecj)
-    implementation(libs.r8)
-    implementation(libs.apksig)
+    val composeBom = platform("androidx.compose:compose-bom:2024.05.00")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    debugImplementation("androidx.compose.ui:ui-tooling")
 
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    debugImplementation(libs.androidx.compose.ui.tooling)
+    // Embedded lightweight HTTP server (artifact local preview)
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    // HTML parsing for web search results
+    implementation("org.jsoup:jsoup:1.17.2")
+    // Background work + notifications
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

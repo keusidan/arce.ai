@@ -1,11 +1,14 @@
-.gradle/
+# toolchain (JDK / Android SDK / NDK) - huge, not part of source
+toolchain/
+# llama.cpp is a submodule
+# build outputs
 build/
-.kotlin/
+.gradle/
 local.properties
+*.log
+dist/*.apk
 .idea/
 *.iml
-.cxx/
-.externalNativeBuild/
-captures/
-*.keystore
-*.jks
+.DS_Store
+native/build-*/
+toolchain/
