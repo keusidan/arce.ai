@@ -1,0 +1,181 @@
+ARCE.AI助言書(実装アドバイス・失敗ログ)
+
+このファイルは企画書とは別に、実装時の難所・失敗・解決策を蓄積していくドキュメントです。
+生成AIが変わっても、ここを読み込ませれば同じ失敗を繰り返さず、生成するほど安定するようにする狙いです。
+
+────────────────────────────
+■ 運用ルール
+────────────────────────────
+1. 失敗が起きたら、下記「失敗ログ」フォーマットで【失敗ログ一覧】の末尾に追記する(削除しない)。
+2. ログが一定数(目安10件)、またはファイルが肥大化してきたら、似た原因のログをまとめて
+   「チートシート(要約)」に原則として抽出し直す。
+3. 次にAIへ実装を依頼するときは、基本的に「チートシート」だけ読ませれば十分な状態を目指す。
+   個別ログは、チートシートの要約が誤っていた場合の検証・遡り用として残す。
+
+【失敗ログの記入フォーマット】
+## 失敗ログ #001
+対象: (どの機能/画面か)
+症状: (何が起きたか)
+原因: (分かった原因)
+解決: (どう直したか)
+
+────────────────────────────
+■ チートシート(要約・現時点の原則)
+────────────────────────────
+※ ログが溜まったらここに原則を抽出していきます。現時点では初期知見のみ記載。
+
+【推論エンジン統合について】
+・llama.cppをAndroidに組み込む際は、JNI(Java Native Interface)経由でのC++呼び出しになるため、メモリリークが起きやすい。Contextオブジェクトの生成・破棄は必ず1対1で対応させ、アプリのライフサイクル(onDestroy等)にきちんと紐付けること。
+・モデルロード中にUIスレッドをブロックすると即座にクラッシュ(ANR)する。推論・ロード処理は必ず別スレッド(Kotlin Coroutine + Dispatchers.IO、またはWorkManager)で行い、結果だけメインスレッドに返す設計にする。
+・GGUFファイルは数GBになることが多いため、ロード中の進捗はストリーミングで%表示できるようにしておくと、ユーザーがフリーズと誤解しにくい。
+
+【CPU/GPU/NPU切替の実装】
+・「グレーアウト」の判定は起動時に一度だけ端末のケーパビリティを検査し、キャッシュしておく。毎回チェックすると起動が遅くなる。
+・Vulkan対応の判定はPackageManager.hasSystemFeature(FEATURE_VULKAN_HARDWARE_LEVEL)等で事前チェックし、対応してないのに強制実行すると即クラッシュするので、必ず例外処理(try/catch)でフォールバック先(CPU)に自動で切り替える設計にする。
+
+【アーティファクト(コードプレビュー)の実装】
+・WebViewでHTML/JS/CSSを実行する場合、file://スキームだと多くの外部リソース読み込みがブロックされる。ローカルサーバー(例:NanoHTTPDのような軽量HTTPサーバーをアプリ内で起動)を立てて http://localhost:port/ 経由で読み込ませると安定する。
+・XSS対策として、生成されたコードをそのままWebViewに流し込むと、ユーザーの他のアプリ内データにアクセスされるリスクがある。WebViewのsetJavaScriptEnabledは必要最小限にし、addJavascriptInterfaceは使わない(または厳格に制限する)。
+
+【タイル機能(JSON形式の質問UI)の実装】
+・LLMが出力するJSONは、閉じ括弧忘れや余分なテキスト(前置き文章)が混ざることが非常に多い。パース前に正規表現で{...}部分だけ抜き出す、またはJSON Schemaで強制(構造化出力対応モデルならresponse_format相当の機能)するとエラー率が大きく下がる。
+・パースに失敗した場合は、タイルを表示せず通常のテキスト回答として扱うフォールバックを必ず用意する(パースエラーでアプリが落ちるのが最悪のパターン)。
+
+【エラー時の再書き込み(リトライ)機能】
+・同じエラーで無限リトライするループを防ぐため、リトライ回数の上限だけでなく「同一エラー内容が連続した場合は即座に停止してユーザーに通知する」ロジックを入れる。
+・リトライ時にコンテキスト(会話履歴)をそのまま使うと、同じ間違いを繰り返しやすい。エラー内容をシステムプロンプトに1行追記して再生成させると改善率が上がる(例:「前回の生成で構文エラーが発生した部分:◯◯」)。
+
+【バッテリー・熱対策】
+・「スペック制限を回避し強制的に実行」がONの場合は、熱に関する警告・制限は一切行わず無視して実行する(ユーザーが意図的にリスクを許容している状態のため)。
+・OFFの場合のみ、温度センサー(BatteryManagerのEXTRA_TEMPERATURE等)を監視し、一定温度を超えたら警告を出す仕組みを入れる。
+
+【リアルタイムプレビュー(生成途中のコード反映)】
+・HTML/CSS/JSなら比較的やりやすいが、構文が不完全な状態(タグが閉じていない等)のままプレビューしようとすると、パースエラーで真っ白な画面になりやすい。閉じタグが揃うまではプレビューを更新しない、など部分的な安全策を入れること。
+
+【APK/EXE/JARの自動ビルド】
+・スマホ上でのビルドは重い処理であり、特にAndroid端末単体ではWindows向けEXEのクロスコンパイルは基本的に不可能。EXE生成に関しては「PC側の補助ビルドサーバーが必須」という前提を明記し、実装側で誤って「Android単体でEXEも作れる」設計にしないよう注意する。
+
+【モデルファイルの保存管理】
+・Scoped Storageの制約で、Android 10以降はgetExternalFilesDir()配下以外への書き込みが難しくなっている。数GBのモデルファイルを保存する場所は事前にユーザーに明示し、アプリをアンインストールすると消える点も注意書きしておくとユーザーの混乱を防げる。
+
+────────────────────────────
+■ 失敗ログ一覧
+────────────────────────────
+## 失敗ログ #001
+対象: ビルド環境(Android SDK)のセットアップ
+症状: sdkmanager が "Invalid or corrupt jarfile .../bin/sdkmanager" で失敗
+原因: bin/sdkmanager はシェルスクリプトなのに `java -jar` として実行していた
+解決: スクリプトをそのまま実行(bin/sdkmanager ...)する。java -jar は不可。
+
+## 失敗ログ #002
+対象: ビルド環境(Android SDK)のセットアップ
+症状: ライセンス同意後に "Skipping following packages as the license is not accepted" で全パッケージ未インストール
+原因: `--licenses` の標準入力を /dev/null にしていたため "Accept? (y/N)" が N 扱いになった
+解決: `yes | sdkmanager --licenses` で同意をパイプする。
+
+## 失敗ログ #003
+対象: ビルド環境(JDK/NDK)の永続化
+症状: セッションの保存・復元後に JDK の lib(.so) が欠落・実行ビット喪失し "libjli.so: cannot open" / "Permission denied"
+原因: ワークスペースのスナップショット容量上限(約128MB/1万ファイル)でツールチェーン(数GB)が切り詰められた
+解決: scripts/setup_toolchain.sh を冪等に(健全性チェック→欠損時のみ再DL)。
+       各ターン開始時に `java -version` と NDK 存在チェックをしてからビルドを始める運用にする。
+       巨大なツールチェーンはリポジトリにコミットしない(.gitignore)。
+
+## 失敗ログ #004
+対象: llama.cpp の Vulkan(GPU)バックエンドビルド
+症状: `GGML_VULKAN=ON` で CMake 設定が失敗 "Could not find a package configuration file provided by SPIRV-Headers"
+原因: 新しい llama.cpp の Vulkan バックエンドはビルド時に glslc でシェーダをSPIR-Vコンパイルするため、
+       ホスト側に Vulkan SDK(glslc) + SPIRV-Headers が必要。NDK 単体では不足する。
+解決: ホストに Vulkan SDK をインストールし CMAKE_PREFIX_PATH を通して再設定。
+       (失敗時は CPU バックエンド版 .so にフォールバックしてアプリは動作可能にする設計で進める)
+
+## 失敗ログ #005
+対象: llama.cpp JNI ブリッジ (arce_llama.cpp)
+症状: 古いサンプルコードベースのAPIでコンパイル不可
+原因: llama.cpp の新APIリファクタ。
+       - llama.h が include/llama.h へ移動
+       - llama_batch_get_one(tokens, n) の2引数化(posは自動管理)
+       - llama_n_vocab → llama_vocab_n_tokens
+       - llama_new_context_with_model → llama_init_from_model (旧APIはDEPRECATED)
+解決: include/llama.h を読んでシグネチャを1つずつ検証してから実装すること。
+       デプロリシーの警告コメントを無視しない。
+
+## 失敗ログ #006
+対象: モデルファイルのHugging Face URL
+症状: 記憶にある bartowski/* のGGUF URLが404
+原因: リポジトリ名・ファイル名の記憶違い(bartowskiの該当リポジトリは存在しない/リネーム)
+解決: URLを推測せず `https://huggingface.co/api/models/<repo>` でsiblings一覧を取得してから採用。
+       採用したのは公式リポジトリ: Qwen/Qwen2.5-0.5B-Instruct-GGUF,
+       Qwen/Qwen2.5-1.5B-Instruct-GGUF, google/gemma-2-2b-it-GGUF(単一ファイル2b_it_v2.gguf)。
+## 失敗ログ #007
+対象: Gradle ビルド (packageRelease)
+症状: "Gradle build daemon disappeared unexpectedly" — dmesg に global OOM kill (java, anon-rss 1.4GB)
+原因: ビルド環境が 2vCPU/2GB RAM で、Gradle daemon(1.2GB heap)+メタスペース+ネイティブでRAM不足。
+       .so がデバッグ情報入り49MBだったこともパック作業のメモリ増幅要因だった。
+解決: (1) NDKの llvm-strip で .so を49MB→6MBに削減 (2) org.gradle.jvmargs=-Xmx700m
+       -XX:MaxMetaspaceSize=384m + SerialGC (3) packageReleaseは --no-daemon で実行。
+       教訓: 低スペック機ではネイティブlibを必ずstripし、JVMを1.1GB以下に抑える。
+
+## 失敗ログ #008
+対象: NotificationManager.notify の引数順
+症状: "Type mismatch: inferred type is Int but String! was expected" (引数2個分)
+原因: 引数順を notify(id, tag, n) と記憶していたが、実際は notify(tag, id, n)。
+       3引数版の先頭はString tag。
+解決: nm.notify(key, hash, notification) の順に修正。
+
+## 失敗ログ #009
+対象: WebViewのコンソールエラー捕捉
+症状: onReceivedConsoleMessage が "overrides nothing"
+原因: android.webkit.WebViewClient のパブリックAPIにはコンソールメッセージの
+       オーバーライドが存在しない(API 34のandroid.jarでjavap確認)。
+解決: 配信HTMLをsame-originのiframeラッパーで包み、ラッパー側で
+       contentWindow.onerror をフックしてアプリ内HTTPサーバーのPOST /__error
+       へエラーを送信し、UI側がポーリングで取得する方式に変更。
+
+## 失敗ログ #010
+対象: java.net.HttpURLConnection の .use {}
+症状: "receiver type mismatch" (kotlin.io.use が解決できない)
+原因: Android の java.net.URLConnection は Closeable を継承していない
+       (JDKと異なる)。close()相当は disconnect()。
+解決: try/finally で明示的に disconnect() する形に書き換え。
+
+## 失敗ログ #011
+対象: Vulkan SDK のダウンロード
+症状: .tar.gz と名のついたファイルが tar で "not in gzip format" / py7zr でも開けない
+原因: 実際は XZ 形式(マジック FD 37 7A 58 5A 00)で拡張子と中身が不一致。
+       GitHub の Vulkan-SDK リリースURLは404(資産名が異なる)。
+解決: 公式 sdk.lunarg.com のURL(200を確認)から取得し tar -xJf (xz) で解凍。
+       glslc と SPIRV-Headers は $SDK/x86_64/{bin,share/cmake} にある。
+## 失敗ログ #012
+対象: ggml-vulkan の mul_mm.comp.cpp コンパイル
+症状: clang++ が OOM kill (Error 137)。-O3/-O1/-O0 全てで peak RSS 1.49GB。
+原因: vulkan-shaders-gen が mul_mm.comp から541組のSPIR-Vテーブルを生成し、
+       生成C++が87.6MBになる。巨大初期化子のパース自体が1.5GB以上要する。
+解決: (1) ファイルを配列ペア境界で9MB×10チャンクに分割 (2) 各チャンクを
+       個別に -O0 でコンパイル (3) CMakeListsでmul_mm.compの通常ビルドを
+       スキップし、チャンクオブジェクトを target_link_libraries でリンク。
+       教訓: 生成コードが巨大化しうるときは「1ファイル=1翻訳単位」を壊して
+       分割コンパイルする手を持ち合わせる。
+
+## 失敗ログ #013
+対象: Android 低APIレベルでのVulkan 1.1シンボル不足
+症状: リンクエラー "undefined symbol: vkGetPhysicalDeviceFeatures2"
+       (ANDROID_PLATFORM=android-26 の場合)
+原因: NDKのlibvulkan.soはAPI<28でVulkan 1.0シンボルのみをエクスポート。
+       ggml-vulkanはVulkan 1.1の vkGetPhysicalDeviceFeatures2 を直接呼ぶ。
+       ANDROID_PLATFORMを28以上に上げるとリンクは通るが、API 26/27端末で
+       .soのロード自体が失敗しCPU推論まで失われる。
+解決: native/vk_shim.cpp で当該シンボルを hidden 定義し、
+       (1) リアルローダーに存在すれば dlopen("/system/lib64/libvulkan.so")
+           経由で転送 (2) 存在しなければ Vulkan 1.0 のフィーチャセットを
+           返し ggml-vulkan に"古すぎる"と判定させてCPUフォールバック。
+       シグネチャ注意: 実際は void 返り値（SDKヘッダで確認、VkResultではない）。
+
+## 失敗ログ #014
+対象: packageRelease のOOM (.so 40MB)
+症状: "Gradle build daemon disappeared" — dmesgで java anon-rss 1.4GB kill。
+       --no-daemon でも、コンパイル→dex→packageを同一JVMで順に実行すると
+       ヒープが回復しないまま package に到達し OOM。
+解決: (1) packageRelease を単独のgradle実行(新規JVM)で分離実行 → 16秒で成功
+       (2) 40MB .soは圧縮せずSTOREDでパック (APKは51MB)
+       教訓: 低メモリ環境では「重いタスクを別JVMに分離」が最も確実。

@@ -1,0 +1,251 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+
+import '../core/chat_controller.dart';
+import '../core/http_get.dart';
+import '../core/search.dart';
+import '../core/tool_runtime.dart';
+import '../core/weather.dart';
+import '../engine/demo_engine.dart';
+import '../engine/hybrid_engine.dart';
+import '../engine/native_engine.dart';
+import 'device_info.dart';
+import 'history_store.dart';
+import 'model_manager.dart';
+import 'preview_server.dart';
+import 'settings.dart';
+import 'update_service.dart';
+
+enum AppPage { chat, models, artifacts, settings, history }
+
+/// Anchors of the sections of the settings page, so the desktop sidebar can jump to one.
+enum SettingsSection { basic, answer, display, developer, update }
+
+
+/// A generation that was still running when the app last stopped (spec §25.1).
+class InterruptedConversation {
+  const InterruptedConversation(this.id, this.title);
+  final int id;
+  final String title;
+}
+
+/// Application-wide objects. The chat and the loaded model live here rather than in a page,
+/// so a generation survives switching pages.
+class AppController extends ChangeNotifier {
+  AppController._({
+    required this.settings,
+    required this.history,
+    required this.models,
+    required this.updates,
+    required this.device,
+    required this.engine,
+    required this.preview,
+  }) {
+    chat = ChatController(
+      engine,
+      toolRuntime: _toolRuntime,
+      settings: () => settings.value.toGeneration(models.loadedParamsB),
+      store: (snapshot, {required generating}) => _persist(snapshot, generating),
+    )..setThinking(settings.value.thinking);
+  }
+
+  final SettingsStore settings;
+  final HistoryStore history;
+  final ModelManager models;
+  final UpdateService updates;
+  final DeviceInfoService device;
+  final HybridEngine engine;
+  final PreviewServer preview;
+  late final ChatController chat;
+
+  AppPage page = AppPage.chat;
+
+  /// Which part of the settings page to scroll to (set by the desktop sidebar).
+  final settingsSection = ValueNotifier<SettingsSection?>(null);
+  int? conversationId;
+  InterruptedConversation? interrupted;
+  List<ConversationMeta> conversations = const [];
+
+  /// Text shown briefly at the bottom of the screen.
+  final toast = ValueNotifier<String?>(null);
+  Timer? _toastTimer;
+
+  /// [supportDirectory] replaces the platform's app-data folder (tests use a temporary one).
+  static Future<AppController> create({Directory? supportDirectory, UpdateService? updateService}) async {
+    final settings = await SettingsStore.load();
+    final device = DeviceInfoService();
+    final native = NativeEngine();
+    final models = await ModelManager.create(
+      engine: native,
+      settings: settings,
+      device: device,
+      supportDirectory: supportDirectory,
+    );
+    final history = await HistoryStore.open(supportDirectory: supportDirectory);
+    final updates = updateService ?? UpdateService(settings);
+    final app = AppController._(
+      settings: settings,
+      history: history,
+      models: models,
+      updates: updates,
+      device: device,
+      engine: HybridEngine(native, DemoEngine()),
+      preview: PreviewServer(),
+    );
+    unawaited(app._start());
+    return app;
+  }
+
+  final _http = packageHttpGet();
+
+  /// Built per call so a changed SearXNG address or search switch applies immediately.
+  late final ToolRuntime _toolRuntime = _SettingsToolRuntime(settings, _http);
+
+  Future<void> _start() async {
+    settings.addListener(() => chat.setThinking(settings.value.thinking));
+    try {
+      await refreshConversations();
+      final item = conversations.where((c) => c.generating).firstOrNull;
+      if (item != null) {
+        interrupted = InterruptedConversation(item.id, item.title);
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('could not read the conversation list: $e');
+    }
+    unawaited(updates.init().catchError((Object e) => debugPrint('update check setup failed: $e')));
+    unawaited(models.restoreLastModel().catchError((Object e) => debugPrint('could not restore the last model: $e')));
+  }
+
+  void goTo(AppPage target) {
+    if (page == target) return;
+    page = target;
+    notifyListeners();
+  }
+
+  void openSettings(SettingsSection section) {
+    goTo(AppPage.settings);
+    settingsSection.value = section;
+  }
+
+  void showToast(String text) {
+    toast.value = text;
+    _toastTimer?.cancel();
+    _toastTimer = Timer(const Duration(milliseconds: 2200), () => toast.value = null);
+  }
+
+  Future<void> refreshConversations() async {
+    conversations = await history.list();
+    notifyListeners();
+  }
+
+  void newConversation() {
+    if (chat.state.isGenerating) return;
+    conversationId = null;
+    chat.clear();
+    goTo(AppPage.chat);
+    notifyListeners();
+  }
+
+  Future<void> openConversation(int id) async {
+    if (chat.state.isGenerating) return;
+    final snapshot = await history.get(id);
+    if (snapshot == null) return;
+    chat.restore(snapshot);
+    conversationId = id;
+    goTo(AppPage.chat);
+    notifyListeners();
+  }
+
+  Future<void> deleteConversation(int id) async {
+    await history.delete(id);
+    if (conversationId == id) newConversation();
+    await refreshConversations();
+  }
+
+  /// The user's choice for an interrupted generation: resume it, regenerate, or discard it.
+  Future<void> resolveInterrupted(String action) async {
+    final item = interrupted;
+    if (item == null) return;
+    interrupted = null;
+    notifyListeners();
+    await history.clearGenerating(item.id);
+    if (action == 'discard') {
+      await refreshConversations();
+      return;
+    }
+    final snapshot = await history.get(item.id);
+    if (snapshot == null) return;
+    chat.restore(snapshot);
+    conversationId = item.id;
+    goTo(AppPage.chat);
+    notifyListeners();
+    if (action == 'resume') {
+      if (chat.state.canContinue) {
+        unawaited(chat.continueReply());
+      } else {
+        unawaited(chat.regenerate());
+      }
+    } else {
+      unawaited(chat.regenerate());
+    }
+  }
+
+  String? exportConversation() {
+    final snapshot = chat.snapshot();
+    if (snapshot.messages.isEmpty) return null;
+    return snapshot.messages
+        .map((m) => '${m.role == Role.user ? '## User' : '## ARCE.AI'}\n${m.text}')
+        .join('\n\n');
+  }
+
+  // One writer at a time, in order: the first save of a new chat must get its id before the next.
+  Future<void> _writer = Future.value();
+
+  void _persist(ConversationSnapshot snapshot, bool generating) {
+    if (snapshot.messages.isEmpty) return;
+    _writer = _writer.then((_) async {
+      try {
+        final id = await history.save(conversationId, snapshot, generating: generating);
+        if (conversationId == null) {
+          conversationId = id;
+          notifyListeners();
+        }
+        await refreshConversations();
+      } catch (e) {
+        debugPrint('could not save the conversation: $e');
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _toastTimer?.cancel();
+    unawaited(preview.dispose());
+    updates.dispose();
+    super.dispose();
+  }
+}
+
+/// Tools read the settings at call time, so a changed SearXNG address or search switch applies at once.
+class _SettingsToolRuntime implements ToolRuntime {
+  _SettingsToolRuntime(this._settings, this._http);
+
+  final SettingsStore _settings;
+  final HttpGet _http;
+
+  @override
+  Future<ToolOutcome> run(call) {
+    final s = _settings.value;
+    final providers = <SearchProvider>[
+      if (s.searxngUrl.trim().isNotEmpty) SearXngProvider(s.searxngUrl.trim(), _http),
+      DuckDuckGoInstantProvider(_http),
+    ];
+    return DefaultToolRuntime(
+      search: s.searchEnabled ? SearchService(providers, retriesPerProvider: s.retryLimit.clamp(0, 3)) : null,
+      weather: OpenMeteoWeather(_http),
+    ).run(call);
+  }
+}

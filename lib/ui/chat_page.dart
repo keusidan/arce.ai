@@ -1,0 +1,517 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../core/attachments.dart';
+import '../services/app_controller.dart';
+import 'app_scope.dart';
+import 'chat_widgets.dart';
+import 'svg_icons.dart';
+import 'theme.dart';
+import 'widgets.dart';
+
+class ChatPage extends StatefulWidget {
+  const ChatPage({super.key});
+
+  @override
+  State<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends State<ChatPage> {
+  final _input = TextEditingController();
+  final _focus = FocusNode();
+  final _scroll = ScrollController();
+  final _attachments = <Attachment>[];
+  AppController? _app;
+  int _lastCount = 0;
+
+  bool get _desktop => const {TargetPlatform.windows, TargetPlatform.linux, TargetPlatform.macOS}.contains(defaultTargetPlatform);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final app = ArceScope.of(context);
+    if (_app != app) {
+      _app?.chat.removeListener(_onChat);
+      _app = app..chat.addListener(_onChat);
+      _lastCount = app.chat.state.messages.length;
+      // coming back from another page: show the latest messages, not the top of the list
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _app?.chat.removeListener(_onChat);
+    _input.dispose();
+    _focus.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onChat() {
+    final count = _app!.chat.state.messages.length;
+    final grew = count != _lastCount;
+    _lastCount = count;
+    if (!_scroll.hasClients) return;
+    final nearBottom = _scroll.position.maxScrollExtent - _scroll.offset < 160;
+    if (grew || nearBottom) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      });
+    }
+  }
+
+  Future<void> _pickFiles() async {
+    final app = ArceScope.of(context);
+    final files = await FilePicker.pickFiles();
+    for (final file in files) {
+      final path = file.path;
+      if (path == null) continue;
+      if (_attachments.length >= AttachmentPolicy.maxFiles) {
+        app.showToast('添付できるのは${AttachmentPolicy.maxFiles}ファイルまでです');
+        break;
+      }
+      try {
+        final bytes = await File(path).readAsBytes();
+        // text only: a file that is not valid UTF-8 would fill the context with garbage
+        final text = const Utf8Decoder(allowMalformed: false).convert(bytes);
+        setState(() => _attachments.add(Attachment(file.name, text)));
+      } catch (_) {
+        app.showToast('${file.name} はテキストとして読めませんでした');
+      }
+    }
+  }
+
+  void _send() {
+    final app = ArceScope.of(context);
+    final text = _input.text;
+    if (text.trim().isEmpty && _attachments.isEmpty) return;
+    final shown = text.trim().isEmpty ? 'ファイルを添付しました。' : text;
+    final files = List<Attachment>.of(_attachments);
+    _input.clear();
+    setState(_attachments.clear);
+    unawaited(app.chat.send(shown, attachments: files));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = ArceScope.of(context);
+    return Column(children: [
+      Expanded(
+        child: ListenableBuilder(
+          listenable: Listenable.merge([app.chat, app.settings, app.models]),
+          builder: (context, _) => _Messages(app: app, scroll: _scroll, onPrompt: _usePrompt),
+        ),
+      ),
+      PageColumn(
+        maxWidth: 860,
+        child: ListenableBuilder(
+          listenable: Listenable.merge([app.chat, app.settings]),
+          builder: (context, _) => _composer(context, app),
+        ),
+      ),
+    ]);
+  }
+
+  void _usePrompt(String prompt) {
+    _input.text = prompt;
+    _input.selection = TextSelection.collapsed(offset: prompt.length);
+    _focus.requestFocus();
+    setState(() {});
+  }
+
+  Widget _composer(BuildContext context, AppController app) {
+    final c = context.c;
+    final chat = app.chat.state;
+    final settings = app.settings.value;
+    final canSend = _input.text.trim().isNotEmpty || _attachments.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(11, 0, 11, 7),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        _ModeTabs(app: app),
+        Container(
+          padding: const EdgeInsets.fromLTRB(9, 9, 9, 8),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: c.line),
+            boxShadow: const [BoxShadow(color: Color(0x0B1E2537), blurRadius: 14, offset: Offset(0, 4))],
+          ),
+          child: Column(children: [
+            if (_attachments.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(2, 0, 2, 6),
+                  child: Wrap(spacing: 6, runSpacing: 6, children: [
+                    for (var i = 0; i < _attachments.length; i++)
+                      FileChip(name: _attachments[i].name, onRemove: () => setState(() => _attachments.removeAt(i))),
+                  ]),
+                ),
+              ),
+            Focus(
+              onKeyEvent: (node, event) {
+                // Enter sends on desktop; Shift+Enter adds a line
+                if (_desktop &&
+                    event is KeyDownEvent &&
+                    event.logicalKey == LogicalKeyboardKey.enter &&
+                    !HardwareKeyboard.instance.isShiftPressed &&
+                    !_input.value.composing.isValid) {
+                  if (!chat.isGenerating) _send();
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: TextField(
+                controller: _input,
+                focusNode: _focus,
+                minLines: 1,
+                maxLines: 5,
+                maxLength: 4000,
+                onChanged: (_) => setState(() {}),
+                style: ts(context, 13, height: 1.55),
+                decoration: InputDecoration(
+                  isCollapsed: true,
+                  counterText: '',
+                  contentPadding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+                  hintText: 'メッセージを入力してください…',
+                  hintStyle: ts(context, 13, color: c.faint),
+                  border: InputBorder.none,
+                ),
+              ),
+            ),
+            Row(children: [
+              _ToolButton(svg: ArceSvg.paperclip, onTap: _pickFiles, tooltip: 'ファイルを添付'),
+              const SizedBox(width: 2),
+              Container(width: 1, height: 19, color: c.line),
+              const SizedBox(width: 2),
+              _ToolButton(
+                svg: ArceSvg.brainLabel,
+                label: '思考',
+                on: settings.thinking,
+                onTap: () {
+                  app.settings.update((s) => s.copyWith(thinking: !s.thinking));
+                  app.showToast(!settings.thinking ? 'Thinking表示をオン' : 'Thinking表示をオフ');
+                },
+              ),
+              _ToolButton(
+                svg: ArceSvg.search,
+                label: '検索',
+                on: settings.searchEnabled,
+                onTap: () {
+                  app.settings.update((s) => s.copyWith(searchEnabled: !s.searchEnabled));
+                  app.showToast(!settings.searchEnabled ? 'Searchをオン' : 'Searchをオフ');
+                },
+              ),
+              const Spacer(),
+              _ToolButton(svg: ArceSvg.cube, onTap: () => app.goTo(AppPage.models), tooltip: 'モデル管理'),
+              const SizedBox(width: 5),
+              if (chat.isGenerating)
+                _SendButton(label: '停止', svg: ArceSvg.stop, onTap: app.chat.stop, stop: true)
+              else
+                _SendButton(label: '送信', svg: ArceSvg.send, onTap: canSend ? _send : null),
+            ]),
+          ]),
+        ),
+        SizedBox(
+          height: 20,
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            ArceIcon(ArceSvg.info, size: 11, color: app.engine.isLoaded ? c.green : c.amber),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                app.engine.isLoaded ? '${app.models.loadedName ?? 'モデル'} · ${app.models.backend ?? ''}' : 'モデル未接続 · デモ応答のみ',
+                overflow: TextOverflow.ellipsis,
+                style: ts(context, 9, color: c.muted),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+class _Messages extends StatelessWidget {
+  const _Messages({required this.app, required this.scroll, required this.onPrompt});
+
+  final AppController app;
+  final ScrollController scroll;
+  final ValueChanged<String> onPrompt;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = app.chat.state;
+    final settings = app.settings.value;
+    final last = state.messages.isEmpty ? null : state.messages.last;
+    final showThinkingCard = state.isGenerating && settings.thinking && (last?.text.trim().isEmpty ?? true);
+    return SelectionArea(
+      child: ListView(
+        controller: scroll,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 13),
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 860),
+              child: state.messages.isEmpty
+                  ? _Welcome(app: app, onPrompt: onPrompt)
+                  : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      for (var i = 0; i < state.messages.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: MessageView(message: state.messages[i], isLast: i == state.messages.length - 1, state: state),
+                        ),
+                      if (showThinkingCard)
+                        ThinkingCard(task: state.task, style: settings.thinkingStyle, agent: last?.agent),
+                      if (state.pendingQuestion != null)
+                        QuestionCard(
+                          key: ValueKey(state.messages.length),
+                          tile: state.pendingQuestion!,
+                          onAnswer: (selected, free) => app.chat.answer(selected, free),
+                        ),
+                      if (state.notice != null) NoticeBanner(text: state.notice!, tone: BannerTone.warning),
+                      if (state.error != null)
+                        NoticeBanner(
+                          text: state.error!,
+                          tone: BannerTone.error,
+                          action: state.isGenerating ? null : SoftButton(label: '再試行', onTap: app.chat.regenerate),
+                        ),
+                    ]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Welcome extends StatelessWidget {
+  const _Welcome({required this.app, required this.onPrompt});
+  final AppController app;
+  final ValueChanged<String> onPrompt;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final loaded = app.engine.isLoaded;
+    final chips = <(String, String, VoidCallback)>[
+      ('コード生成を試す', ArceSvg.codeEdit, () => onPrompt('Pythonで簡単なToDoリストを作るコードを書いて')),
+      ('モデルを確認する', ArceSvg.cube, () => app.goTo(AppPage.models)),
+      ('Artifact を見る', ArceSvg.grid, () => app.goTo(AppPage.artifacts)),
+      ('アプリ設定を開く', ArceSvg.settings, () => app.goTo(AppPage.settings)),
+    ];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(children: [
+        Container(
+          width: 66,
+          height: 66,
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: c.line),
+            boxShadow: const [BoxShadow(color: Color(0x14192132), blurRadius: 30, offset: Offset(0, 10))],
+          ),
+          child: Stack(alignment: Alignment.center, children: [
+            ArceIcon(ArceSvg.welcome, size: 36, color: const Color(0xFF858C9C)),
+            Positioned(right: 4, top: 6, child: Text('✦', style: ts(context, 13, weight: FontWeight.w800, color: c.accent))),
+            Positioned(right: 13, top: 1, child: Text('✦', style: ts(context, 10, weight: FontWeight.w800, color: c.accent))),
+          ]),
+        ),
+        const SizedBox(height: 15),
+        Text('ARCE.AI へようこそ', style: ts(context, 20, weight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 300),
+          child: Text(
+            'ローカルAIでチャットを始めましょう。\nモデルを設定すると、会話やコード生成に使えます。',
+            textAlign: TextAlign.center,
+            style: ts(context, 12, color: c.muted, height: 1.8),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Wrap(alignment: WrapAlignment.center, spacing: 7, runSpacing: 7, children: [
+          _Badge(icon: ArceSvg.shield, text: 'データは端末内に保存'),
+          _Badge(dot: loaded ? c.green : c.amber, text: loaded ? 'AIモデル接続済み' : 'AIモデル未接続'),
+        ]),
+        const SizedBox(height: 21),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: 3.1,
+            children: [for (final chip in chips) _PromptChip(label: chip.$1, svg: chip.$2, onTap: chip.$3)],
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge({this.icon, this.dot, required this.text});
+  final String? icon;
+  final Color? dot;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(30), border: Border.all(color: c.line)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon != null) ArceIcon(icon!, size: 12, color: c.muted),
+        if (dot != null) StatusDot(color: dot!),
+        const SizedBox(width: 5),
+        Text(text, style: ts(context, 10, weight: FontWeight.w600, color: c.muted)),
+      ]),
+    );
+  }
+}
+
+class _PromptChip extends StatelessWidget {
+  const _PromptChip({required this.label, required this.svg, required this.onTap});
+  final String label;
+  final String svg;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Material(
+      color: c.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13), side: BorderSide(color: c.line)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(13),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(9)),
+              alignment: Alignment.center,
+              child: ArceIcon(svg, size: 15, color: c.accent),
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text(label, style: ts(context, 11, weight: FontWeight.w500, height: 1.35))),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// チャット / コード / プレビュー / Artifact: the last three open the Artifacts page.
+class _ModeTabs extends StatelessWidget {
+  const _ModeTabs({required this.app});
+  final AppController app;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    Widget tab(String label, String svg, {bool active = false, VoidCallback? onTap}) => InkWell(
+          onTap: onTap,
+          child: Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: active ? c.accent : Colors.transparent, width: 2))),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              ArceIcon(svg, size: 14, color: active ? c.accent : c.muted),
+              const SizedBox(width: 6),
+              Text(label, style: ts(context, 11, weight: active ? FontWeight.w700 : FontWeight.w500, color: active ? c.accent : c.muted)),
+            ]),
+          ),
+        );
+    void toArtifacts() => app.goTo(AppPage.artifacts);
+    return SizedBox(
+      height: 35,
+      child: ListView(scrollDirection: Axis.horizontal, children: [
+        tab('チャット', ArceSvg.chat, active: true),
+        tab('コード', ArceSvg.code, onTap: toArtifacts),
+        tab('プレビュー', ArceSvg.preview, onTap: toArtifacts),
+        tab('Artifact', ArceSvg.gridNav, onTap: toArtifacts),
+      ]),
+    );
+  }
+}
+
+class _ToolButton extends StatelessWidget {
+  const _ToolButton({required this.svg, required this.onTap, this.label, this.on = false, this.tooltip});
+  final String svg;
+  final VoidCallback onTap;
+  final String? label;
+  final bool on;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final color = on ? c.accent : c.muted;
+    final button = Material(
+      color: on ? c.accentSoft : Colors.transparent,
+      borderRadius: BorderRadius.circular(9),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onTap,
+        child: Container(
+          height: 31,
+          constraints: const BoxConstraints(minWidth: 31),
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+            ArceIcon(svg, size: 17, color: color),
+            if (label != null) ...[const SizedBox(width: 5), Text(label!, style: ts(context, 10, weight: FontWeight.w600, color: color))],
+          ]),
+        ),
+      ),
+    );
+    return tooltip == null ? button : Tooltip(message: tooltip!, child: button);
+  }
+}
+
+class _SendButton extends StatelessWidget {
+  const _SendButton({required this.label, required this.svg, required this.onTap, this.stop = false});
+  final String label;
+  final String svg;
+  final VoidCallback? onTap;
+  final bool stop;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Opacity(
+      opacity: onTap == null ? .42 : 1,
+      child: Material(
+        color: stop ? c.red : c.nav,
+        borderRadius: BorderRadius.circular(11),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(11),
+          onTap: onTap,
+          child: Container(
+            height: 36,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              ArceIcon(svg, size: 17, color: Colors.white),
+              const SizedBox(width: 6),
+              Text(label, style: ts(context, 11, weight: FontWeight.w700, color: Colors.white)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
