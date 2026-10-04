@@ -9,6 +9,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+Future<void> deleteTemporaryDirectory(Directory dir) async {
+  // Windows cannot remove a directory while a just-finished async file write still holds its
+  // handle. Linux permits this, which can hide the race in cross-platform widget tests.
+  for (var attempt = 0; attempt < 10; attempt++) {
+    try {
+      await dir.delete(recursive: true);
+      return;
+    } on FileSystemException {
+      if (attempt == 9) {
+        rethrow;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
+}
+
 Future<AppController> makeApp(WidgetTester tester) async {
   SharedPreferences.setMockInitialValues({
     // no network in tests: skip the automatic update check
@@ -17,12 +33,15 @@ Future<AppController> makeApp(WidgetTester tester) async {
   late AppController app;
   await tester.runAsync(() async {
     final dir = await Directory.systemTemp.createTemp('arce_ui_test');
-    addTearDown(() => dir.delete(recursive: true));
     final settings = await SettingsStore.load();
     app = await AppController.create(
       supportDirectory: dir,
       updateService: UpdateService(settings, currentVersion: const Version(0, 4, 0)),
     );
+    addTearDown(() async {
+      app.dispose();
+      await deleteTemporaryDirectory(dir);
+    });
   });
   return app;
 }
