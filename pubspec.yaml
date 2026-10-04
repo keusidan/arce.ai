@@ -16,7 +16,7 @@ dependencies:
 
   crypto: ^3.0.7
   file_picker: ^13.1.0
-  # Keep this direct FFI dependency: Windows/Linux llama.cpp bindings do not depend on a plugin's transitive package.
+  # Keep this direct FFI dependency: Windows/Linux llama.cpp bindings cannot depend on a plugin's transitive package.
   ffi: ^2.2.0
   flutter_secure_storage: ^11.2.0
   flutter_svg: ^2.3.0
