@@ -89,7 +89,9 @@ jobs:
           if ($status -ne 0) {
             # Native toolchains emit many non-fatal warnings. Emit only diagnostic lines so
             # GitHub's annotation limit does not hide the actual compiler or linker error.
-            $failures = Select-String -Path "$env:TEMP/arce-build.log" -Pattern 'fatal error|: error [A-Z]+\d+|error:|FAILED:|CMake Error|error MSB\d+'
+            # MSB3073 is only the Visual Studio wrapper's final exit code; omit it so any
+            # preceding CMake install error remains visible in the annotation.
+            $failures = Select-String -Path "$env:TEMP/arce-build.log" -Pattern 'fatal error|: error [A-Z]+\d+|error:|FAILED:|CMake Error'
             if ($failures) {
               $details = (($failures | Select-Object -Last 25 | ForEach-Object { $_.Line }) -join ' ')
             } else {
