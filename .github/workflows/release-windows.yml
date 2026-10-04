@@ -87,7 +87,8 @@ jobs:
           flutter build windows --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ needs.prepare.outputs.build_number }} *>&1 | Tee-Object -FilePath "$env:TEMP/arce-build.log"
           $status = $LASTEXITCODE
           if ($status -ne 0) {
-            $details = (Get-Content -Raw "$env:TEMP/arce-build.log") -replace "`r?`n", ' '
+            # Native toolchains emit many non-fatal warnings; retain the trailing fatal output.
+            $details = (Get-Content "$env:TEMP/arce-build.log" -Tail 80) -join ' '
             Write-Output "::error::$details"
             exit $status
           }
