@@ -88,13 +88,14 @@
 ### 7.2 ワークフロー
 
 - `ci.yml`：push と PR で `flutter analyze` と `flutter test`。
-- `release-android.yml` / `-ios.yml` / `-windows.yml` / `-macos.yml` / `-linux.yml`：それぞれ、判定（`.github/actions/prepare`）→ 解析とテスト → ビルド → そのOSのReleaseにアップロード（Releaseが無ければ作る）。
+- `release-android.yml` / `-ios.yml` / `-windows.yml` / `-macos.yml` / `-linux.yml`：それぞれ、判定（`.github/actions/prepare`）→ 解析とテスト → ビルド → 公開（`.github/actions/publish`：そのOSのReleaseにアップロード。Releaseが無ければ作る）。
+- **Androidは「ビルド」と「公開」が別ジョブ**（`android` と `publish`）。公開だけ「Re-run failed jobs」で再実行できる。`reuse_run` に実行番号を入れた手動実行は、ビルドを省いてその実行のAPK（Artifact `android`、7日間）を公開する。他の4つは、ビルドのジョブの最後のステップで公開する。
 - きっかけ：`pubspec.yaml` の変更をpush（どのブランチでも）、OSごとのタグ、手動実行（dry run あり）。Androidは `release-android.yml` と `prepare` の変更でも動く（失敗後の再試行）。
 - 判定：そのOSのReleaseに、そのOSのファイルが既にあれば、pushでは何もしない。
 - 版は `X.Y.Z` のみ（Windowsが版を数字として埋め込むため）。
 - **ビルド番号（Androidの versionCode）＝ 主版×1,000,000 ＋ 副版×1,000 ＋ 修正版**（0.4.0 は 4000）。ワークフローの実行番号を使うと、分けたときに1から始まり、以前のAPK（14以下）より小さくなって、Androidが更新を拒否するため。
 - Secrets（Android署名）：`ARCE_KEYSTORE_BASE64`、`ARCE_KEYSTORE_PASSWORD`、`ARCE_KEY_ALIAS`（登録済み。Kotlin版と同じ鍵）。
-- Androidのジョブは、最初に使わないソフトを消してディスクを空ける。最初の実行が「No space left on device」で失敗したため。ccache は失敗しても保存する。
+- Androidのジョブは、最初に使わないソフトを消してディスクを空ける。最初の実行が「No space left on device」で失敗したため。ccache は、`cache/restore` と `cache/save`（`if: !cancelled()`）に分けて、ビルドが失敗しても保存する（`save-always` は非推奨で、動かなかった）。
 - 詳しい手順：`docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md`。
 
 ## 8. 確認できていること／できていないこと
@@ -105,17 +106,33 @@
 - Linux の自己更新スクリプト（置き換えと再起動）。
 - AndroidのKotlin（橋渡しとインストーラー）は、Android 14 の API と Flutter の埋め込みに対して**型検査**だけ通した（LiteRT-LM はスタブに置き換え）。
 - 古いAPK版のリリースの失敗の原因を特定して修正（ディスク不足）。
+- AndroidのAPKがGitHub Actions上でビルドでき、署名の検証まで通ること（run 37192843146。約25分、132 MB）。
 
 **未確認**
-- **AndroidのAPKビルド全体**：このセッションの環境では Android SDK / NDK を入手できないため、GitHub Actions 上での初めての成功が未確認（記録は 7.3 を参照）。
+- **公開の修正後の動き**：修正した公開（7.3）は、まだ実際のReleaseで動かしていない。
 - Windows・macOS・iOS のビルドと、各OSの自己更新の実機での動き。
 - 実機のAndroidでの、モデルの読み込みと推論。
 - GitHub のドキュメントなどの外部URL（`docs/` に載せた出典の一部）は、この環境から開けず未確認。
 
-### 7.3 リリースの状況（2026-10-04 18:58 時点）
+### 7.3 リリースの状況と、公開が断られた原因（2026-10-04 19:25 時点）
 
-- v0.4.0 のAndroid：run 37192843146（`release-android.yml`）が実行中。
-- iOS・Windows・macOS・Linux の新しいワークフローは、まだ一度も動いていない（登録は、最初の実行のあと）。古い単一ワークフロー時代の dry run（run 37192581541）が、4つのOSのビルドの通りを確かめるために動いていた。
+**v0.4.0 のAndroid（run 37192843146）**：ビルド（約25分）と署名の検証は成功した。**公開だけが `403 Resource not accessible by integration` で失敗**し、Releaseは作られていない（APKはArtifact `android` に残っている。7日間）。
+
+**原因（切り分けて確認済み）**：`GITHUB_TOKEN` は `workflows` 権限を持てず、**`.github/workflows/` のファイルを追加・変更したコミットにはタグを付けられない**（APIは403、`git push` は `refusing to allow a GitHub App to create or update workflow ... without workflows permission`）。ただし**ブランチの先頭のコミットは対象外**。この run のコミット（60bb9ec）は `release-android.yml` を新規追加したコミットで、ビルド中にこちらが push したため、先頭ではなくなっていた。切り分けの結果（使い捨ての検証用ワークフローで実施。実行 37194771866 / 37194843041 / 37195030866）：
+
+| 条件 | 結果 |
+|---|---|
+| 先頭のコミットを指定（push 起動でも手動起動でも） | 成功 |
+| ワークフローを変えた古いコミットを指定（`gh release create`、API、`git/refs`、`git push`） | すべて失敗 |
+| ワークフローを変えていない古いコミットを指定 | 成功 |
+| `--target` にブランチ名（＝先頭）を指定 | 成功 |
+
+v0.1.0（2026-09-26）が失敗した理由も同じ。以前の v0.1.1〜v0.3.1 が成功したのは、ビルド中に誰も push しなかったから。
+
+**直し方**（`.github/actions/publish`、`release-android.yml` に反映済み）：公開を共通化し、ビルドしたコミットに付けるのを断られたらブランチの先頭に付け直す（本文に元のコミットを書く）。Androidは公開を別ジョブにし、`reuse_run` で、ビルド済みのAPKを再ビルドなしで公開できるようにした。
+**未確認**：人が先に押したタグ（`git push origin vX.Y.Z`）に対する公開。ワークフローを変えたコミットへのタグは、この環境からは押せず（`remote end hung up`）、試せなかった。
+
+- iOS・Windows・macOS・Linux の新しいワークフローは、まだ一度も動いていない。
 - 状況は GitHub の Actions タブか、`mcp__github__actions_list` などで確認する。この節は古くなりやすいので、**鵜呑みにせず最新を見る**こと。
 
 ## 9. このセッションの環境の制約（次回も当てはまる可能性がある）

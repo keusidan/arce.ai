@@ -8,6 +8,11 @@
 #   - git tag v0.5.0 && git push origin v0.5.0       -> the same, for that tag
 #   - Actions tab -> "Release Android" -> Run workflow -> the same, for a version you type
 #     ... with "dry run" checked                     -> builds only; the APK stays a workflow artifact
+#     ... with "reuse_run" = the id of an earlier run -> no build: that run's APK is published
+#          (for a build that succeeded but whose publish failed; the run's artifact lives 7 days)
+#
+# Building and publishing are separate jobs, so a failed publish can be re-run alone ("Re-run failed
+# jobs") and does not throw away the 25-minute build or its caches.
 #
 # Secrets: ARCE_KEYSTORE_BASE64, ARCE_KEYSTORE_PASSWORD, ARCE_KEY_ALIAS. Setup: docs/ARCE_AI_flutter-release_*.md
 name: Release Android
@@ -15,7 +20,7 @@ name: Release Android
 on:
   push:
     branches: ["**"]
-    paths: [pubspec.yaml, .github/workflows/release-android.yml, .github/actions/prepare/action.yml]
+    paths: [pubspec.yaml, .github/workflows/release-android.yml, .github/actions/prepare/action.yml, .github/actions/publish/action.yml]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -26,9 +31,13 @@ on:
         description: "Build only: nothing is published"
         type: boolean
         default: false
+      reuse_run:
+        description: "Run id of an earlier run whose APK is published instead of building again (the version must match)"
+        required: false
 
+# The build jobs only read; the publish job asks for what it needs.
 permissions:
-  contents: write # create the release and its tag
+  contents: read
 
 # Releases of one platform queue behind each other; a dry run builds on its own.
 concurrency:
@@ -59,7 +68,7 @@ jobs:
 
   test:
     needs: prepare
-    if: needs.prepare.outputs.release == 'true'
+    if: needs.prepare.outputs.release == 'true' && inputs.reuse_run == ''
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -74,6 +83,7 @@ jobs:
 
   android:
     needs: [prepare, test]
+    if: needs.prepare.outputs.release == 'true' && inputs.reuse_run == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -140,10 +150,8 @@ jobs:
           sed -i 's/^arce.ccache=.*/arce.ccache=true/' android/gradle.properties
 
       - name: Restore ccache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
-          # also save after a failed build: the objects compiled so far make the retry faster
-          save-always: true
           path: ~/.cache/ccache
           key: ccache-${{ steps.ccache.outputs.llama }}-${{ github.sha }}
           restore-keys: |
@@ -196,15 +204,64 @@ jobs:
           path: dist/
           retention-days: 7
 
-      - name: Publish
-        if: env.DRY_RUN != 'true'
+      # Saved even when the build failed: the objects compiled so far make the retry faster.
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ steps.ccache.outputs.llama }}-${{ github.sha }}
+
+  publish:
+    needs: [prepare, android]
+    # Runs after a build, or alone when an earlier run's APK is reused (then the build jobs are skipped).
+    if: >-
+      ${{ !cancelled()
+      && needs.prepare.outputs.release == 'true'
+      && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+      && (needs.android.result == 'success' || (needs.android.result == 'skipped' && inputs.reuse_run != '')) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # create the release and its tag
+      actions: read # download the APK of this or an earlier run
+    steps:
+      - uses: actions/checkout@v7 # for the local actions below
+
+      - name: Download the APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: dist
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Check the files and find the commit they were built from
+        id: src
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REUSE_RUN: ${{ inputs.reuse_run }}
         run: |
-          # Every platform has its own release. Only the Android one is "latest": the earlier native app
-          # reads /releases/latest and expects an APK in it.
-          gh release view "$TAG" > /dev/null 2>&1 \
-            || gh release create "$TAG" --title "ARCE.AI $TAG" --target "$GITHUB_SHA" --generate-notes --latest=true \
-            || gh release view "$TAG" > /dev/null
-          gh release upload "$TAG" dist/* --clobber
+          # an APK of another version must not end up in this version's release
+          if [ ! -f "dist/ARCE.AI-v$VERSION-android.apk" ] || [ ! -f "dist/ARCE.AI-v$VERSION-android.apk.sha256" ]; then
+            echo "::error::dist/ has no ARCE.AI-v$VERSION-android.apk(.sha256); is reuse_run the run of version $VERSION?"
+            ls -l dist
+            exit 1
+          fi
+          (cd dist && sha256sum --check "ARCE.AI-v$VERSION-android.apk.sha256")
+          if [ -n "$REUSE_RUN" ]; then
+            [[ "$REUSE_RUN" =~ ^[0-9]+$ ]] || { echo "::error::reuse_run must be a run id"; exit 1; }
+            sha="$(gh run view "$REUSE_RUN" --json headSha --jq .headSha)"
+          else
+            sha="$GITHUB_SHA"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # Every platform has its own release. Only the Android one is "latest": the earlier native app
+      # reads /releases/latest and expects an APK in it.
+      - uses: ./.github/actions/publish
+        with:
+          tag: ${{ needs.prepare.outputs.tag }}
+          title: ARCE.AI ${{ needs.prepare.outputs.tag }}
+          latest: "true"
+          sha: ${{ steps.src.outputs.sha }}

@@ -85,13 +85,8 @@ jobs:
           retention-days: 7
       - name: Publish
         if: env.DRY_RUN != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          # Every platform has its own release. Only the Android one is "latest": the earlier native app
-          # reads /releases/latest and expects an APK in it.
-          gh release view "$TAG" > /dev/null 2>&1 \
-            || gh release create "$TAG" --title "ARCE.AI v${TAG##*v} (macOS)" --target "$GITHUB_SHA" --generate-notes --latest=false \
-            || gh release view "$TAG" > /dev/null
-          gh release upload "$TAG" dist/* --clobber
+        uses: ./.github/actions/publish
+        with:
+          tag: ${{ needs.prepare.outputs.tag }}
+          title: ARCE.AI v${{ needs.prepare.outputs.version }} (macOS)
+          latest: "false" # only the Android release is "latest": the earlier native app reads /releases/latest
