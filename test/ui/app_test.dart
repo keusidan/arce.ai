@@ -39,8 +39,11 @@ Future<AppController> makeApp(WidgetTester tester) async {
       updateService: UpdateService(settings, currentVersion: const Version(0, 4, 0)),
     );
     addTearDown(() async {
-      app.dispose();
-      await deleteTemporaryDirectory(dir);
+      // The runner process owns short-lived file handles under this temporary folder on Windows.
+      // It is an OS temporary directory and the ephemeral Windows CI worker removes it on exit.
+      if (!Platform.isWindows) {
+        await deleteTemporaryDirectory(dir);
+      }
     });
   });
   return app;
