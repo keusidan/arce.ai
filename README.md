@@ -43,12 +43,12 @@ lib/engine/     InferenceEngine の実装: NativeEngine（Android の llama.cpp/
 lib/services/   設定・履歴・モデル管理・更新・プレビューサーバー
 lib/ui/         画面（ライト/ダークのトークンは theme.dart）
 android/        ネイティブ側: llama.cpp の JNI（src/main/cpp）、エンジン、APK インストーラー
-.github/        ci.yml（解析とテスト）、release.yml（全 OS のビルドとリリース）
+.github/        ci.yml（解析とテスト）、release-android.yml / release-ios.yml / release-desktop.yml（OS ごとのビルドとリリース）
 ```
 
 ## リリースと更新
 
-`pubspec.yaml` の `version:` を上げて `main` に push すると、5つの OS のビルドが自動で GitHub Release に並びます。
+`pubspec.yaml` の `version:` を上げて push すると、Android・iOS・デスクトップ（Windows/macOS/Linux）の3つのワークフローが別々に動き、同じ版の GitHub Release にファイルが並びます。
 アプリは起動時（と起動中は一定間隔）にこのリリースを確認し、設定の「アップデート」から更新できます。
 
 手順と必要な Secrets は [docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md](docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md) を参照してください。

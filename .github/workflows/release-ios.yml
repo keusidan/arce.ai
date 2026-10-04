@@ -1,0 +1,95 @@
+# Builds the unsigned iOS app (.ipa) and attaches it to the GitHub Release of the version.
+# It has to be signed with your own Apple ID (AltStore, Sideloadly) before it installs on a device.
+#
+#   - Bump `version:` in pubspec.yaml and push (any branch) -> built if the release has no iOS file yet
+#   - git tag v0.5.0 && git push origin v0.5.0              -> the same, for that tag
+#   - Actions tab -> "Release iOS" -> Run workflow           -> the same, for a version you type
+#     ... with "dry run" checked                             -> builds only; the ipa stays a workflow artifact
+#
+# macOS runners count 10x against the free minutes of a private repository.
+name: Release iOS
+
+on:
+  push:
+    branches: ["**"]
+    paths: [pubspec.yaml]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without 'v' (e.g. 0.5.0). Empty = the version in pubspec.yaml"
+        required: false
+      dry_run:
+        description: "Build only: nothing is published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-ios-${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && github.run_id || 'publish' }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.47.6"
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.p.outputs.version }}
+      tag: ${{ steps.p.outputs.tag }}
+      build_number: ${{ steps.p.outputs.build_number }}
+      release: ${{ steps.p.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: p
+        uses: ./.github/actions/prepare
+        with:
+          suffix: -ios-unsigned.ipa
+          version: ${{ inputs.version }}
+          token: ${{ github.token }}
+
+  ios:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: >
+          flutter build ios --release --no-codesign
+          --build-name ${{ needs.prepare.outputs.version }}
+          --build-number ${{ needs.prepare.outputs.build_number }}
+      - name: Collect
+        run: |
+          name="ARCE.AI-${{ needs.prepare.outputs.tag }}-ios-unsigned.ipa"
+          mkdir -p dist work/Payload
+          cp -R build/ios/iphoneos/Runner.app work/Payload/
+          (cd work && zip -qry "../dist/$name" Payload)
+          (cd dist && shasum -a 256 "$name" > "$name.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: dist/
+          retention-days: 7
+      - name: Publish
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 \
+            || gh release create "$TAG" --title "ARCE.AI $TAG" --target "$GITHUB_SHA" --generate-notes \
+            || gh release view "$TAG" > /dev/null
+          gh release upload "$TAG" dist/* --clobber

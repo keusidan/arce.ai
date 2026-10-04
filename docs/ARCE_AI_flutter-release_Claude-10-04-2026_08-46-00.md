@@ -1,7 +1,7 @@
 # ARCE.AI（Flutter版）全OSの自動リリースとアプリ内更新
 
 - 作成日：2026-10-04
-- 設定ファイル：`.github/workflows/release.yml`（ビルド・公開）、`.github/workflows/ci.yml`（解析・テスト）
+- 設定ファイル：`.github/workflows/release-android.yml`、`release-ios.yml`、`release-desktop.yml`（ビルドと公開。共通の判定は `.github/actions/prepare`）、`ci.yml`（解析・テスト）
 - 関連コード：`lib/services/update_service.dart`、`lib/services/desktop_installer.dart`、`android/app/src/main/kotlin/ai/arce/app/update/ApkInstaller.kt`
 - 前身：Android専用版の `ARCE_AI_release-workflow_Claude-09-26-2026_22-36-16.md`（署名鍵の作り方は同じ）
 
@@ -9,29 +9,29 @@
 
 | OS | ファイル名 | 中身 | 作るジョブ |
 |---|---|---|---|
-| Android | `ARCE.AI-vX.Y.Z-android.apk` | arm64 と x86_64 を1つにした署名付きAPK | `android`（ubuntu） |
-| Windows | `ARCE.AI-vX.Y.Z-windows-x64.zip` | `Release` フォルダの中身（`arce_ai.exe` が最上位）＋VC++ランタイムDLL | `windows` |
-| macOS | `ARCE.AI-vX.Y.Z-macos.zip` | `ARCE.AI.app`（ad-hoc署名・公証なし） | `macos` |
-| Linux | `ARCE.AI-vX.Y.Z-linux-x64.tar.gz` | `bundle` フォルダの中身（`arce_ai` が最上位） | `linux` |
-| iOS | `ARCE.AI-vX.Y.Z-ios-unsigned.ipa` | 未署名のipa | `ios` |
+| Android | `ARCE.AI-vX.Y.Z-android.apk` | arm64 と x86_64 を1つにした署名付きAPK | `release-android.yml` |
+| Windows | `ARCE.AI-vX.Y.Z-windows-x64.zip` | `Release` フォルダの中身（`arce_ai.exe` が最上位）＋VC++ランタイムDLL | `release-desktop.yml` |
+| macOS | `ARCE.AI-vX.Y.Z-macos.zip` | `ARCE.AI.app`（ad-hoc署名・公証なし） | `release-desktop.yml` |
+| Linux | `ARCE.AI-vX.Y.Z-linux-x64.tar.gz` | `bundle` フォルダの中身（`arce_ai` が最上位） | `release-desktop.yml` |
+| iOS | `ARCE.AI-vX.Y.Z-ios-unsigned.ipa` | 未署名のipa | `release-ios.yml` |
 
 どのファイルにも、同じ名前に `.sha256` を付けた検証ファイルが並びます（`sha256sum` の形式）。アプリ内更新はこれを使って、ダウンロードしたファイルが壊れていないか確認します。
 
 ## 2. リリースの出し方
 
-作るOSは、リポジトリの変数 `RELEASE_PLATFORMS`（Settings → Secrets and variables → Actions → Variables）で選びます。未設定のときは `android` だけです。全部作るには `android,windows,linux,macos,ios` を設定します。
-
+Android、iOS、デスクトップ（Windows・macOS・Linux）は、別のワークフローです。1つが失敗しても、他は止まりません。どれも、同じ版のGitHub Releaseに、自分のファイルを足していきます（Releaseが無ければ最初に終わったものが作ります）。
 
 | 方法 | 動作 |
 |---|---|
-| `pubspec.yaml` の `version:` を上げて、どのブランチでもpush | その版のReleaseが無ければ、自動でビルドして公開する（あれば何もしない）。`release.yml` を直してpushしたときも動くので、失敗したリリースは修正のpushだけで再試行される |
-| `git tag v0.5.0 && git push origin v0.5.0` | そのタグでビルドして公開する |
-| Actionsタブ →「Release」→「Run workflow」 | 入力した版（空なら `pubspec.yaml` の版）で同じ処理 |
-| 上記で「dry run」にチェック | Releaseは作らず、ビルド結果をArtifact（7日間保存）に残すだけ |
+| `pubspec.yaml` の `version:` を上げて、どのブランチでもpush | 3つのワークフローが動き、その版のReleaseにまだ無いファイルだけをビルドする。失敗した分は、修正をpushすれば、足りない分だけ作り直される |
+| `git tag v0.5.0 && git push origin v0.5.0` | そのタグで3つとも動く |
+| Actionsタブ → 「Release Android」「Release iOS」「Release Desktop」のどれか →「Run workflow」 | 選んだワークフローだけ、入力した版（空なら `pubspec.yaml` の版）で動く |
+| 上記で「dry run」にチェック | Releaseは作らず、ビルド結果をArtifact（7日間保存）に残すだけ。他のワークフローと並行して動く |
 
+- Androidだけは、`release-android.yml` を直してpushしたときも動きます（失敗の再試行のため）。iOSとデスクトップは、`pubspec.yaml` の変更、タグ、手動実行だけです。
 - 版は `X.Y.Z` の3つの数字だけです。Windowsは版を数字として埋め込むため、`-beta` のような付け足しは使えません。
-- `versionCode`（Android）とビルド番号は、Actionsの実行番号です。毎回増えるので、Androidの「前より大きい値」という更新条件を満たします。
-- 先に `ci.yml` と同じ解析・テスト（`flutter analyze` と `flutter test`）が通らないと、どのOSのビルドも始まりません。
+- ビルド番号（Androidの `versionCode`）は `主版 × 1,000,000 + 副版 × 1,000 + 修正版` です（0.4.0 は 4000）。以前のAndroid版（v0.3.x、実行番号の14以下）より大きいので、上書き更新できます。ワークフローを分けても、番号は版だけで決まります。
+- どのワークフローも、先に解析とテスト（`flutter analyze` と `flutter test`）が通らないとビルドしません。
 
 ## 3. 最初に1回だけ行うこと
 
@@ -44,7 +44,7 @@ Flutter版も同じ `applicationId`（`ai.arce.app`）と同じ鍵で署名す�
 
 ### 3.2 ブランチ
 
-自動リリースはブランチを問わず、`pubspec.yaml` か `release.yml` を変えたpushで動きます。`workflow_dispatch`（手動実行）はワークフローが既定ブランチにあるときだけActionsタブに出るため、既定ブランチに入れるまではpushかタグで動かしてください。
+自動リリースはブランチを問わず、`pubspec.yaml` の変更で動きます。手動実行のボタンは、ワークフローが既定ブランチにあるときだけActionsタブに出ます。既定ブランチに入れるまでは、pushかタグで動かしてください。
 
 ### 3.3 Actionsの権限
 
