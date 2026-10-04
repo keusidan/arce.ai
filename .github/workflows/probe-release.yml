@@ -1,5 +1,8 @@
-# Temporary probe: which release calls does GITHUB_TOKEN get a 403 for, on push vs. manual runs?
+# Temporary probe: which release calls does GITHUB_TOKEN get a 403 for?
 # Every release it creates is deleted again. Removed once the cause is known.
+#
+# Round 1 runs at once, round 2 after a wait during which the branch is pushed to again,
+# because both failed publishes (v0.1.0 and v0.4.0) came from runs whose branch had moved on.
 name: Probe release permission
 
 on:
@@ -16,24 +19,38 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
       - name: Try the calls
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "event=$GITHUB_EVENT_NAME ref=$GITHUB_REF actor=$GITHUB_ACTOR triggering=$GITHUB_TRIGGERING_ACTOR sha=$GITHUB_SHA"
-          parent="$(git rev-parse HEAD~1)"
-          echo "parent=$parent"
-          try() { # name target draft
-            local tag="probe-$GITHUB_RUN_ID-$1" body out
-            body="$(jq -n --arg t "$tag" --arg c "$2" --argjson d "$3" \
-              '{tag_name:$t,target_commitish:$c,name:$t,draft:$d,prerelease:true}')"
+          echo "event=$GITHUB_EVENT_NAME ref=$GITHUB_REF actor=$GITHUB_ACTOR sha=$GITHUB_SHA"
+
+          # raw API call: tag name, make_latest
+          api() {
+            local tag="$1" out body
+            body="$(jq -n --arg t "$tag" --arg c "$GITHUB_SHA" \
+              '{tag_name:$t,target_commitish:$c,name:$t,draft:false,prerelease:true,generate_release_notes:true,make_latest:"false"}')"
             out="$(gh api -i -X POST "repos/$GITHUB_REPOSITORY/releases" --input - <<< "$body" 2>&1)" || true
-            echo "--- $1: target=$2 draft=$3"
+            echo "--- api tag=$tag"
             echo "$out" | grep -iE '^(HTTP/|x-accepted-github-permissions|"message"|\{"message|gh: )' || true
             gh release delete "$tag" --cleanup-tag --yes > /dev/null 2>&1 || true
           }
-          try draft-head   "$GITHUB_SHA" true
-          try publish-head "$GITHUB_SHA" false
-          try publish-prev "$parent"     false
+          # the same command the release workflow runs
+          cli() {
+            local tag="$1"
+            echo "--- gh release create $tag"
+            gh release create "$tag" --title "$tag" --target "$GITHUB_SHA" --generate-notes \
+              --prerelease --latest=false 2>&1 | tail -2 || true
+            gh release delete "$tag" --cleanup-tag --yes > /dev/null 2>&1 || true
+          }
+
+          round() {
+            echo "===== round $1 at $(date -u +%H:%M:%S)  branch head: $(git ls-remote origin "$GITHUB_REF" | cut -c1-12)"
+            api "probe-$GITHUB_RUN_ID-$1-plain"
+            api "v0.0.$GITHUB_RUN_ID-probe$1"
+            cli "probe-$GITHUB_RUN_ID-$1-cli"
+          }
+
+          round 1
+          [ "$GITHUB_EVENT_NAME" = push ] && sleep 120
+          round 2
