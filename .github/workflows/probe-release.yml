@@ -1,14 +1,8 @@
-# Temporary probe: which release calls get a 403 for GITHUB_TOKEN?
-# Every release it creates is deleted again. Removed once the cause is known.
-#
-# Round 1 runs at once, round 2 after a wait during which the branch is pushed to again,
-# because both failed publishes (v0.1.0 and v0.4.0) came from runs whose branch had moved on.
+# Temporary probe: how can a release be created for a commit that is no longer the branch head?
+# Every release and tag it creates is deleted again. Removed once the cause is known.
 name: Probe release permission
 
 on:
-  push:
-    branches: ["claude/great-lovelace-3lg7st"]
-    paths: [.github/workflows/probe-release.yml]
   workflow_dispatch:
 
 permissions:
@@ -19,38 +13,36 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Try the calls
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "event=$GITHUB_EVENT_NAME ref=$GITHUB_REF actor=$GITHUB_ACTOR sha=$GITHUB_SHA"
+          branch="claude/great-lovelace-3lg7st"
+          old_wf=60bb9ec2abaf0ab8f160afef2839c6739dadbaa8   # the failed release run's commit: touches workflows, not the head
+          old_doc=6bb2e61f27a24a7e55febd2abd4033f6efea248c   # docs only, not the head
+          echo "head=$(git rev-parse HEAD)"
 
-          # raw API call: tag name, make_latest
-          api() {
-            local tag="$1" out body
-            body="$(jq -n --arg t "$tag" --arg c "$GITHUB_SHA" \
-              '{tag_name:$t,target_commitish:$c,name:$t,draft:false,prerelease:true,generate_release_notes:true,make_latest:"false"}')"
-            out="$(gh api -i -X POST "repos/$GITHUB_REPOSITORY/releases" --input - <<< "$body" 2>&1)" || true
-            echo "--- api tag=$tag"
-            echo "$out" | grep -iE '^(HTTP/|x-accepted-github-permissions|"message"|\{"message|gh: )' || true
-            gh release delete "$tag" --cleanup-tag --yes > /dev/null 2>&1 || true
+          show() { grep -iE '^(HTTP/|"message"|\{"message|gh: |error|fatal|remote:|To |.*rejected)' || true; }
+          rel() { # name target-or-empty
+            local tag="$1" body
+            body="$(jq -n --arg t "$tag" --arg c "$2" \
+              '{tag_name:$t,name:$t,draft:false,prerelease:true,make_latest:"false"} + (if $c=="" then {} else {target_commitish:$c} end)')"
+            gh api -i -X POST "repos/$GITHUB_REPOSITORY/releases" --input - <<< "$body" 2>&1 | show
           }
-          # the same command the release workflow runs
-          cli() {
-            local tag="$1"
-            echo "--- gh release create $tag"
-            gh release create "$tag" --title "$tag" --target "$GITHUB_SHA" --generate-notes \
-              --prerelease --latest=false 2>&1 | tail -2 || true
-            gh release delete "$tag" --cleanup-tag --yes > /dev/null 2>&1 || true
-          }
+          clean() { gh release delete "$1" --cleanup-tag --yes > /dev/null 2>&1 || true
+                    git push origin ":refs/tags/$1" > /dev/null 2>&1 || true; }
 
-          round() {
-            echo "===== round $1 at $(date -u +%H:%M:%S)  branch head: $(git ls-remote origin "$GITHUB_REF" | cut -c1-12)"
-            api "probe-$GITHUB_RUN_ID-$1-plain"
-            api "v0.0.$GITHUB_RUN_ID-probe$1"
-            cli "probe-$GITHUB_RUN_ID-$1-cli"
-          }
+          t=probe-$GITHUB_RUN_ID
+          echo "--- V1 release, target=old workflow commit (the failing case)";  rel $t-v1 "$old_wf";  clean $t-v1
+          echo "--- V2 release, target=old docs commit (control)";               rel $t-v2 "$old_doc"; clean $t-v2
+          echo "--- V3 release, target=branch name";                             rel $t-v3 "$branch";  clean $t-v3
 
-          round 1
-          [ "$GITHUB_EVENT_NAME" = push ] && sleep 120
-          round 2
+          echo "--- V4 git/refs API tag at the old workflow commit"
+          gh api -i -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$t-v4" -f sha="$old_wf" 2>&1 | show
+          echo "    then a release for that tag, no target";  rel $t-v4 "";  clean $t-v4
+
+          echo "--- V5 git push of a tag at the old workflow commit"
+          git tag "$t-v5" "$old_wf" && git push origin "refs/tags/$t-v5" 2>&1 | show
+          echo "    then a release for that tag, no target";  rel $t-v5 "";  clean $t-v5
