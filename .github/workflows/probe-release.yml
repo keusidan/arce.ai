@@ -1,4 +1,4 @@
-# Temporary probe: how can a release be created for a commit that is no longer the branch head?
+# Temporary probe: can a release be created for a tag that already exists at a workflow commit?
 # Every release and tag it creates is deleted again. Removed once the cause is known.
 name: Probe release permission
 
@@ -34,15 +34,10 @@ jobs:
           clean() { gh release delete "$1" --cleanup-tag --yes > /dev/null 2>&1 || true
                     git push origin ":refs/tags/$1" > /dev/null 2>&1 || true; }
 
-          t=probe-$GITHUB_RUN_ID
-          echo "--- V1 release, target=old workflow commit (the failing case)";  rel $t-v1 "$old_wf";  clean $t-v1
-          echo "--- V2 release, target=old docs commit (control)";               rel $t-v2 "$old_doc"; clean $t-v2
-          echo "--- V3 release, target=branch name";                             rel $t-v3 "$branch";  clean $t-v3
-
-          echo "--- V4 git/refs API tag at the old workflow commit"
-          gh api -i -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$t-v4" -f sha="$old_wf" 2>&1 | show
-          echo "    then a release for that tag, no target";  rel $t-v4 "";  clean $t-v4
-
-          echo "--- V5 git push of a tag at the old workflow commit"
-          git tag "$t-v5" "$old_wf" && git push origin "refs/tags/$t-v5" 2>&1 | show
-          echo "    then a release for that tag, no target";  rel $t-v5 "";  clean $t-v5
+          # a tag a person pushed earlier, at the old workflow commit
+          echo "--- T1 release for the existing tag, no target"
+          rel probe-tagtest ""
+          gh release delete probe-tagtest --yes > /dev/null 2>&1 || true
+          echo "--- T2 release for the existing tag, target=the same commit (what the v0.1.0 run did)"
+          rel probe-tagtest "$old_wf"
+          gh release delete probe-tagtest --yes > /dev/null 2>&1 || true
