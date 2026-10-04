@@ -1,0 +1,66 @@
+import 'package:flutter/material.dart';
+
+import 'services/app_controller.dart';
+import 'ui/app_scope.dart';
+import 'ui/shell.dart';
+import 'ui/theme.dart';
+import 'ui/widgets.dart';
+
+/// Starts the app: loads settings, conversations and models, then shows the interface.
+class Bootstrap extends StatefulWidget {
+  const Bootstrap({super.key});
+
+  @override
+  State<Bootstrap> createState() => _BootstrapState();
+}
+
+class _BootstrapState extends State<Bootstrap> {
+  late final Future<AppController> _app = AppController.create();
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<AppController>(
+        future: _app,
+        builder: (context, snapshot) {
+          final app = snapshot.data;
+          if (app != null) return ArceApp(app: app);
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'ARCE.AI',
+            theme: buildTheme(Brightness.light),
+            darkTheme: buildTheme(Brightness.dark),
+            home: Scaffold(
+              body: Center(
+                child: snapshot.hasError
+                    ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text('起動できませんでした\n\n${snapshot.error}', textAlign: TextAlign.center),
+                      )
+                    : const BrandMark(size: 64),
+              ),
+            ),
+          );
+        },
+      );
+}
+
+class ArceApp extends StatelessWidget {
+  const ArceApp({super.key, required this.app});
+  final AppController app;
+
+  @override
+  Widget build(BuildContext context) => ArceScope(
+        app: app,
+        child: ListenableBuilder(
+          listenable: app.settings,
+          builder: (context, _) => MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'ARCE.AI',
+            themeMode: app.settings.value.theme,
+            theme: buildTheme(Brightness.light),
+            darkTheme: buildTheme(Brightness.dark),
+            home: const AppShell(),
+          ),
+        ),
+      );
+}
+

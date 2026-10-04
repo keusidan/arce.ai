@@ -1,0 +1,346 @@
+# Builds ARCE.AI for Android, iOS, Windows, macOS and Linux and publishes the files as a
+# GitHub Release. The app's own updater downloads from that release.
+#
+#   - Bump `version:` in pubspec.yaml (e.g. 0.5.0+1) and push it to main
+#       -> a release v0.5.0 is built and published automatically (skipped if v0.5.0 already exists)
+#   - git tag v0.5.0 && git push origin v0.5.0       -> the same, for that tag
+#   - Actions tab -> "Release" -> Run workflow        -> the same, for a version you type
+#     ... with "dry run" checked                      -> builds only; files stay as workflow artifacts
+#
+# Android signing secrets (ARCE_KEYSTORE_BASE64, ARCE_KEYSTORE_PASSWORD, ARCE_KEY_ALIAS) are the
+# ones the earlier Android-only workflow used. Setup: docs/ARCE_AI_flutter-release_*.md
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [pubspec.yaml]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without 'v' (e.g. 0.5.0). Empty = the version in pubspec.yaml"
+        required: false
+      dry_run:
+        description: "Build only: no release is created"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # create the release and its tag
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.47.6"
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve version
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [ -n "$INPUT_VERSION" ]; then
+            version="${INPUT_VERSION#v}"
+          else
+            version="$(sed -n 's/^version:[[:space:]]*\([0-9.]*\).*/\1/p' pubspec.yaml | head -1)"
+          fi
+          # Windows embeds the version as numbers, so a suffix such as -beta is not allowed
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$version' is not a version like 1.2.3"
+            exit 1
+          fi
+          release=true
+          # A push to main only releases a version that has no release yet
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_TYPE" = "branch" ] \
+             && gh release view "v$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "v$version is already released; nothing to do"
+            release=false
+          fi
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    needs: [prepare, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive # llama.cpp
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # The NDK (~1 GB) is kept between runs instead of being downloaded every time.
+      - name: Restore NDK and CMake
+        id: ndk-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/lib/android/sdk/ndk/29.0.13113456
+            /usr/local/lib/android/sdk/cmake/3.22.1
+          key: android-ndk-29.0.13113456-cmake-3.22.1
+
+      # The runner image ships a different NDK and has not accepted this one's license,
+      # so Gradle cannot install it on its own.
+      - name: Install NDK and CMake
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" "ndk;29.0.13113456" "cmake;3.22.1" > /dev/null
+
+      # ccache keeps the compiled objects of llama.cpp and the JNI bridge between runs.
+      - name: Set up ccache
+        id: ccache
+        run: |
+          command -v ccache > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ccache; }
+          echo "llama=$(git rev-parse HEAD:third_party/llama.cpp)" >> "$GITHUB_OUTPUT"
+          {
+            echo "CCACHE_DIR=$HOME/.cache/ccache"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo "CCACHE_NOHASHDIR=true"
+            echo "CCACHE_COMPILERCHECK=content"
+            echo "CCACHE_MAXSIZE=1G"
+          } >> "$GITHUB_ENV"
+          sed -i 's/^arce.ccache=.*/arce.ccache=true/' android/gradle.properties
+
+      - name: Restore ccache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ steps.ccache.outputs.llama }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ steps.ccache.outputs.llama }}-
+            ccache-
+
+      - name: Restore signing keystore
+        if: env.DRY_RUN != 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ARCE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ARCE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ARCE_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ]; then
+            echo "::error::Signing secrets are missing. A debug-signed APK could not update the installed app. See docs/ARCE_AI_flutter-release_*.md"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          {
+            echo "ARCE_KEYSTORE_PATH=$RUNNER_TEMP/release.jks"
+            echo "ARCE_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "ARCE_KEY_ALIAS=$KEY_ALIAS"
+          } >> "$GITHUB_ENV"
+
+      - run: flutter pub get
+
+      - name: Build APK
+        run: >
+          flutter build apk --release
+          --target-platform android-arm64,android-x64
+          --build-name ${{ needs.prepare.outputs.version }}
+          --build-number ${{ github.run_number }}
+
+      - name: Verify signature
+        if: env.DRY_RUN != 'true'
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          "$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Collect
+        run: |
+          name="ARCE.AI-${{ needs.prepare.outputs.tag }}-android.apk"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/$name"
+          (cd dist && sha256sum "$name" > "$name.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/
+          retention-days: 7
+
+  linux:
+    needs: [prepare, test]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev
+      - run: flutter pub get
+      - run: >
+          flutter build linux --release
+          --build-name ${{ needs.prepare.outputs.version }}
+          --build-number ${{ github.run_number }}
+      - name: Collect
+        run: |
+          name="ARCE.AI-${{ needs.prepare.outputs.tag }}-linux-x64.tar.gz"
+          mkdir -p dist
+          # the contents of the bundle folder, with the executable at the top (the updater relies on it)
+          tar -C build/linux/x64/release/bundle -czf "dist/$name" .
+          (cd dist && sha256sum "$name" > "$name.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/
+          retention-days: 7
+
+  windows:
+    needs: [prepare, test]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ github.run_number }}
+      - name: Collect
+        shell: pwsh
+        run: |
+          $release = "build/windows/x64/runner/Release"
+          # app-local copy of the Visual C++ runtime, so the app starts on a PC that does not have it
+          foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") {
+            Copy-Item "$env:WINDIR/System32/$dll" $release
+          }
+          $name = "ARCE.AI-${{ needs.prepare.outputs.tag }}-windows-x64.zip"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          # the contents of the Release folder, with the executable at the top (the updater relies on it)
+          Compress-Archive -Path "$release/*" -DestinationPath "dist/$name"
+          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name" | Out-File -Encoding ascii "dist/$name.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/
+          retention-days: 7
+
+  macos:
+    needs: [prepare, test]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ github.run_number }}
+      - name: Collect
+        run: |
+          name="ARCE.AI-${{ needs.prepare.outputs.tag }}-macos.zip"
+          mkdir -p dist
+          cp -R build/macos/Build/Products/Release/arce_ai.app dist/ARCE.AI.app
+          # ad-hoc signature: not notarized, but Apple silicon refuses to start an unsigned app
+          codesign --force --deep --sign - dist/ARCE.AI.app
+          (cd dist && ditto -c -k --keepParent ARCE.AI.app "$name" && rm -rf ARCE.AI.app)
+          (cd dist && shasum -a 256 "$name" > "$name.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/
+          retention-days: 7
+
+  ios:
+    needs: [prepare, test]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ github.run_number }}
+      - name: Collect
+        run: |
+          name="ARCE.AI-${{ needs.prepare.outputs.tag }}-ios-unsigned.ipa"
+          mkdir -p dist work/Payload
+          cp -R build/ios/iphoneos/Runner.app work/Payload/
+          (cd work && zip -qry "../dist/$name" Payload)
+          (cd dist && shasum -a 256 "$name" > "$name.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: dist/
+          retention-days: 7
+
+  publish:
+    needs: [prepare, android, linux, windows, macos, ios]
+    if: needs.prepare.outputs.release == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List files
+        run: ls -l dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          # A tag push already has the tag; other runs create it on this commit.
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "ARCE.AI $TAG" \
+            --target "$GITHUB_SHA" \
+            --generate-notes

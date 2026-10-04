@@ -1,14 +1,54 @@
-# toolchain (JDK / Android SDK / NDK) - huge, not part of source
-toolchain/
-# llama.cpp is a submodule
-# build outputs
-build/
-.gradle/
-local.properties
+# Miscellaneous
+*.class
 *.log
-dist/*.apk
-.idea/
-*.iml
+*.pyc
+*.swp
 .DS_Store
-native/build-*/
-toolchain/
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IDEs
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter / Dart / Pub
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+.widget_preview/
+
+# Symbolication and obfuscation
+app.*.symbols
+app.*.map.json
+
+# Android
+.gradle/
+.kotlin/
+local.properties
+.cxx/
+.externalNativeBuild/
+captures/
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# iOS / macOS
+**/Pods/
+**/ios/Flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+
+# Signing keys never go into the repository
+*.keystore
+*.jks
