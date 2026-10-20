@@ -9,7 +9,8 @@ name: Release Windows
 on:
   push:
     branches: ["**"]
-    paths: [pubspec.yaml]
+    # the workflow itself, so a fix can be tried without changing the version
+    paths: [pubspec.yaml, .github/workflows/release-windows.yml, .github/actions/publish/action.yml]
     tags: ["windows-v*"]
   workflow_dispatch:
     inputs:
@@ -65,39 +66,36 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
-      # The database tests open SQLite, which `sqlite3` 3.x supplies through a build hook: the
-      # hook fetches (or builds) the library for whichever process runs the tests. That has been
-      # failing on this runner since 0.4.1 while `flutter analyze` passes, and the job log of this
-      # repository cannot be downloaded by the account maintaining it, so this step prints what
-      # failed instead of stopping at "flutter test failed".
-      # Fallback: build the app first (the same hook runs for it), then let the tests find the
-      # library in the folder that receives it.
+      # This suite passes on the Linux runner and fails here on 3 tests (the annotation of the
+      # failing step reads "209 tests passed, 3 failed"), so the cause is in those tests, not in a
+      # missing native library.
+      # The job log cannot be downloaded by the account that maintains this repository, and only
+      # annotations are readable, so the names of the failing tests are re-emitted as errors here.
       - name: Test
         shell: pwsh
         run: |
-          flutter test 2>&1 | Tee-Object -FilePath test-first.log
+          flutter test 2>&1 | Tee-Object -FilePath test.log
           $code = $LASTEXITCODE
           if ($code -eq 0) { exit 0 }
-          Write-Host '::group::First failure'
-          Get-Content test-first.log |
-            Select-String -Pattern '(Failed to load|Invalid argument|Cannot open|error code|\[E\]|Expected:|Actual:)' -Context 2,4 |
-            Select-Object -First 40
-          Write-Host '::endgroup::'
-          Write-Host 'Retrying after building the app, with its folder on PATH'
-          flutter build windows --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ needs.prepare.outputs.build_number }} 2>&1 | Select-Object -Last 15
-          foreach ($dir in 'build\windows\x64\runner\Release', 'build\windows\x64\runner\Debug') {
-            $env:PATH = "$PWD\$dir;$env:PATH"
+          $lines = Get-Content test.log
+
+          # `flutter test` ends with a "Failing tests:" list of `path: name` lines
+          $failing = $lines |
+            Select-String -Pattern '^\s+test[/\\][^:]*\.dart: .+$' |
+            ForEach-Object { $_.Line.Trim() } |
+            Select-Object -Unique
+          foreach ($name in $failing) { Write-Host "::error title=failing test::$name" }
+
+          # the reason of each failure, taken around the [E] marker and the expectation lines
+          $detail = $lines |
+            Select-String -Pattern '\[E\]|Expected:|Actual:|Which:' |
+            Select-Object -First 12 |
+            ForEach-Object { $_.Line.Trim() }
+          if ($detail) { Write-Host "::error title=reason::$($detail -join ' | ')" }
+
+          if (-not $failing -and -not $detail) {
+            Get-Content test.log | Select-Object -Last 30 | ForEach-Object { Write-Host $_ }
           }
-          Get-ChildItem -Path build -Filter 'sqlite3*.dll' -Recurse -ErrorAction SilentlyContinue |
-            ForEach-Object { Write-Host "found $($_.FullName)" }
-          flutter test 2>&1 | Tee-Object -FilePath test-second.log
-          $code = $LASTEXITCODE
-          if ($code -eq 0) { exit 0 }
-          Write-Host '::group::Second failure'
-          Get-Content test-second.log |
-            Select-String -Pattern '(Failed to load|Invalid argument|Cannot open|error code|\[E\]|Expected:|Actual:)' -Context 2,4 |
-            Select-Object -First 40
-          Write-Host '::endgroup::'
           exit $code
       - run: flutter build windows --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ needs.prepare.outputs.build_number }}
       - name: Collect
