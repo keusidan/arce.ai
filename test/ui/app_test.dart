@@ -15,14 +15,24 @@ Future<AppController> makeApp(WidgetTester tester) async {
     'settings.v1': '{"autoUpdateCheck":false}',
   });
   late AppController app;
+  late Directory dir;
   await tester.runAsync(() async {
-    final dir = await Directory.systemTemp.createTemp('arce_ui_test');
-    addTearDown(() => dir.delete(recursive: true));
+    dir = await Directory.systemTemp.createTemp('arce_ui_test');
     final settings = await SettingsStore.load();
     app = await AppController.create(
       supportDirectory: dir,
       updateService: UpdateService(settings, currentVersion: const Version(0, 4, 0)),
     );
+  });
+  addTearDown(() async {
+    // Close the database before removing the folder: Windows will not delete a file that is still
+    // open (Linux allows it), which is why only the Windows runner failed these three tests.
+    app.history.close();
+    try {
+      await dir.delete(recursive: true);
+    } on FileSystemException {
+      // a handle can outlive close() for a moment; the system cleans the temp folder
+    }
   });
   return app;
 }
