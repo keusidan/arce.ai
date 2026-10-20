@@ -1,8 +1,10 @@
+import 'package:arce_ai/core/app_settings_spec.dart';
 import 'package:arce_ai/core/http_get.dart';
 import 'package:arce_ai/core/protocol.dart';
 import 'package:arce_ai/core/search.dart';
 import 'package:arce_ai/core/tool_runtime.dart';
 import 'package:arce_ai/core/weather.dart';
+import 'package:arce_ai/services/settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 HttpGet http(Map<String, String> routes) => (url, _) async {
@@ -67,5 +69,27 @@ void main() {
     final offline = await DefaultToolRuntime(clock: clock).run(const WebSearch('x'));
     expect(offline.activity.failed, isTrue);
     expect(offline.response.trim(), isNotEmpty);
+  });
+
+  test('runtime lists the app settings and never the token', () async {
+    final runtime = DefaultToolRuntime(settingsValues: () => const AppSettings().toJson());
+    final out = await runtime.run(const GetAppSettings());
+    expect(out.response, contains('contextLength = 4096'));
+    expect(out.response, contains('theme = system'));
+    expect(out.response, contains('lastModelPath'));
+    expect(out.response, contains('読み取り専用'));
+    expect(out.response, isNot(contains('token')));
+    expect(SettingsCatalog.describe(const AppSettings().toJson()), contains('選択肢: system / light / dark'));
+
+    final unavailable = await DefaultToolRuntime().run(const GetAppSettings());
+    expect(unavailable.activity.failed, isTrue);
+  });
+
+  test('a settings change is never run as a tool', () async {
+    final runtime = DefaultToolRuntime(settingsValues: () => const AppSettings().toJson());
+    await expectLater(
+      runtime.run(SetAppSetting(SettingsCatalog.parse('contextLength', '8192')!)),
+      throwsStateError,
+    );
   });
 }
