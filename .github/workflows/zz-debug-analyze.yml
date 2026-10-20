@@ -25,13 +25,11 @@ jobs:
         run: |
           set +e
           flutter analyze > an.txt 2>&1
-          cat an.txt
-          n=0
+          grep -E " • |issues? found|No issues" an.txt | head -30 > issues.txt
+          tail -3 an.txt >> issues.txt
+          cat issues.txt
           while IFS= read -r line; do
             clean=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r//g')
-            n=$((n+1))
-            if [ "$n" -le 25 ]; then
-              echo "::error::$clean"
-            fi
-          done < an.txt
+            echo "::error::$clean"
+          done < issues.txt
           exit 1
