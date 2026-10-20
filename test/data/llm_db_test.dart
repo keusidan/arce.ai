@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
 
+import 'package:arce_ai/data/conversation_snapshot_store.dart';
 import 'package:arce_ai/data/legacy_import.dart';
 import 'package:arce_ai/data/llm_db.dart';
 
@@ -494,7 +495,9 @@ void main() {
 
     test('生成中だった会話は続行できる状態で入る', () {
       importLegacyConversation(db, legacy(generating: true));
-      expect(db.loadTranscript('legacy-1')!.messages.last.message.finishReason, 'cancelled');
+      expect(db.loadTranscript('legacy-1')!.messages.last.message.finishReason, interruptedFinishReason);
+      // the chat screen reads that mark back as "cancelled" (続行できる)
+      expect(new ConversationSnapshotStore(db).read('legacy-1')!['messages'], hasLength(2));
     });
 
     test('壊れたファイルは failed として数え、他は続ける', () {
