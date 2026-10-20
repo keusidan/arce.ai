@@ -5,6 +5,7 @@ import '../core/engine.dart';
 import '../services/app_controller.dart';
 import '../services/settings.dart';
 import 'app_scope.dart';
+import 'provider_widgets.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'thinking_icon.dart';
@@ -60,6 +61,11 @@ class _SettingsPageState extends State<SettingsPage> {
           child: PageColumn(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const PageHeading('詳細設定', '基本設定はチャットからすばやく変更できます。'),
+              KeyedSubtree(
+                key: _keys[SettingsSection.providers],
+                child: const SectionTitle('オンラインモデル（プロバイダ）'),
+              ),
+              const ProvidersSection(),
               KeyedSubtree(key: _keys[SettingsSection.basic], child: const SectionTitle('基本設定')),
               ArceCard(
                 child: Column(children: [
