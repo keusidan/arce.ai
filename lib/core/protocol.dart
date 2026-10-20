@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'settings_spec.dart';
+
 /// A tool the model may call. [parameters] is a JSON Schema object; the same schema is shown
 /// to the model in the system prompt and compiled to GBNF on the native side, so the two
 /// cannot drift apart.
@@ -84,6 +86,13 @@ class GetTime extends ToolCall {
   final String? timezone;
 }
 
+/// A proposed change to the app's own settings. Nothing is applied until the user approves it;
+/// the chat shows the list and asks.
+class UpdateSettings extends ToolCall {
+  const UpdateSettings(this.changes);
+  final List<SettingsChangeOk> changes;
+}
+
 sealed class ParseResult {
   const ParseResult();
 }
@@ -102,7 +111,7 @@ class ParseInvalid extends ParseResult {
 abstract final class Protocol {
   /// Bumped whenever a tool schema changes. Stored with each generation so a regeneration
   /// can tell whether it runs under the same protocol as the original.
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
 
   static final askUser = ToolDefinition(
     name: 'ask_user',
@@ -142,6 +151,35 @@ abstract final class Protocol {
         'omit it for the device time zone.',
     parameters: _objectSchema(required: [], properties: {
       'timezone': {'type': 'string'},
+    }),
+  );
+
+  static final updateSettings = ToolDefinition(
+    name: 'update_settings',
+    description: 'Change the app settings (thinking, search, tone, theme, model options, ...). '
+        'Each change is shown to the user and applied only if they approve it. '
+        'Use for preferences the user asks for, not for API keys or the update source.',
+    parameters: _objectSchema(required: ['changes'], properties: {
+      'changes': {
+        'type': 'array',
+        'minItems': 1,
+        'maxItems': AgentSettings.maxChanges,
+        'items': {
+          'type': 'object',
+          'properties': {
+            'key': {'type': 'string', 'enum': AgentSettings.keys},
+            'value': {
+              'oneOf': [
+                {'type': 'boolean'},
+                {'type': 'number'},
+                {'type': 'string'},
+              ],
+            },
+          },
+          'required': ['key', 'value'],
+          'additionalProperties': false,
+        },
+      },
     }),
   );
 
@@ -210,6 +248,7 @@ abstract final class ToolCallParser {
         return l == null ? const ParseInvalid('weather location is blank') : ParseOk(GetWeather(l));
       }
       if (name == Protocol.getTime.name) return ParseOk(GetTime(_requiredText(args, 'timezone')));
+      if (name == Protocol.updateSettings.name) return _parseUpdateSettings(args);
       return ParseInvalid("tool '$name' has no handler");
     } on _WrongType catch (e) {
       return ParseInvalid('argument has the wrong type: ${e.key}');
@@ -252,6 +291,15 @@ abstract final class ToolCallParser {
       allowFreeInput: _flag(args, 'allow_free_input'),
       multiSelect: _flag(args, 'multi_select'),
     )));
+  }
+
+  static ParseResult _parseUpdateSettings(Map<dynamic, dynamic> args) {
+    switch (AgentSettings.parse(args)) {
+      case SettingsPatchInvalid(:final reason):
+        return ParseInvalid(reason);
+      case SettingsPatch(:final changes):
+        return changes.isEmpty ? const ParseInvalid('no changes') : ParseOk(UpdateSettings(changes));
+    }
   }
 }
 
