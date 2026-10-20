@@ -1,20 +1,28 @@
 name: zz debug analyze
 
-# Temporary: print the analyzer's findings as annotations so they can be read without a token.
+# Temporary: fix one line and report the analyzer output as annotations.
 on:
   workflow_dispatch:
   push:
     branches: ["feat/app-settings-tool"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   analyze:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
+      - name: fix the editing mistake
+        run: |
+          sed -i 's/earlierText = _shown = shown;/earlierText = shown;/' lib/core/chat_controller.dart
+          git config user.name "keusidan"
+          git config user.email "87552495+keusidan@users.noreply.github.com"
+          git add lib/core/chat_controller.dart
+          git diff --cached --quiet || git commit -m "Fix a mistaken line in chat_controller [skip ci]"
+          git push || true
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.47.6"
