@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../ai/cloud_engine.dart';
+import '../ai/provider.dart';
+import '../ai/routing_engine.dart';
 import '../core/chat_controller.dart';
 import '../core/http_get.dart';
 import '../core/search.dart';
@@ -15,14 +18,14 @@ import 'conversation_database.dart';
 import 'device_info.dart';
 import 'model_manager.dart';
 import 'preview_server.dart';
+import 'provider_store.dart';
 import 'settings.dart';
 import 'update_service.dart';
 
 enum AppPage { chat, models, artifacts, settings, history }
 
 /// Anchors of the sections of the settings page, so the desktop sidebar can jump to one.
-enum SettingsSection { basic, answer, display, developer, update }
-
+enum SettingsSection { providers, basic, answer, display, developer, update }
 
 /// A generation that was still running when the app last stopped (spec §25.1).
 class InterruptedConversation {
@@ -36,10 +39,12 @@ class InterruptedConversation {
 class AppController extends ChangeNotifier {
   AppController._({
     required this.settings,
+    required this.providers,
     required this.history,
     required this.models,
     required this.updates,
     required this.device,
+    required this.cloud,
     required this.engine,
     required this.preview,
   }) {
@@ -49,14 +54,23 @@ class AppController extends ChangeNotifier {
       settings: () => settings.value.toGeneration(models.loadedParamsB),
       store: (snapshot, {required generating}) => _persist(snapshot, generating),
     )..setThinking(settings.value.thinking);
+    _applyProvider();
   }
 
   final SettingsStore settings;
+
+  /// The providers the user added, and the one in use (device model or one of them).
+  final ProviderStore providers;
   final ConversationDatabase history;
   final ModelManager models;
   final UpdateService updates;
   final DeviceInfoService device;
-  final HybridEngine engine;
+
+  /// The cloud side of the router; its provider is replaced when the user picks another one.
+  final CloudEngine cloud;
+
+  /// Sends each request to the device model or to the chosen provider.
+  final RoutingEngine engine;
   final PreviewServer preview;
   late final ChatController chat;
 
@@ -75,6 +89,7 @@ class AppController extends ChangeNotifier {
   /// [supportDirectory] replaces the platform's app-data folder (tests use a temporary one).
   static Future<AppController> create({Directory? supportDirectory, UpdateService? updateService}) async {
     final settings = await SettingsStore.load();
+    final providers = await ProviderStore.load();
     final device = DeviceInfoService();
     final native = NativeEngine();
     final models = await ModelManager.create(
@@ -85,13 +100,17 @@ class AppController extends ChangeNotifier {
     );
     final history = await ConversationDatabase.open(supportDirectory: supportDirectory);
     final updates = updateService ?? UpdateService(settings);
+    final cloud = CloudEngine(const _NoProvider());
     final app = AppController._(
       settings: settings,
+      providers: providers,
       history: history,
       models: models,
       updates: updates,
       device: device,
-      engine: HybridEngine(native, DemoEngine()),
+      cloud: cloud,
+      // the device model answers until the user picks a provider
+      engine: RoutingEngine(local: HybridEngine(native, DemoEngine()), cloud: cloud),
       preview: PreviewServer(),
     );
     unawaited(app._start());
@@ -105,6 +124,8 @@ class AppController extends ChangeNotifier {
 
   Future<void> _start() async {
     settings.addListener(() => chat.setThinking(settings.value.thinking));
+    // adding, removing or editing a provider changes which one answers
+    providers.addListener(_applyProvider);
     try {
       await refreshConversations();
       final item = conversations.where((c) => c.generating).firstOrNull;
@@ -117,6 +138,39 @@ class AppController extends ChangeNotifier {
     }
     unawaited(updates.init().catchError((Object e) => debugPrint('update check setup failed: $e')));
     unawaited(models.restoreLastModel().catchError((Object e) => debugPrint('could not restore the last model: $e')));
+  }
+
+  /// Points the router at the chosen provider; the device model when none is usable.
+  void _applyProvider() {
+    final provider = providers.buildActive();
+    if (provider != null) cloud.provider = provider;
+    engine.target = provider;
+    notifyListeners();
+  }
+
+  /// True when replies go to a provider outside this device.
+  bool get usingCloud => providers.isCloud;
+
+  /// What the chat shows under the composer: who will answer, and whether it leaves the device.
+  String get engineLabel {
+    final config = providers.active;
+    if (config != null) return '${config.label} · ${config.model}（外部送信）';
+    if (providers.isCloud) return 'プロバイダの設定が未完了です';
+    return engine.isLoaded
+        ? '${models.loadedName ?? 'モデル'} · ${models.backend ?? ''}'
+        : 'モデル未接続 · デモ応答のみ';
+  }
+
+  /// [ProviderList.localId] goes back to the device model.
+  Future<void> setActiveProvider(String id) async {
+    if (chat.state.isGenerating) {
+      showToast('生成中は切り替えられません');
+      return;
+    }
+    await providers.setActive(id);
+    _applyProvider();
+    final config = providers.active;
+    showToast(config == null ? '端末のモデルで答えます' : '${config.label} で答えます');
   }
 
   void goTo(AppPage target) {
@@ -206,9 +260,17 @@ class AppController extends ChangeNotifier {
 
   void _persist(ConversationSnapshot snapshot, bool generating) {
     if (snapshot.messages.isEmpty) return;
+    final providerId = providers.activeId;
+    final modelId = providers.active?.model ?? '';
     _writer = _writer.then((_) async {
       try {
-        final id = await history.save(conversationId, snapshot, generating: generating);
+        final id = await history.save(
+          conversationId,
+          snapshot,
+          generating: generating,
+          providerId: providerId,
+          modelId: modelId,
+        );
         if (conversationId == null) {
           conversationId = id;
           notifyListeners();
@@ -223,10 +285,33 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _toastTimer?.cancel();
+    providers.removeListener(_applyProvider);
     unawaited(preview.dispose());
     updates.dispose();
     super.dispose();
   }
+}
+
+/// Stands in until the user adds a provider: a request would reach nobody, so it says so.
+class _NoProvider implements AiProvider {
+  const _NoProvider();
+
+  @override
+  String get id => 'none';
+
+  @override
+  String get label => '未設定';
+
+  @override
+  ProviderCapabilities get capabilities => const ProviderCapabilities();
+
+  @override
+  Stream<Delta> stream(AiRequest request) async* {
+    throw const AiProviderException('プロバイダが設定されていません');
+  }
+
+  @override
+  Future<void> verify() async => throw const AiProviderException('プロバイダが設定されていません');
 }
 
 /// Tools read the settings at call time, so a changed SearXNG address or search switch applies at once.

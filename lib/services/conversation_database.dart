@@ -83,8 +83,23 @@ class ConversationDatabase {
       ];
 
   /// Saves the whole conversation; returns the id it was stored under.
-  Future<String> save(String? id, ConversationSnapshot snapshot, {required bool generating}) async =>
-      store.save(id, snapshot.toJson(), generating: generating);
+  ///
+  /// [providerId] and [modelId] record who answered, so a conversation keeps saying which engine
+  /// wrote it even after the user switches to another one.
+  Future<String> save(
+    String? id,
+    ConversationSnapshot snapshot, {
+    required bool generating,
+    String providerId = 'local',
+    String modelId = '',
+  }) async =>
+      store.save(
+        id,
+        snapshot.toJson(),
+        generating: generating,
+        providerId: providerId,
+        modelId: modelId,
+      );
 
   Future<ConversationSnapshot?> get(String id) async {
     final json = store.read(id);
