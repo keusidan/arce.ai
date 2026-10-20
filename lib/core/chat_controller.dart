@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'agents.dart';
+import 'app_settings_spec.dart';
 import 'attachments.dart';
 import 'engine.dart';
 import 'generation.dart';
@@ -21,6 +22,7 @@ class UiMessage {
     required this.text,
     this.thinking = '',
     this.question,
+    this.setting,
     this.finish,
     this.activities = const [],
     this.agent,
@@ -33,6 +35,9 @@ class UiMessage {
   final String text;
   final String thinking;
   final QuestionTile? question;
+
+  /// Set together with [question] when the question is a settings approval (set_app_setting).
+  final SettingChange? setting;
   final FinishReason? finish;
   final List<ToolActivity> activities;
   final String? agent;
@@ -43,6 +48,7 @@ class UiMessage {
     String? text,
     String? thinking,
     QuestionTile? question,
+    SettingChange? setting,
     FinishReason? finish,
     List<ToolActivity>? activities,
   }) =>
@@ -52,6 +58,7 @@ class UiMessage {
         text: text ?? this.text,
         thinking: thinking ?? this.thinking,
         question: question ?? this.question,
+        setting: setting ?? this.setting,
         finish: finish ?? this.finish,
         activities: activities ?? this.activities,
         agent: agent,
@@ -65,6 +72,7 @@ class UiMessage {
         'text': text,
         'thinking': thinking,
         'question': question?.toJson(),
+        'setting': setting == null ? null : {'key': setting!.spec.key, 'value': setting!.value},
         'finish': finish?.name,
         'activities': [for (final a in activities) a.toJson()],
         'agent': agent,
@@ -78,6 +86,9 @@ class UiMessage {
         text: json['text'] as String,
         thinking: json['thinking'] as String? ?? '',
         question: json['question'] == null ? null : QuestionTile.fromJson((json['question'] as Map).cast()),
+        setting: json['setting'] is Map
+            ? SettingsCatalog.fromStored((json['setting'] as Map)['key'], (json['setting'] as Map)['value'])
+            : null,
         finish: json['finish'] == null ? null : FinishReason.values.byName(json['finish'] as String),
         activities: [
           for (final a in (json['activities'] as List? ?? const [])) ToolActivity.fromJson((a as Map).cast()),
@@ -112,6 +123,10 @@ class ChatState {
 
   QuestionTile? get pendingQuestion =>
       task == TaskState.userWait && messages.isNotEmpty ? messages.last.question : null;
+
+  /// The change waiting for the user's approval, when [pendingQuestion] is a settings approval.
+  SettingChange? get pendingSetting =>
+      task == TaskState.userWait && messages.isNotEmpty ? messages.last.setting : null;
 
   /// The last reply stopped before it was finished and can be continued (spec: 続行).
   bool get canContinue {
@@ -212,6 +227,9 @@ class ConversationSnapshot {
 /// Called at the points where a crash would lose work; [generating] marks an unfinished task.
 typedef ConversationStore = void Function(ConversationSnapshot snapshot, {required bool generating});
 
+/// Applies one settings change the user approved, and returns the text the model is given back.
+typedef SettingApplier = Future<String> Function(SettingChange change);
+
 class _Attempt {
   _Attempt(this.reason, this.thinking, this.answer, this.toolCallJson, this.cutInsideToolCall);
   final FinishReason reason;
@@ -230,8 +248,10 @@ class ChatController extends ChangeNotifier {
     this._toolRuntime = const NoToolRuntime(),
     GenerationSettings Function()? settings,
     ConversationStore? store,
+    SettingApplier? applySetting,
   })  : _settings = settings ?? (() => const GenerationSettings()),
-        _store = store ?? ((_, {required generating}) {}) {
+        _store = store ?? ((_, {required generating}) {}),
+        _applySetting = applySetting {
     _router = AgentRouter((prompt, schema) async {
       final out = StringBuffer();
       final stream = _engine
@@ -260,6 +280,7 @@ class ChatController extends ChangeNotifier {
   final ToolRuntime _toolRuntime;
   final GenerationSettings Function() _settings;
   final ConversationStore _store;
+  final SettingApplier? _applySetting;
   late final AgentRouter _router;
 
   ChatState _state = const ChatState();
@@ -321,14 +342,38 @@ class ChatController extends ChangeNotifier {
     return _start('');
   }
 
-  /// Answers the pending question tile and resumes generation.
-  Future<void> answer(List<String> selected, String? freeText) {
+  /// Answers the pending question tile (or approves/rejects a settings change) and resumes generation.
+  Future<void> answer(List<String> selected, String? freeText) async {
     if (_state.pendingQuestion == null || _busy) return Future.value();
     final free = freeText != null && freeText.trim().isNotEmpty ? [freeText] : const <String>[];
     final answer = [...selected, ...free].join(', ');
-    _history.add(ToolResponseTurn(answer));
+    final change = _state.pendingSetting;
+    var toolResponse = answer;
+    if (change != null) {
+      // a settings approval: nothing is written unless the user picked 承認
+      _busy = true;
+      try {
+        toolResponse = SettingsApproval.isApproval(selected)
+            ? await _approve(change)
+            : 'The user rejected the change. Nothing was changed.';
+      } finally {
+        _busy = false;
+      }
+    }
+    _history.add(ToolResponseTurn(toolResponse));
     _append(UiMessage(id: _nextId++, role: Role.user, text: answer, time: DateTime.now()));
     return _start('');
+  }
+
+  /// Writes the approved change through the app and reports the result to the model.
+  Future<String> _approve(SettingChange change) async {
+    final applier = _applySetting;
+    if (applier == null) return 'The user approved it, but this build cannot change its settings.';
+    try {
+      return await applier(change);
+    } catch (e) {
+      return 'The user approved it, but the change failed: $e';
+    }
   }
 
   void stop() => _engine.cancel();
@@ -472,6 +517,20 @@ class ChatController extends ChangeNotifier {
           return;
         case AskUser(:final tile):
           _replace(id, (m) => m.copyWith(text: shown, question: tile, finish: result.reason, activities: List.of(activities)));
+          _finishWith(TaskState.userWait);
+          return;
+        case SetAppSetting(:final change):
+          // the card is the approval; the change is written only when the user taps 承認
+          _replace(
+            id,
+            (m) => m.copyWith(
+              text: shown,
+              question: SettingsApproval.tile(change),
+              setting: change,
+              finish: result.reason,
+              activities: List.of(activities),
+            ),
+          );
           _finishWith(TaskState.userWait);
           return;
         default:
