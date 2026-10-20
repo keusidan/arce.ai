@@ -248,10 +248,9 @@ class ChatController extends ChangeNotifier {
     this._toolRuntime = const NoToolRuntime(),
     GenerationSettings Function()? settings,
     ConversationStore? store,
-    SettingApplier? applySetting,
+    this._applySetting,
   })  : _settings = settings ?? (() => const GenerationSettings()),
-        _store = store ?? ((_, {required generating}) {}),
-        _applySetting = applySetting {
+        _store = store ?? ((_, {required generating}) {}) {
     _router = AgentRouter((prompt, schema) async {
       final out = StringBuffer();
       final stream = _engine
@@ -543,7 +542,7 @@ class ChatController extends ChangeNotifier {
           final outcome = await _toolRuntime.run(call);
           activities.add(outcome.activity);
           _history.add(ToolResponseTurn(outcome.response));
-          earlierText = shown;
+          earlierText = _shown = shown; // keep the text so far and continue
           roundPrefill = '';
           _replace(id, (m) => m.copyWith(text: earlierText, activities: List.of(activities)));
       }
