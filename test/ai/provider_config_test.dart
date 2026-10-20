@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:arce_ai/ai/provider_config.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 const _openai = ProviderConfig(
   id: 'openai',

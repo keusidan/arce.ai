@@ -4,7 +4,7 @@ import 'package:arce_ai/ai/routing_engine.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
 import 'package:arce_ai/core/prompt.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 /// A provider that answers every request with one word and counts the calls.
 class _CountedProvider implements AiProvider {

@@ -6,7 +6,7 @@ import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
 import 'package:arce_ai/core/prompt.dart';
 import 'package:arce_ai/core/stream_segmenter.dart' hide ToolCallDelta;
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 const _sampling = SamplingParams(temperature: 0.3, topP: 0.9, topK: 20, minP: 0);
 
@@ -163,7 +163,7 @@ void main() {
   });
 }
 
-/// The whole reply of [engine] as one piece, so the segmenter sees a normal stream.
+/// The reply text of [engine] as one piece, so the segmenter sees a normal stream.
 Future<String> _piecesOf(CloudEngine engine) async {
   final text = StringBuffer();
   await for (final event in engine.generate(_request())) {
