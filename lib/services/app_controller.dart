@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/app_settings_spec.dart';
 import '../core/chat_controller.dart';
 import '../core/http_get.dart';
 import '../core/search.dart';
@@ -48,6 +49,7 @@ class AppController extends ChangeNotifier {
       toolRuntime: _toolRuntime,
       settings: () => settings.value.toGeneration(models.loadedParamsB),
       store: (snapshot, {required generating}) => _persist(snapshot, generating),
+      applySetting: _applySetting,
     )..setThinking(settings.value.thinking);
   }
 
@@ -117,6 +119,19 @@ class AppController extends ChangeNotifier {
     }
     unawaited(updates.init().catchError((Object e) => debugPrint('update check setup failed: $e')));
     unawaited(models.restoreLastModel().catchError((Object e) => debugPrint('could not restore the last model: $e')));
+  }
+
+  /// Applies the settings change the user approved in the chat (spec §8). The reply says what the
+  /// setting is now, so the model can confirm it instead of assuming.
+  Future<String> _applySetting(SettingChange change) async {
+    final spec = change.spec;
+    await settings.update((current) => withSetting(current, change));
+    final now = settings.value.toJson()[spec.key];
+    final display = now == null ? '(未設定)' : SettingsCatalog.formatValue(spec, now);
+    final effect = SettingsCatalog.reloadNeeded.contains(spec.key)
+        ? ' It takes effect the next time the model is loaded.'
+        : '';
+    return 'The user approved the change. ${spec.key} (${spec.label}) is now $display.$effect';
   }
 
   void goTo(AppPage target) {
@@ -246,6 +261,7 @@ class _SettingsToolRuntime implements ToolRuntime {
     return DefaultToolRuntime(
       search: s.searchEnabled ? SearchService(providers, retriesPerProvider: s.retryLimit.clamp(0, 3)) : null,
       weather: OpenMeteoWeather(_http),
+      settingsValues: () => _settings.value.toJson(),
     ).run(call);
   }
 }
