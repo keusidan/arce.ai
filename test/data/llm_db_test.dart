@@ -497,7 +497,7 @@ void main() {
       importLegacyConversation(db, legacy(generating: true));
       expect(db.loadTranscript('legacy-1')!.messages.last.message.finishReason, interruptedFinishReason);
       // the chat screen reads that mark back as "cancelled" (続行できる)
-      expect(new ConversationSnapshotStore(db).read('legacy-1')!['messages'], hasLength(2));
+      expect(ConversationSnapshotStore(db).read('legacy-1')!['messages'], hasLength(2));
     });
 
     test('壊れたファイルは failed として数え、他は続ける', () {
