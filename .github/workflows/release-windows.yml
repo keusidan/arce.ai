@@ -73,17 +73,22 @@ jobs:
       - name: Test
         shell: pwsh
         run: |
-          flutter test 2>&1 | Tee-Object -FilePath test.log
+          # `expanded` puts each failing test on a line that ends with [E]; the default reporter
+          # prints only the counts, which is why the first attempt reported "failing tests: 0".
+          flutter test --reporter expanded 2>&1 | Tee-Object -FilePath test.log
           $code = $LASTEXITCODE
           if ($code -eq 0) { exit 0 }
           $lines = Get-Content test.log
-          $failing = $lines | Select-String -Pattern '^\s+test[/\\].*\.dart: .+$' | ForEach-Object { $_.Line.Trim() } | Select-Object -Unique
+          $failing = $lines | Select-String -Pattern '\[E\]\s*$' | ForEach-Object { $_.Line.Trim() } | Select-Object -Unique
           Write-Output "::notice::failing tests: $($failing.Count)"
           $i = 0
-          foreach ($name in $failing) { if ($i -lt 9) { Write-Output "::error::$name"; $i++ } }
-          $detail = $lines | Select-String -Pattern '\[E\]' -Context 0,4 | Select-Object -First 1
-          if ($detail) { Write-Output "::error::$($detail -join ' / ')" }
-          Get-Content test.log | Select-Object -Last 15 | ForEach-Object { Write-Output $_ }
+          foreach ($name in $failing) {
+            if ($i -ge 8) { break }
+            $short = if ($name.Length -gt 240) { $name.Substring(0, 240) } else { $name }
+            Write-Output "::error::$short"
+            $i++
+          }
+          Get-Content test.log | Select-Object -Last 20 | ForEach-Object { Write-Output $_ }
           exit $code
       - run: flutter build windows --release --build-name ${{ needs.prepare.outputs.version }} --build-number ${{ needs.prepare.outputs.build_number }}
       - name: Collect
