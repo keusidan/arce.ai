@@ -1,3 +1,4 @@
+import 'package:arce_ai/core/app_settings_spec.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/services/settings.dart';
 import 'package:flutter/material.dart';
@@ -42,6 +43,23 @@ void main() {
     final again = await SettingsStore.load();
     expect(again.value.searxngUrl, 'http://pi:8080');
     expect(again.value.maxChars, 800);
+  });
+
+  test('an approved change is written through the settings document', () {
+    const before = AppSettings(contextLength: 4096, theme: ThemeMode.system);
+    final longer = SettingsCatalog.parse('contextLength', '8192')!;
+    expect(withSetting(before, longer).contextLength, 8192);
+    expect(withSetting(before, longer).theme, ThemeMode.system, reason: 'the other keys stay');
+
+    final dark = SettingsCatalog.parse('theme', 'dark')!;
+    expect(withSetting(before, dark).theme, ThemeMode.dark);
+  });
+
+  test('the GitHub token is not one of the settings the model can see', () {
+    final keys = const AppSettings().toJson().keys.toSet();
+    expect(keys, containsAll(SettingsCatalog.specs.map((s) => s.key)));
+    expect(keys.contains('github_token'), isFalse);
+    expect(SettingsCatalog.byKey('githubToken'), isNull);
   });
 
   test('a damaged save does not stop the app from starting', () async {
