@@ -79,7 +79,7 @@ jobs:
           $code = $LASTEXITCODE
           if ($code -eq 0) { exit 0 }
           $lines = Get-Content test.log
-          $failing = $lines | Select-String -Pattern '\[E\]\s*$' | ForEach-Object { $_.Line.Trim() } | Select-Object -Unique
+          $failing = $lines | Select-String -SimpleMatch '[E]' | ForEach-Object { $_.Line.Trim() } | Select-Object -Unique
           Write-Output "::notice::failing tests: $($failing.Count)"
           $i = 0
           foreach ($name in $failing) {
