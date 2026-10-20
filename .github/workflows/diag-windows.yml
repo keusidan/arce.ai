@@ -1,0 +1,49 @@
+# Temporary: finds out why test/ui/app_test.dart fails on the Windows runner. The job log cannot
+# be downloaded by the account that maintains this repository, so the failure is re-emitted as
+# annotations (the only thing that API exposes). Delete this file once the cause is fixed.
+name: Diagnose Windows tests
+
+on:
+  push:
+    branches: ["**"]
+    paths: [.github/workflows/diag-windows.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.6"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Run the widget tests and report the failures
+        shell: pwsh
+        run: |
+          flutter test test/ui/app_test.dart --reporter expanded 2>&1 | Tee-Object -FilePath test.log
+          $code = $LASTEXITCODE
+          $lines = Get-Content test.log
+          $idx = -1
+          for ($j = 0; $j -lt $lines.Count; $j++) {
+            if ($lines[$j].Contains('[E]')) { $idx = $j; break }
+          }
+          if ($idx -lt 0) {
+            Write-Output "::error::no failure marker; exit code $code"
+            $lines | Select-Object -Last 25 | ForEach-Object { Write-Output "::error::$_" }
+          } else {
+            $end = [Math]::Min($idx + 18, $lines.Count - 1)
+            for ($k = $idx; $k -le $end; $k++) {
+              $t = $lines[$k].Trim()
+              if ($t.Length -eq 0) { continue }
+              if ($t.Length -gt 240) { $t = $t.Substring(0, 240) }
+              Write-Output "::error::$t"
+            }
+          }
+          exit 0
