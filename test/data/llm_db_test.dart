@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 import 'package:arce_ai/data/legacy_import.dart';
 import 'package:arce_ai/data/llm_db.dart';
@@ -20,7 +21,7 @@ void main() {
 
   group('データベース', () {
     test('スキーマ版が記録される', () {
-      expect(db.schemaVersion, 1);
+      expect(db.schemaVersion, 2);
     });
 
     test('同じパスを開き直してもデータが残る（永続化の確認）', () {
@@ -328,6 +329,79 @@ void main() {
         conversationId: id,
       );
       expect([for (final a in db.unreferencedAssets()) a.id], [other]);
+    });
+  });
+
+  group('モデル履歴', () {
+    test('保存した順に読める', () {
+      final id = conversation();
+      db.saveTurns(id, [
+        const NewTurn('user', text: 'こんにちは'),
+        const NewTurn('assistant', text: 'やあ', toolCallJson: '{"name":"web_search"}'),
+        const NewTurn('tool', text: '検索結果'),
+        const NewTurn('assistant', text: '要約すると…'),
+      ]);
+
+      final turns = db.turnsOf(id);
+      expect(turns.map((t) => t.kind), ['user', 'assistant', 'tool', 'assistant']);
+      expect(turns.map((t) => t.seq), [0, 1, 2, 3]);
+      expect(turns[1].toolCallJson, '{"name":"web_search"}');
+      expect(turns[2].text, '検索結果');
+    });
+
+    test('二度保存すると前の履歴は置き換わる', () {
+      final id = conversation();
+      db.saveTurns(id, [const NewTurn('user', text: '古い')]);
+      db.saveTurns(id, [const NewTurn('user', text: '新しい'), const NewTurn('assistant', text: '返事')]);
+
+      final turns = db.turnsOf(id);
+      expect(turns, hasLength(2));
+      expect(turns.first.text, '新しい');
+    });
+
+    test('空で保存すると履歴も空になる', () {
+      final id = conversation();
+      db.saveTurns(id, [const NewTurn('user', text: 'x')]);
+      db.saveTurns(id, const []);
+      expect(db.turnsOf(id), isEmpty);
+    });
+
+    test('会話を消すと履歴も消える', () {
+      final id = conversation();
+      db.saveTurns(id, [const NewTurn('user', text: 'x')]);
+      db.deleteConversation(id);
+      expect(db.turnsOf(id), isEmpty);
+    });
+  });
+
+  group('スキーマの移行', () {
+    test('v1 のデータベースを開くと turns が足され、中身は残る', () {
+      final dir = Directory.systemTemp.createTempSync('arce_mig');
+      final path = '${dir.path}/old.db';
+
+      // v1 相当（conversations だけあり、turns が無い）を作る
+      final raw = sqlite3.open(path);
+      raw.execute('''
+        CREATE TABLE conversations (
+          id TEXT PRIMARY KEY, title TEXT NOT NULL, agent_id TEXT NOT NULL,
+          provider_id TEXT NOT NULL, model_id TEXT NOT NULL,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          archived INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0
+        );
+      ''');
+      raw.execute("INSERT INTO conversations VALUES ('old-1', '前からある会話', 'general', 'local', 'm', 1, 1, 0, 0)");
+      raw.userVersion = 1;
+      raw.close();
+
+      final db = LlmDatabase.open(path);
+      expect(db.schemaVersion, 2);
+      expect(db.conversation('old-1')?.title, '前からある会話');
+
+      db.saveTurns('old-1', [const NewTurn('user', text: '移行後も使える')]);
+      expect(db.turnsOf('old-1'), hasLength(1));
+
+      db.close();
+      dir.deleteSync(recursive: true);
     });
   });
 
