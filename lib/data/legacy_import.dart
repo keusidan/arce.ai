@@ -85,7 +85,7 @@ LegacyImportResult importLegacyConversation(LlmDatabase db, Map<String, Object?>
         createdAt: _millis(row['time']) ?? updatedAt,
         // A generation was still running when the app last stopped; keep it resumable.
         finishReason: generating && last && role == MessageRole.assistant
-            ? 'cancelled'
+            ? interruptedFinishReason
             : row['finish'] as String?,
       ),
     );
