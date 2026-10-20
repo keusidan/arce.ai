@@ -1,6 +1,7 @@
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'app_settings_spec.dart';
 import 'protocol.dart';
 import 'search.dart';
 import 'weather.dart';
@@ -63,10 +64,15 @@ class NoToolRuntime implements ToolRuntime {
 typedef Clock = DateTime Function();
 
 class DefaultToolRuntime implements ToolRuntime {
-  DefaultToolRuntime({this.search, this.weather, Clock? clock}) : _clock = clock ?? DateTime.now;
+  DefaultToolRuntime({this.search, this.weather, this.settingsValues, Clock? clock})
+      : _clock = clock ?? DateTime.now;
 
   final SearchService? search;
   final OpenMeteoWeather? weather;
+
+  /// Current values of the app settings (`AppSettings.toJson`), read for get_app_settings. Null
+  /// where there is no settings store, which makes the tool answer that it is unavailable.
+  final Map<String, Object?> Function()? settingsValues;
   final Clock _clock;
 
   static bool _zonesReady = false;
@@ -76,8 +82,25 @@ class DefaultToolRuntime implements ToolRuntime {
         WebSearch() => _search(call.query),
         GetWeather() => _weather(call.location),
         GetTime() => _time(call.timezone),
+        GetAppSettings() => _appSettings(),
+        SetAppSetting() =>
+          throw StateError('set_app_setting is approved by the user, not run as a tool'),
         AskUser() => throw StateError('ask_user is answered by the user, not run as a tool'),
       };
+
+  ToolOutcome _appSettings() {
+    final values = settingsValues?.call();
+    if (values == null) {
+      return const ToolOutcome(
+        'The app settings are not available here.',
+        ToolActivity('Settings', '設定を読み取れません', failed: true),
+      );
+    }
+    return ToolOutcome(
+      'Current settings of this app (key = value # label):\n${SettingsCatalog.describe(values)}',
+      ToolActivity('Settings', '設定 ${SettingsCatalog.specs.length} 項目を読み取り'),
+    );
+  }
 
   Future<ToolOutcome> _search(String query) async {
     final service = search;
