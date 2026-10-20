@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 import 'package:arce_ai/core/toolchain/binary_manifest.dart';
 
@@ -161,11 +161,10 @@ List<String> _stringPool(Uint8List bytes) {
   final stringsStart = data.getInt32(chunk.offset + 20, Endian.little);
   final out = <String>[];
   for (var i = 0; i < count; i++) {
-    var p = chunk.offset + stringsStart + data.getInt32(chunk.offset + headerSize + i * 4, Endian.little);
+    final p = chunk.offset + stringsStart + data.getInt32(chunk.offset + headerSize + i * 4, Endian.little);
     final length = data.getUint16(p, Endian.little);
-    p += 2;
     out.add(String.fromCharCodes([
-      for (var k = 0; k < length; k++) data.getUint16(p + k * 2, Endian.little),
+      for (var k = 0; k < length; k++) data.getUint16(p + 2 + k * 2, Endian.little),
     ]));
   }
   return out;
