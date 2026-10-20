@@ -28,8 +28,17 @@ abstract final class Agents {
   static final general = AgentDefinition(
     id: 'general',
     displayName: 'General Chat',
-    instructions: 'Answer conversationally. Use tools only when they are clearly needed.',
-    tools: [Protocol.askUser, Protocol.webSearch, Protocol.getWeather, Protocol.getTime],
+    instructions: 'Answer conversationally. Use tools only when they are clearly needed. When the '
+        'user asks about this app or its settings, call get_app_settings instead of guessing; '
+        'change one only with set_app_setting, which asks the user to approve it first.',
+    tools: [
+      Protocol.askUser,
+      Protocol.webSearch,
+      Protocol.getWeather,
+      Protocol.getTime,
+      Protocol.getAppSettings,
+      Protocol.setAppSetting,
+    ],
     minModelParamsB: 1.7,
     keywords: const [],
   );
@@ -40,7 +49,7 @@ abstract final class Agents {
     instructions: 'You are writing code. Give complete, runnable files, each in its own fenced block '
         'with the language (```kotlin, ```python, ```html ...). Ask with ask_user when a key choice '
         '(language, platform, scope) is missing instead of guessing.',
-    tools: [Protocol.askUser, Protocol.webSearch],
+    tools: [Protocol.askUser, Protocol.webSearch, Protocol.getAppSettings, Protocol.setAppSetting],
     minModelParamsB: 4.0,
     keywords: const [
       '作って', '実装', 'コード', 'プログラム', '関数', 'バグ', 'エラー', 'code', 'implement',
@@ -52,7 +61,7 @@ abstract final class Agents {
     id: 'research',
     displayName: 'Research / Search',
     instructions: 'Research the question. Search first, compare sources, and cite the URLs you rely on.',
-    tools: [Protocol.webSearch, Protocol.getTime, Protocol.askUser],
+    tools: [Protocol.webSearch, Protocol.getTime, Protocol.askUser, Protocol.getAppSettings, Protocol.setAppSetting],
     minModelParamsB: 4.0,
     keywords: const ['調べ', '検索', '最新', 'ニュース', '比較', 'ソース', 'search', 'latest', 'news', 'compare', 'source'],
   );
@@ -62,7 +71,7 @@ abstract final class Agents {
     displayName: 'Artifact',
     instructions: 'Build a self-contained web page. Put all HTML, CSS and JavaScript in ONE ```html block '
         'so it can be previewed; do not load external scripts. Add a short usage note after the block.',
-    tools: [Protocol.askUser],
+    tools: [Protocol.askUser, Protocol.getAppSettings, Protocol.setAppSetting],
     minModelParamsB: 4.0,
     keywords: const [
       'html', 'css', 'webページ', 'ウェブページ', 'サイト', 'ゲーム', 'プレビュー', 'artifact',
@@ -74,7 +83,7 @@ abstract final class Agents {
     id: 'file-analysis',
     displayName: 'File Analysis',
     instructions: 'The user attached files. Base the answer on their contents and quote the relevant parts.',
-    tools: [Protocol.askUser],
+    tools: [Protocol.askUser, Protocol.getAppSettings, Protocol.setAppSetting],
     minModelParamsB: 4.0,
     keywords: const ['ファイル', '添付', '要約', '解析', '読んで', 'file', 'attached', 'summarize', 'analyze'],
   );
@@ -177,7 +186,7 @@ class AgentRouter {
     if (hasAttachments) b.write('(files attached)\n');
     b
       ..write(request.length > 1000 ? request.substring(0, 1000) : request)
-      ..write('<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n');
+      ..write('<|im_end|>\n<|im_start|>assistant\n thinking\n\n</think>\n\n');
     return b.toString();
   }
 
