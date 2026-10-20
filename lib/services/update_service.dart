@@ -101,6 +101,8 @@ class UpdateService extends ChangeNotifier {
     _schedule();
     _settings.addListener(_schedule);
     if (_settings.value.autoUpdateCheck) unawaited(check(silent: true));
+    // the build we are now running has been installed, so its download is no longer needed
+    unawaited(removeOldDownloads());
   }
 
   void _schedule() {
@@ -193,12 +195,22 @@ class UpdateService extends ChangeNotifier {
       if (expected == null) throw StateError('チェックサムファイルを読み取れません');
       final cache = await _cacheDirectory();
       final dir = Directory('${cache.path}${Platform.pathSeparator}updates');
-      if (await dir.exists()) await dir.delete(recursive: true);
       await dir.create(recursive: true);
+      // Only this download is kept: other files are a build that is no longer needed, or a
+      // half-finished file of another version.
+      final wanted = {asset.name, '${asset.name}.part'};
+      await for (final entity in dir.list()) {
+        if (entity is File && !wanted.contains(entity.path.split(Platform.pathSeparator).last)) {
+          await entity.delete();
+        }
+      }
       final file = File('${dir.path}${Platform.pathSeparator}${asset.name}');
-      final digest = await _downloadAsset(asset, file, (done) => _set(UpdateDownloading(release, done, asset.sizeBytes)));
+      final part = File('${file.path}.part');
+      final digest = await _downloadAsset(asset, file, part, (done) => _set(UpdateDownloading(release, done, asset.sizeBytes)));
       if (digest.toLowerCase() != expected.toLowerCase()) {
-        await file.delete();
+        for (final f in [file, part]) {
+          if (await f.exists()) await f.delete();
+        }
         throw StateError('SHA-256 が一致しません。ダウンロードを破棄しました');
       }
       _set(UpdateReady(release, file));
@@ -211,17 +223,23 @@ class UpdateService extends ChangeNotifier {
 
   /// Asset downloads answer with a redirect to signed storage. The GitHub token must not be
   /// sent there (the storage rejects a second credential), so the redirect is followed by hand.
-  Future<http.StreamedResponse> _openAsset(ReleaseAsset asset) async {
+  ///
+  /// [from] asks for the rest of a download that stopped earlier; the storage honours it with
+  /// `206 Partial Content`, and the range is repeated on the redirected request.
+  Future<http.StreamedResponse> _openAsset(ReleaseAsset asset, {int? from}) async {
+    final range = from == null ? null : {'Range': 'bytes=$from-'};
     final repo = _settings.value.updateRepo;
     final api = http.Request('GET', Uri.parse('https://api.github.com/repos/$repo/releases/assets/${asset.id}'))
       ..followRedirects = false
       ..headers.addAll(_headers('application/octet-stream', withToken: true));
+    if (range != null) api.headers.addAll(range);
     final first = await _client.send(api).timeout(const Duration(seconds: 30));
     if (first.statusCode >= 300 && first.statusCode < 400) {
       final location = first.headers['location'];
       await first.stream.drain<void>();
       if (location == null) throw StateError('リダイレクト先がありません');
       final storage = http.Request('GET', Uri.parse(location))..headers.addAll(_headers('application/octet-stream', withToken: false));
+      if (range != null) storage.headers.addAll(range);
       final second = await _client.send(storage).timeout(const Duration(seconds: 30));
       if (second.statusCode < 200 || second.statusCode > 299) {
         throw StateError('ダウンロードに失敗しました（HTTP ${second.statusCode}）');
@@ -243,14 +261,46 @@ class UpdateService extends ChangeNotifier {
     return bytes;
   }
 
-  /// Streams the asset into [file] and returns its SHA-256 (hex).
-  Future<String> _downloadAsset(ReleaseAsset asset, File file, void Function(int done) onProgress) async {
-    final response = await _openAsset(asset);
-    final sink = file.openWrite();
+  /// Streams the asset into [part], continuing from what a stopped download already wrote, and
+  /// returns the SHA-256 of the whole file. The finished file is moved to [file].
+  ///
+  /// Keeping the partial file is what stops an interrupted update (app closed, background work
+  /// cut off, network lost) from starting over: the next attempt asks for the rest with a range
+  /// request. If the storage answers with the whole file instead, the partial file is dropped and
+  /// the checksum starts again.
+  Future<String> _downloadAsset(
+    ReleaseAsset asset,
+    File file,
+    File part,
+    void Function(int done) onProgress,
+  ) async {
+    var have = await part.exists() ? await part.length() : 0;
+    if (have > asset.sizeBytes) {
+      await part.delete();
+      have = 0;
+    }
+
+    var response = await _openAsset(asset, from: have > 0 ? have : null);
+    if (have > 0 && response.statusCode != 206) {
+      await response.stream.drain<void>();
+      await part.delete();
+      have = 0;
+      response = await _openAsset(asset);
+    }
+
     final hash = AccumulatorSink<Digest>();
     final input = sha256.startChunkedConversion(hash);
-    var done = 0;
+    if (have > 0) {
+      // the bytes already on disk count towards the checksum of the finished file
+      await for (final chunk in part.openRead()) {
+        input.add(chunk);
+      }
+    }
+
+    final sink = part.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
+    var done = have;
     var lastReport = DateTime.fromMillisecondsSinceEpoch(0);
+    onProgress(done);
     try {
       await for (final chunk in response.stream) {
         sink.add(chunk);
@@ -263,10 +313,42 @@ class UpdateService extends ChangeNotifier {
         }
       }
     } finally {
+      // The part file stays on disk even when the stream fails, so the next attempt resumes.
       await sink.close();
     }
     input.close();
+
+    if (await file.exists()) await file.delete();
+    await part.rename(file.path);
+    onProgress(done);
     return hash.events.single.toString();
+  }
+
+  /// Deletes update files this app no longer needs: the build it is already running (the update
+  /// is installed) and halves of other versions. A newer file is kept, so a download that was
+  /// interrupted can still resume.
+  Future<void> removeOldDownloads() async {
+    try {
+      final cache = await _cacheDirectory();
+      final dir = Directory('${cache.path}${Platform.pathSeparator}updates');
+      if (!await dir.exists()) return;
+      final current = currentVersion;
+      await for (final entity in dir.list()) {
+        if (entity is! File) continue;
+        final version = _versionIn(entity.path);
+        final keep = version != null && current != null && version > current;
+        if (!keep) await entity.delete();
+      }
+    } catch (e) {
+      debugPrint('could not clean the update folder: $e');
+    }
+  }
+
+  /// The `0.5.0` of `ARCE.AI-v0.5.0-android.apk.part`, when the file name has one.
+  static Version? _versionIn(String path) {
+    final name = path.split(Platform.pathSeparator).last;
+    final match = RegExp(r'(\d+\.\d+\.\d+)').firstMatch(name);
+    return match == null ? null : Version.parse(match.group(1)!);
   }
 
   Future<bool> canInstall() async {

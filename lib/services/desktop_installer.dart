@@ -20,6 +20,13 @@ abstract final class DesktopInstaller {
 
     await _extract(archive, extracted);
 
+    // the new files are on disk now; the archive itself is not needed after this point
+    try {
+      await archive.delete();
+    } catch (_) {
+      // a locked file only leaves garbage in the cache, which the next start clears
+    }
+
     final script = File(p.join(work.path, Platform.isWindows ? 'update.ps1' : 'update.sh'));
     final executable = Platform.resolvedExecutable;
     final pidText = '$pid';
