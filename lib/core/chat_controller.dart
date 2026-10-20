@@ -542,7 +542,7 @@ class ChatController extends ChangeNotifier {
           final outcome = await _toolRuntime.run(call);
           activities.add(outcome.activity);
           _history.add(ToolResponseTurn(outcome.response));
-          earlierText = _shown = shown; // keep the text so far and continue
+          earlierText = shown; // keep the text so far and continue
           roundPrefill = '';
           _replace(id, (m) => m.copyWith(text: earlierText, activities: List.of(activities)));
       }
