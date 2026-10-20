@@ -23,6 +23,12 @@ abstract final class MessageRole {
   static const tool = 'tool';
 }
 
+/// The finish reason stored while a reply is still being generated.
+///
+/// A value of its own rather than `cancelled`, so the history list can tell "the app stopped in the
+/// middle of a reply" (offer to resume) from "the user pressed stop".
+const interruptedFinishReason = 'interrupted';
+
 class ConversationRow {
   const ConversationRow({
     required this.id,
@@ -442,6 +448,58 @@ class LlmDatabase {
     return id;
   }
 
+  /// Writes every message of [conversationId] again, replacing what was stored.
+  ///
+  /// The chat screen hands the whole conversation over at the points where a crash would lose
+  /// work, so appending would store the reply that is still streaming twice. Ids come from the
+  /// position, which keeps the rows stable when the same conversation is saved again.
+  void replaceMessages(String conversationId, List<NewMessage> messages) {
+    _transaction(() {
+      _db.execute('DELETE FROM messages_fts WHERE conversation_id = ?', [conversationId]);
+      // parts go with the messages through ON DELETE CASCADE
+      _db.execute('DELETE FROM messages WHERE conversation_id = ?', [conversationId]);
+
+      var seq = 0;
+      var newest = 0;
+      for (final message in messages) {
+        final id = '$conversationId@$seq';
+        final at = (message.createdAt ?? DateTime.now()).millisecondsSinceEpoch;
+        if (at > newest) newest = at;
+        _db.execute(
+          'INSERT INTO messages (id, conversation_id, seq, role, agent_id, provider_id, model_id, '
+          'created_at, finish_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            id,
+            conversationId,
+            seq,
+            message.role,
+            message.agentId,
+            message.providerId,
+            message.modelId,
+            at,
+            message.finishReason,
+          ],
+        );
+
+        var partSeq = 0;
+        for (final p in message.parts) {
+          _db.execute(
+            'INSERT INTO parts (id, message_id, seq, kind, text, asset_id, tool_call_id, tool_name, payload) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            ['$id@$partSeq', id, partSeq++, p.kind, p.text, p.assetId, p.toolCallId, p.toolName, p.payload],
+          );
+        }
+
+        _index(id, conversationId, message.parts);
+        seq++;
+      }
+
+      if (newest > 0) {
+        _db.execute('UPDATE conversations SET updated_at = ? WHERE id = ?', [newest, conversationId]);
+      }
+    });
+  }
+
   /// Records how a reply ended, and what it cost.
   void finishMessage(
     String messageId, {
@@ -458,6 +516,24 @@ class LlmDatabase {
         'completion_tokens = COALESCE(?, completion_tokens), '
         'cost_micros = COALESCE(?, cost_micros) WHERE id = ?',
         [finishReason, errorText, promptTokens, completionTokens, costMicros, messageId],
+      );
+
+  /// The newest message's finish reason per conversation, so the history list can tell a reply
+  /// that the app stopped in the middle of from one the user ended.
+  Map<String, String?> lastFinishReasons() {
+    final rows = _db.select(
+      'SELECT m.conversation_id AS conversation_id, m.finish_reason AS finish_reason '
+      'FROM messages m WHERE m.seq = '
+      '(SELECT MAX(seq) FROM messages WHERE conversation_id = m.conversation_id)',
+    );
+    return {for (final r in rows) r['conversation_id'] as String: r['finish_reason'] as String?};
+  }
+
+  /// Replaces the newest message's finish reason; used once an interrupted reply is resolved.
+  void setLastFinishReason(String conversationId, String? reason) => _db.execute(
+        'UPDATE messages SET finish_reason = ? WHERE conversation_id = ? AND seq = '
+        '(SELECT MAX(seq) FROM messages WHERE conversation_id = ?)',
+        [reason, conversationId, conversationId],
       );
 
   /// Replaces the text of a reply that is still streaming, so a crash keeps the latest text.
