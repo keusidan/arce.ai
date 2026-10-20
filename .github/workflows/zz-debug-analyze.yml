@@ -1,0 +1,37 @@
+name: zz debug analyze
+
+# Temporary: print the analyzer's findings as annotations so they can be read without a token.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/app-settings-tool"]
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.6"
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: analyze and annotate
+        run: |
+          set +e
+          flutter analyze > an.txt 2>&1
+          cat an.txt
+          n=0
+          while IFS= read -r line; do
+            clean=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r//g')
+            n=$((n+1))
+            if [ "$n" -le 25 ]; then
+              echo "::error::$clean"
+            fi
+          done < an.txt
+          exit 1
