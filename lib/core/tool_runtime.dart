@@ -77,6 +77,7 @@ class DefaultToolRuntime implements ToolRuntime {
         GetWeather() => _weather(call.location),
         GetTime() => _time(call.timezone),
         AskUser() => throw StateError('ask_user is answered by the user, not run as a tool'),
+        UpdateSettings() => throw StateError('update_settings is answered by the user, not run as a tool'),
       };
 
   Future<ToolOutcome> _search(String query) async {
