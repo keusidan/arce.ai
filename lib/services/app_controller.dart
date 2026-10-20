@@ -11,8 +11,8 @@ import '../core/weather.dart';
 import '../engine/demo_engine.dart';
 import '../engine/hybrid_engine.dart';
 import '../engine/native_engine.dart';
+import 'conversation_database.dart';
 import 'device_info.dart';
-import 'history_store.dart';
 import 'model_manager.dart';
 import 'preview_server.dart';
 import 'settings.dart';
@@ -27,7 +27,7 @@ enum SettingsSection { basic, answer, display, developer, update }
 /// A generation that was still running when the app last stopped (spec §25.1).
 class InterruptedConversation {
   const InterruptedConversation(this.id, this.title);
-  final int id;
+  final String id;
   final String title;
 }
 
@@ -52,7 +52,7 @@ class AppController extends ChangeNotifier {
   }
 
   final SettingsStore settings;
-  final HistoryStore history;
+  final ConversationDatabase history;
   final ModelManager models;
   final UpdateService updates;
   final DeviceInfoService device;
@@ -64,7 +64,7 @@ class AppController extends ChangeNotifier {
 
   /// Which part of the settings page to scroll to (set by the desktop sidebar).
   final settingsSection = ValueNotifier<SettingsSection?>(null);
-  int? conversationId;
+  String? conversationId;
   InterruptedConversation? interrupted;
   List<ConversationMeta> conversations = const [];
 
@@ -83,7 +83,7 @@ class AppController extends ChangeNotifier {
       device: device,
       supportDirectory: supportDirectory,
     );
-    final history = await HistoryStore.open(supportDirectory: supportDirectory);
+    final history = await ConversationDatabase.open(supportDirectory: supportDirectory);
     final updates = updateService ?? UpdateService(settings);
     final app = AppController._(
       settings: settings,
@@ -149,7 +149,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> openConversation(int id) async {
+  Future<void> openConversation(String id) async {
     if (chat.state.isGenerating) return;
     final snapshot = await history.get(id);
     if (snapshot == null) return;
@@ -159,7 +159,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteConversation(int id) async {
+  Future<void> deleteConversation(String id) async {
     await history.delete(id);
     if (conversationId == id) newConversation();
     await refreshConversations();
