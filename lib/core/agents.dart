@@ -186,7 +186,7 @@ class AgentRouter {
     if (hasAttachments) b.write('(files attached)\n');
     b
       ..write(request.length > 1000 ? request.substring(0, 1000) : request)
-      ..write('<|im_end|>\n<|im_start|>assistant\n thinking\n\n</think>\n\n');
+      ..write('<|im_end|>\n<|im_start|>assistant\n<think></think>\n\n');
     return b.toString();
   }
 
