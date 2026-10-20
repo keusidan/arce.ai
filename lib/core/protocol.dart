@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'app_settings_spec.dart';
+
 /// A tool the model may call. [parameters] is a JSON Schema object; the same schema is shown
 /// to the model in the system prompt and compiled to GBNF on the native side, so the two
 /// cannot drift apart.
@@ -84,6 +86,18 @@ class GetTime extends ToolCall {
   final String? timezone;
 }
 
+/// Reads every app setting (never the GitHub token).
+class GetAppSettings extends ToolCall {
+  const GetAppSettings();
+}
+
+/// A change the model proposes. It is applied only after the user approves it, and the chat, not
+/// the tool runtime, does that (see [SettingsApproval]).
+class SetAppSetting extends ToolCall {
+  const SetAppSetting(this.change);
+  final SettingChange change;
+}
+
 sealed class ParseResult {
   const ParseResult();
 }
@@ -102,7 +116,7 @@ class ParseInvalid extends ParseResult {
 abstract final class Protocol {
   /// Bumped whenever a tool schema changes. Stored with each generation so a regeneration
   /// can tell whether it runs under the same protocol as the original.
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
 
   static final askUser = ToolDefinition(
     name: 'ask_user',
@@ -145,6 +159,26 @@ abstract final class Protocol {
     }),
   );
 
+  static final getAppSettings = ToolDefinition(
+    name: 'get_app_settings',
+    description: 'Read every setting of this app (ARCE.AI) with its current value, label, allowed '
+        'choices and range. Call this whenever the user asks about the app itself, its settings or '
+        'its configuration, instead of guessing. The GitHub token is never returned.',
+    parameters: _objectSchema(required: [], properties: {}),
+  );
+
+  static final setAppSetting = ToolDefinition(
+    name: 'set_app_setting',
+    description: 'Change one setting of this app. The user is asked to approve the change beforehand '
+        'and it is applied only if they do, so say what you are about to change. Write value as a '
+        'string: true/false for a switch, a number for a number, one of the choices otherwise. Read '
+        'the current values with get_app_settings first. Keys: ${SettingsCatalog.keysForPrompt()}',
+    parameters: _objectSchema(required: ['key', 'value'], properties: {
+      'key': {'type': 'string'},
+      'value': {'type': 'string'},
+    }),
+  );
+
   /// JSON Schema for the body of one `<tool_call>` block restricted to [tools]:
   /// `{"name": <one of the tools>, "arguments": <that tool's parameters>}`.
   /// Each agent passes only the tools it may use, so the grammar cannot express any other call.
@@ -180,6 +214,22 @@ abstract final class Protocol {
       };
 }
 
+/// What the user sees for [SetAppSetting]: the chat shows one card and changes nothing until the
+/// user approves: the model may change the app's settings, but the user decides.
+abstract final class SettingsApproval {
+  static const approve = '承認';
+  static const reject = '拒否';
+
+  static QuestionTile tile(SettingChange change) => QuestionTile(
+        title: '設定「${change.spec.label}」を ${change.display} に変更します。承認しますか？',
+        options: const [approve, reject],
+        allowFreeInput: false,
+        multiSelect: false,
+      );
+
+  static bool isApproval(List<String> selected) => selected.contains(approve);
+}
+
 /// Turns the body of a `<tool_call>` block into a [ToolCall] and checks what the grammar
 /// cannot: meaning. GBNF guarantees the JSON shape, not that option labels are non-blank
 /// or distinct.
@@ -210,6 +260,8 @@ abstract final class ToolCallParser {
         return l == null ? const ParseInvalid('weather location is blank') : ParseOk(GetWeather(l));
       }
       if (name == Protocol.getTime.name) return ParseOk(GetTime(_requiredText(args, 'timezone')));
+      if (name == Protocol.getAppSettings.name) return ParseOk(const GetAppSettings());
+      if (name == Protocol.setAppSetting.name) return _parseSetAppSetting(args);
       return ParseInvalid("tool '$name' has no handler");
     } on _WrongType catch (e) {
       return ParseInvalid('argument has the wrong type: ${e.key}');
@@ -229,6 +281,19 @@ abstract final class ToolCallParser {
     if (value is bool) return value;
     if (value is String) return value == 'true';
     return false;
+  }
+
+  static ParseResult _parseSetAppSetting(Map<dynamic, dynamic> args) {
+    final key = _requiredText(args, 'key');
+    if (key == null) return const ParseInvalid('setting key is blank');
+    final spec = SettingsCatalog.byKey(key);
+    if (spec == null) return ParseInvalid("unknown setting '$key'");
+    if (spec.readOnly) return ParseInvalid("'$key' is read-only");
+    final raw = args['value'];
+    if (raw is Map || raw is List) throw _WrongType('value');
+    final change = SettingsCatalog.parse(key, raw?.toString() ?? '');
+    if (change == null) return ParseInvalid("'${raw ?? ''}' is not an allowed value for $key");
+    return ParseOk(SetAppSetting(change));
   }
 
   static ParseResult _parseAskUser(Map<dynamic, dynamic> args) {
