@@ -1,11 +1,11 @@
-import 'package:flutter/material.dart';
-
-import '../services/history_store.dart';
+import '../services/conversation_database.dart';
 import 'app_scope.dart';
 import 'chat_widgets.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'widgets.dart';
+
+import 'package:flutter/material.dart';
 
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
