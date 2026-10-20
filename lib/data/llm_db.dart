@@ -133,6 +133,28 @@ class AssetRow {
   final int createdAt;
 }
 
+/// One turn of the conversation as the model sees it. Kept apart from [MessageRow] because the
+/// model history also holds tool responses and the raw tool-call JSON, which the screen never shows.
+class TurnRow {
+  const TurnRow({required this.seq, required this.kind, this.text, this.toolCallJson});
+
+  final int seq;
+
+  /// `user`, `assistant` or `tool`.
+  final String kind;
+  final String? text;
+  final String? toolCallJson;
+}
+
+/// A turn about to be written.
+class NewTurn {
+  const NewTurn(this.kind, {this.text, this.toolCallJson});
+
+  final String kind;
+  final String? text;
+  final String? toolCallJson;
+}
+
 /// One message with its parts, as the chat screen needs them.
 class MessageWithParts {
   const MessageWithParts(this.message, this.parts);
@@ -226,7 +248,7 @@ class LlmDatabase {
 
   final Database _db;
 
-  static const _schemaVersion = 1;
+  static const _schemaVersion = 2;
 
   int get schemaVersion => _db.userVersion;
 
@@ -284,6 +306,14 @@ class LlmDatabase {
           tool_name    TEXT,
           payload      TEXT,
           UNIQUE(message_id, seq)
+        );
+        CREATE TABLE IF NOT EXISTS turns (
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          seq             INTEGER NOT NULL,
+          kind            TEXT NOT NULL,
+          text            TEXT,
+          tool_call_json  TEXT,
+          PRIMARY KEY (conversation_id, seq)
         );
         CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
         CREATE INDEX IF NOT EXISTS idx_parts_msg     ON parts(message_id, seq);
@@ -517,6 +547,39 @@ class LlmDatabase {
       [messageId],
     );
     return [for (final r in rows) _part(r)];
+  }
+
+  // ---------------------------------------------------------------- model history
+
+  /// Replaces the model-facing history of [conversationId]. The chat controller rebuilds it as
+  /// it runs (tool round trips included), so the whole list is written instead of appending.
+  void saveTurns(String conversationId, List<NewTurn> turns) {
+    _transaction(() {
+      _db.execute('DELETE FROM turns WHERE conversation_id = ?', [conversationId]);
+      var seq = 0;
+      for (final t in turns) {
+        _db.execute(
+          'INSERT INTO turns (conversation_id, seq, kind, text, tool_call_json) VALUES (?, ?, ?, ?, ?)',
+          [conversationId, seq++, t.kind, t.text, t.toolCallJson],
+        );
+      }
+    });
+  }
+
+  List<TurnRow> turnsOf(String conversationId) {
+    final rows = _db.select(
+      'SELECT seq, kind, text, tool_call_json FROM turns WHERE conversation_id = ? ORDER BY seq',
+      [conversationId],
+    );
+    return [
+      for (final r in rows)
+        TurnRow(
+          seq: r['seq'] as int,
+          kind: r['kind'] as String,
+          text: r['text'] as String?,
+          toolCallJson: r['tool_call_json'] as String?,
+        ),
+    ];
   }
 
   // ---------------------------------------------------------------- search
