@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/app_settings_spec.dart';
 import '../core/chat_controller.dart';
 import '../core/engine.dart';
 
@@ -217,6 +218,14 @@ class AppSettings {
         GpuOffload.auto => gpuAvailable ? (hyperLoad ? 999 : 20) : 0,
       };
 }
+
+/// One approved change, written into the settings document.
+///
+/// Going through the JSON keeps this free of per-key code: [AppSettings.fromJson] already falls
+/// back to the default for an unknown or wrongly typed value, and [SettingChange] has checked the
+/// value against its [SettingSpec] before the user was asked.
+AppSettings withSetting(AppSettings current, SettingChange change) =>
+    AppSettings.fromJson(current.toJson()..[change.spec.key] = change.value);
 
 /// Settings are one JSON document in shared preferences; the GitHub token lives in the
 /// platform's secure storage instead, because it can read a private repository.
