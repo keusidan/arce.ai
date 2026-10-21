@@ -8,11 +8,14 @@ import '../ai/provider.dart';
 import '../ai/routing_engine.dart';
 import '../core/chat_controller.dart';
 import '../core/http_get.dart';
+import '../core/protocol.dart';
 import '../core/search.dart';
 import '../core/settings_spec.dart';
 import '../core/tool_runtime.dart';
 import '../core/weather.dart';
 import '../engine/demo_engine.dart';
+import '../mcp/mcp_client.dart';
+import '../mcp/mcp_tools.dart';
 import '../engine/hybrid_engine.dart';
 import '../engine/native_engine.dart';
 import 'conversation_database.dart';
@@ -54,6 +57,7 @@ class AppController extends ChangeNotifier {
       toolRuntime: _toolRuntime,
       settings: () => settings.value.toGeneration(models.loadedParamsB),
       store: (snapshot, {required generating}) => _persist(snapshot, generating),
+      extraTools: _mcpDefinitions,
       applySettings: _applySettings,
     )..setThinking(settings.value.thinking);
     _applyProvider();
@@ -139,6 +143,22 @@ class AppController extends ChangeNotifier {
 
   /// Settings a running model keeps until it is loaded again.
   static const _reloadNeeded = {'contextLength', 'threads', 'batchSize', 'gpuOffload'};
+
+  /// The MCP client for the server the user configured, or null when MCP is off or the URL is not
+  /// an http(s) one. Built per use so a changed setting applies to the next reply.
+  McpClient? _mcpClient() {
+    final s = settings.value;
+    final url = s.mcpUrl.trim();
+    if (!s.mcpEnabled) return null;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) return null;
+    return McpClient(url: url, token: settings.mcpToken);
+  }
+
+  /// The tools of the MCP server, added to the ones the agent already has.
+  Future<List<ToolDefinition>> _mcpDefinitions() => McpTools(_mcpClient()).definitions();
+
+  /// Used by the settings screen: asks the server what it offers and says so in a toast.
+  Future<String> probeMcp() => McpTools(_mcpClient()).describe();
 
   Future<void> _start() async {
     settings.addListener(() => chat.setThinking(settings.value.thinking));
@@ -341,6 +361,14 @@ class _SettingsToolRuntime implements ToolRuntime {
 
   @override
   Future<ToolOutcome> run(call) {
+    if (call is McpCall) {
+      final s = _settings.value;
+      final url = s.mcpUrl.trim();
+      final client = s.mcpEnabled && (url.startsWith('http://') || url.startsWith('https://'))
+          ? McpClient(url: url, token: _settings.mcpToken)
+          : null;
+      return McpTools(client).run(call);
+    }
     final s = _settings.value;
     final providers = <SearchProvider>[
       if (s.searxngUrl.trim().isNotEmpty) SearXngProvider(s.searxngUrl.trim(), _http),

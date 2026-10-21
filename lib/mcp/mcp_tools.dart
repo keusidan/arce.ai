@@ -1,0 +1,73 @@
+import '../core/protocol.dart';
+import '../core/tool_runtime.dart';
+import 'mcp_client.dart';
+
+/// The tools of the MCP server the user configured, as the chat sees them.
+///
+/// The model gets one flat list, and a server may use a name the app already has (`search`,
+/// `get_time` ...), so every name is prefixed with [prefix]. The prefix is stripped again before
+/// the call goes out.
+class McpTools {
+  McpTools(this._client);
+
+  final McpClient? _client;
+
+  static const prefix = 'mcp_';
+
+  /// The verbs of tools that change something outside the device. Those are shown to the user as
+  /// one card and run only when they approve: a chat message must not push code to a repository
+  /// without a second look.
+  static bool needsApproval(String name) => ToolApproval.needsApproval(name);
+
+  /// The server's tools in the app's own form; an unreachable server yields none, so the chat still
+  /// works (and the model simply has no external tools this turn).
+  Future<List<ToolDefinition>> definitions() async {
+    final client = _client;
+    if (client == null) return const [];
+    try {
+      final tools = await client.listTools();
+      return [
+        for (final tool in tools)
+          ToolDefinition(
+            name: '$prefix${tool.name}',
+            description: tool.description.trim().isEmpty
+                ? 'MCP tool ${tool.name}'
+                : '${tool.description.trim()}\n(MCP tool: ${tool.name})',
+            parameters: tool.parameters,
+          ),
+      ];
+    } on Object {
+      return const [];
+    }
+  }
+
+  /// Human-readable list for the settings screen ("what did this server offer?").
+  Future<String> describe() async {
+    final client = _client;
+    if (client == null) return 'URL が未設定か、MCP が無効です';
+    try {
+      final tools = await client.listTools();
+      if (tools.isEmpty) return 'ツールが1つも公開されていません';
+      return '${tools.length} 個のツール: ${tools.map((t) => t.name).join(', ')}';
+    } catch (e) {
+      return '接続できません: $e';
+    }
+  }
+
+  Future<ToolOutcome> run(McpCall call) async {
+    final client = _client;
+    final name = call.name.startsWith(prefix) ? call.name.substring(prefix.length) : call.name;
+    if (client == null) {
+      return ToolOutcome(
+        'No MCP server is configured, so this tool cannot run.',
+        const ToolActivity('MCP', 'MCPは未設定です', failed: true),
+      );
+    }
+    try {
+      final text = await client.callTool(name, call.arguments);
+      return ToolOutcome(text, ToolActivity('MCP', '$name を実行'));
+    } catch (e) {
+      return ToolOutcome('The MCP tool failed: $e', ToolActivity('MCP', '$name に失敗: $e', failed: true));
+    }
+  }
+}

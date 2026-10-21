@@ -40,6 +40,8 @@ class AppSettings {
     this.updateRepo = defaultRepo,
     this.autoUpdateCheck = true,
     this.autoInstallUpdate = true,
+    this.mcpEnabled = false,
+    this.mcpUrl = '',
     this.updateIntervalHours = 12,
   });
 
@@ -73,6 +75,10 @@ class AppSettings {
   final bool autoInstallUpdate;
   final int updateIntervalHours;
 
+  /// The MCP server the chat may use (Streamable HTTP). The token lives in secure storage.
+  final bool mcpEnabled;
+  final String mcpUrl;
+
   AppSettings copyWith({
     bool? thinking,
     bool? searchEnabled,
@@ -99,6 +105,8 @@ class AppSettings {
     bool? autoUpdateCheck,
     bool? autoInstallUpdate,
     int? updateIntervalHours,
+    bool? mcpEnabled,
+    String? mcpUrl,
   }) =>
       AppSettings(
         thinking: thinking ?? this.thinking,
@@ -126,6 +134,8 @@ class AppSettings {
         autoUpdateCheck: autoUpdateCheck ?? this.autoUpdateCheck,
         autoInstallUpdate: autoInstallUpdate ?? this.autoInstallUpdate,
         updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
+        mcpEnabled: mcpEnabled ?? this.mcpEnabled,
+        mcpUrl: mcpUrl ?? this.mcpUrl,
       );
 
   Map<String, Object?> toJson() => {
@@ -154,6 +164,8 @@ class AppSettings {
         'autoUpdateCheck': autoUpdateCheck,
         'autoInstallUpdate': autoInstallUpdate,
         'updateIntervalHours': updateIntervalHours,
+        'mcpEnabled': mcpEnabled,
+        'mcpUrl': mcpUrl,
       };
 
   /// Unknown, missing or wrongly typed values fall back to the defaults, so older or damaged
@@ -196,6 +208,8 @@ class AppSettings {
       autoUpdateCheck: flag('autoUpdateCheck', d.autoUpdateCheck),
       autoInstallUpdate: flag('autoInstallUpdate', d.autoInstallUpdate),
       updateIntervalHours: whole('updateIntervalHours', d.updateIntervalHours),
+      mcpEnabled: flag('mcpEnabled', d.mcpEnabled),
+      mcpUrl: text('mcpUrl', d.mcpUrl),
     );
   }
 
@@ -248,6 +262,7 @@ class SettingsStore extends ChangeNotifier {
 
   static const _key = 'settings.v1';
   static const _tokenKey = 'github_token';
+  static const _mcpTokenKey = 'mcp_token';
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secure;
@@ -259,6 +274,11 @@ class SettingsStore extends ChangeNotifier {
 
   /// Empty when none is set (or secure storage is unavailable on this system).
   String get githubToken => _token;
+
+  String _mcpToken = '';
+
+  /// The bearer token of the MCP server; empty when none is set.
+  String get mcpToken => _mcpToken;
 
   static Future<SettingsStore> load({FlutterSecureStorage? secure}) async {
     final store = SettingsStore(await SharedPreferences.getInstance(), secure: secure);
@@ -272,8 +292,10 @@ class SettingsStore extends ChangeNotifier {
     }
     try {
       store._token = await store._secure.read(key: _tokenKey) ?? '';
+      store._mcpToken = await store._secure.read(key: _mcpTokenKey) ?? '';
     } catch (_) {
       store._token = '';
+      store._mcpToken = '';
     }
     return store;
   }
@@ -282,6 +304,20 @@ class SettingsStore extends ChangeNotifier {
     _value = change(_value);
     notifyListeners();
     await _prefs.setString(_key, jsonEncode(_value.toJson()));
+  }
+
+  Future<void> setMcpToken(String token) async {
+    _mcpToken = token.trim();
+    notifyListeners();
+    try {
+      if (_mcpToken.isEmpty) {
+        await _secure.delete(key: _mcpTokenKey);
+      } else {
+        await _secure.write(key: _mcpTokenKey, value: _mcpToken);
+      }
+    } catch (_) {
+      // keep the token for this run only when the system keyring is missing
+    }
   }
 
   Future<void> setGithubToken(String token) async {
