@@ -52,11 +52,13 @@ jobs:
         run: |
           set +e
           flutter test > t.txt 2>&1
-          if grep -qE "All tests passed|No tests ran" t.txt; then
+          status=$?
+          if [ "$status" -eq 0 ]; then
             echo "tests pass"
             exit 0
           fi
-          grep -E "\[E\]|Expected|Actual|Some tests failed" t.txt | head -20 > tf.txt
+          grep -nE "\[E\]|Expected:|Actual:|Which:|Some tests failed|All tests passed" t.txt | head -25 > tf.txt
+          tail -25 t.txt >> tf.txt
           while IFS= read -r line; do
             clean=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r//g')
             echo "::error::$clean"
