@@ -1,19 +1,38 @@
 diff --git a/lib/services/update_service.dart b/lib/services/update_service.dart
-index 2e4d77b..7acc393 100644
+index 2e4d77b..ec94891 100644
 --- a/lib/services/update_service.dart
 +++ b/lib/services/update_service.dart
-@@ -128,6 +128,10 @@ class UpdateService extends ChangeNotifier {
-       if (isNewer(release)) {
-         _release = release;
-         _set(UpdateAvailable(release));
-+        // 自動更新: 見つけたらこちらから取りに行く（利用者の操作を待たない）
-+        if (_settings.value.autoInstallUpdate && target != UpdateTarget.ios) {
-+          unawaited(_downloadAndInstall());
-+        }
-       } else if (!silent) {
-         _set(const UpdateUpToDate());
-       }
-@@ -136,6 +140,15 @@ class UpdateService extends ChangeNotifier {
+@@ -100,7 +100,7 @@ class UpdateService extends ChangeNotifier {
+     notifyListeners();
+     _schedule();
+     _settings.addListener(_schedule);
+-    if (_settings.value.autoUpdateCheck) unawaited(check(silent: true));
++    if (_settings.value.autoUpdateCheck) unawaited(_autoCheck());
+     // the build we are now running has been installed, so its download is no longer needed
+     unawaited(removeOldDownloads());
+   }
+@@ -109,7 +109,19 @@ class UpdateService extends ChangeNotifier {
+     _timer?.cancel();
+     final s = _settings.value;
+     if (!s.autoUpdateCheck) return;
+-    _timer = Timer.periodic(Duration(hours: s.updateIntervalHours.clamp(1, 168)), (_) => check(silent: true));
++    _timer = Timer.periodic(Duration(hours: s.updateIntervalHours.clamp(1, 168)), (_) => _autoCheck());
++  }
++
++  /// The check that runs by itself (at start and on the timer). When the user asked for automatic
++  /// updates, a newer build is downloaded and the installer is opened without waiting for a tap.
++  /// A manual check stays manual: the screen offers 「ダウンロード」 as before.
++  Future<void> _autoCheck() async {
++    await check(silent: true);
++    if (_state is UpdateAvailable &&
++        _settings.value.autoInstallUpdate &&
++        target != UpdateTarget.ios) {
++      await _downloadAndInstall();
++    }
+   }
+ 
+   void _set(UpdateState state) {
+@@ -136,6 +148,15 @@ class UpdateService extends ChangeNotifier {
      }
    }
  
@@ -29,7 +48,7 @@ index 2e4d77b..7acc393 100644
    /// The newest release made for this platform. Every platform has its own releases, so the list is read
    /// instead of "latest" (which is whichever platform was published last).
    Future<Release> latest() async {
-@@ -364,6 +377,12 @@ class UpdateService extends ChangeNotifier {
+@@ -364,6 +385,12 @@ class UpdateService extends ChangeNotifier {
      if (current is! UpdateReady) return;
      try {
        if (Platform.isAndroid) {
@@ -39,6 +58,6 @@ index 2e4d77b..7acc393 100644
 +          await requestInstallPermission();
 +          return;
 +        }
-         await _system.invokeMethod<void>('install', {'path': current.file.path});
+         await _system.invokeMethod<void>('install', {'path': current.path});
        } else {
          await DesktopInstaller.apply(current.file);
