@@ -1,0 +1,161 @@
+diff --git a/lib/ui/settings_page.dart b/lib/ui/settings_page.dart
+index f5e2071..0ed684c 100644
+--- a/lib/ui/settings_page.dart
++++ b/lib/ui/settings_page.dart
+@@ -12,14 +12,154 @@ import 'thinking_icon.dart';
+ import 'update_widgets.dart';
+ import 'widgets.dart';
+ 
++/// The list of settings groups; a row opens that group in place.
+ class SettingsPage extends StatefulWidget {
+   const SettingsPage({super.key});
+ 
+   @override
+-  State<SettingsPage> createState() => _SettingsPageState();
++  State<SettingsPage> createState() => _SettingsListState();
+ }
+ 
+-class _SettingsPageState extends State<SettingsPage> {
++class _SettingsListState extends State<SettingsPage> {
++  SettingsSection? _open;
++
++  @override
++  Widget build(BuildContext context) {
++    final open = _open;
++    if (open != null) {
++      return SettingsDetailPage(section: open, onBack: () => setState(() => _open = null));
++    }
++    return SingleChildScrollView(
++      padding: const EdgeInsets.fromLTRB(14, 16, 14, 24),
++      child: PageColumn(
++        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++          const PageHeading('設定', 'モデル・道具・表示・アップデート'),
++          ArceCard(
++            child: Column(children: [
++              _SettingsLink(
++                icon: ArceSvg.cube,
++                title: 'プロバイダ',
++                subtitle: 'オンラインモデルの接続先と、そのモデル',
++                onOpen: (v) => setState(() => _open = v),
++                section: SettingsSection.providers,
++              ),
++              _SettingsLink(
++                icon: ArceSvg.bolt,
++                title: 'MCP サーバー',
++                subtitle: '外部の道具（GitHub など）をつなぐ',
++                onOpen: (v) => setState(() => _open = v),
++                section: SettingsSection.mcp,
++              ),
++              _SettingsLink(
++                icon: ArceSvg.settings,
++                title: '基本設定',
++                subtitle: '思考・検索・口調・速度と精度',
++                onOpen: (v) => setState(() => _open = v),
++                section: SettingsSection.basic,
++              ),
++              _SettingsLink(
++                icon: ArceSvg.compass,
++                title: '回答',
++                subtitle: 'エージェント・返信の長さ',
++                onOpen: (v) => setState(() => _open = v),
++                section: SettingsSection.answer,
++              ),
++              _SettingsLink(
++                icon: ArceSvg.moon,
++                title: '表示・プライバシー',
++                subtitle: 'テーマ・思考中のアイコン',
++                onOpen: (v) => setState(() => _open = v),
++                section: SettingsSection.display,
++              ),
++              _SettingsLink(
++                icon: ArceSvg.sliders,
++                title: '開発者設定',
++                subtitle: 'コンテキスト長・スレッド・GPU',
++                onOpen: (v) => setState(() => _open = v),
++                section: SettingsSection.developer,
++              ),
++              _SettingsLink(
++                icon: ArceSvg.retry,
++                title: 'アップデート',
++                subtitle: '自動で更新する・確認の間隔',
++                onOpen: (v) => setState(() => _open = v),
++                section: SettingsSection.update,
++                last: true,
++              ),
++            ]),
++          ),
++        ]),
++      ),
++    );
++  }
++}
++
++/// One row of the list: opens [SettingsDetailPage] scrolled to [section].
++class _SettingsLink extends StatelessWidget {
++  const _SettingsLink({
++    required this.icon,
++    required this.title,
++    required this.subtitle,
++    required this.section,
++    required this.onOpen,
++    this.last = false,
++  });
++
++  final String icon;
++  final String title;
++  final String subtitle;
++  final SettingsSection section;
++  final ValueChanged<SettingsSection> onOpen;
++  final bool last;
++
++  @override
++  Widget build(BuildContext context) {
++    final c = context.c;
++    return Material(
++      color: Colors.transparent,
++      child: InkWell(
++        onTap: () => onOpen(section),
++        child: Container(
++          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
++          decoration: BoxDecoration(border: last ? null : Border(bottom: BorderSide(color: c.line))),
++          child: Row(children: [
++            Container(
++              width: 30,
++              height: 30,
++              decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(9)),
++              alignment: Alignment.center,
++              child: ArceIcon(icon, size: 16, color: c.accent),
++            ),
++            const SizedBox(width: 10),
++            Expanded(
++              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++                Text(title, style: ts(context, 13, weight: FontWeight.w700)),
++                const SizedBox(height: 2),
++                Text(subtitle, style: ts(context, 11, color: c.muted, height: 1.4)),
++              ]),
++            ),
++            ArceIcon(ArceSvg.chevronDown, size: 14, color: c.faint),
++          ]),
++        ),
++      ),
++    );
++  }
++}
++
++/// One settings group, scrolled to [section] when it opens.
++class SettingsDetailPage extends StatefulWidget {
++  const SettingsDetailPage({super.key, required this.section, this.onBack});
++
++  final SettingsSection section;
++
++  /// Called by the back row; when null the page simply stays open.
++  final VoidCallback? onBack;
++
++  @override
++  State<SettingsDetailPage> createState() => _SettingsDetailPageState();
++}
++
++class _SettingsDetailPageState extends State<SettingsDetailPage> {
+   final _keys = {for (final s in SettingsSection.values) s: GlobalKey()};
+   AppController? _app;
+ 

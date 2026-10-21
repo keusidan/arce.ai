@@ -1,0 +1,43 @@
+diff --git a/lib/ui/settings_page.dart b/lib/ui/settings_page.dart
+index f5e2071..0ed684c 100644
+--- a/lib/ui/settings_page.dart
++++ b/lib/ui/settings_page.dart
+@@ -30,7 +170,13 @@ class _SettingsPageState extends State<SettingsPage> {
+     if (_app != app) {
+       _app?.settingsSection.removeListener(_jump);
+       _app = app..settingsSection.addListener(_jump);
+-      WidgetsBinding.instance.addPostFrameCallback((_) => _jump());
++      WidgetsBinding.instance.addPostFrameCallback((_) {
++        _jump();
++        final key = _keys[widget.section]?.currentContext;
++        if (key != null) {
++          Scrollable.ensureVisible(key, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
++        }
++      });
+     }
+   }
+ 
+@@ -60,6 +206,13 @@ class _SettingsPageState extends State<SettingsPage> {
+           padding: const EdgeInsets.fromLTRB(14, 16, 14, 24),
+           child: PageColumn(
+             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++              GestureDetector(
++                onTap: widget.onBack,
++                child: Padding(
++                  padding: const EdgeInsets.symmetric(vertical: 6),
++                  child: Text('← 設定に戻る', style: ts(context, 12, color: context.c.muted)),
++                ),
++              ),
+               const PageHeading('詳細設定', '基本設定はチャットからすばやく変更できます。'),
+               KeyedSubtree(
+                 key: _keys[SettingsSection.providers],
+@@ -271,7 +424,7 @@ class _SettingsPageState extends State<SettingsPage> {
+                   ),
+                 ]),
+               ),
+-              const SectionTitle('MCP（外部ツール）'),
++              KeyedSubtree(key: _keys[SettingsSection.mcp], child: const SectionTitle('MCP（外部ツール）')),
+               ArceCard(
+                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                   SettingRow(
+
