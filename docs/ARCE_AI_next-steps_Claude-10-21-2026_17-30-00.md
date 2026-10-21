@@ -75,4 +75,5 @@ v0.7.0 の状態：設定が「一覧 → 詳細」に分かれた／下のバ�
 - 3：`GenerationService`（dataSync）と `ai.arce.app/system` の `startForeground` / `stopForeground`。
 - 4：同じ道具・同じ引数が3回続いたら `同じ道具を繰り返し呼んでいます` で止める。
 - 5：`get_settings` にプロバイダ・モデル・MCP サーバーを追加（キーとトークンは伏せる）。
-- ローカルでは `dart analyze` でエラー0件を確認済み（残りは既存の info のみ）。
+- `dart analyze` は issue 0 件（CI と同じ構成で確認）。
+- 次の手順：CI が緑になったら main へマージし、`pubspec.yaml` を 0.8.0 に上げて配布する。
