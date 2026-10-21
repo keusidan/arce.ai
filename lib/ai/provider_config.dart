@@ -30,7 +30,7 @@ class ModelConfig {
 
   int? intParam(String key) {
     final value = params[key];
-    return value == null ? null : value.round();
+    return value?.round();
   }
 
   ModelConfig copyWith({
@@ -208,8 +208,9 @@ abstract final class ProviderList {
         // an id of its own, and a base URL: without either the entry cannot be used or saved
         if (config.id.trim().isEmpty ||
             config.id == localId ||
-            config.baseUrl.trim().isEmpty)
+            config.baseUrl.trim().isEmpty) {
           continue;
+        }
         out.add(config);
       }
       return out;

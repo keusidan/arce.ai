@@ -434,8 +434,9 @@ class ChatController extends ChangeNotifier {
   Future<void> send(String text, {List<Attachment> attachments = const []}) {
     if ((text.trim().isEmpty && attachments.isEmpty) ||
         _state.isGenerating ||
-        _busy)
+        _busy) {
       return Future.value();
+    }
     _history.add(UserTurn(AttachmentPolicy.compose(text, attachments)));
     _append(
       UiMessage(
@@ -513,8 +514,9 @@ class ChatController extends ChangeNotifier {
   /// Writes the approved changes through the app and reports the result to the model.
   Future<String> _approve(List<SettingsChangeOk> changes) async {
     final applier = _applySettings;
-    if (applier == null)
+    if (applier == null) {
       return 'The user approved it, but this build cannot change its settings.';
+    }
     try {
       return await applier(changes);
     } catch (e) {
@@ -543,8 +545,9 @@ class ChatController extends ChangeNotifier {
     if (!_state.canContinue || _busy) return Future.value();
     final partial = _state.messages.last;
     // The partial reply is regenerated from its own text, so drop it from the context first.
-    if (_history.isNotEmpty && _history.last is AssistantTurn)
+    if (_history.isNotEmpty && _history.last is AssistantTurn) {
       _history.removeLast();
+    }
     _update(
       (s) => s.copyWith(messages: s.messages.sublist(0, s.messages.length - 1)),
     );

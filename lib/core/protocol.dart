@@ -340,8 +340,9 @@ abstract final class ToolCallParser {
 
     final name = decoded['name'];
     if (name is! String) return const ParseInvalid('missing tool name');
-    if (allowed.every((t) => t.name != name))
+    if (allowed.every((t) => t.name != name)) {
       return ParseInvalid("tool '$name' is not allowed here");
+    }
     final args = decoded['arguments'];
     if (args is! Map) return const ParseInvalid('missing arguments');
 
@@ -359,15 +360,19 @@ abstract final class ToolCallParser {
             ? const ParseInvalid('weather location is blank')
             : ParseOk(GetWeather(l));
       }
-      if (name == Protocol.getTime.name)
+      if (name == Protocol.getTime.name) {
         return ParseOk(GetTime(_requiredText(args, 'timezone')));
-      if (name == Protocol.getSettings.name)
+      }
+      if (name == Protocol.getSettings.name) {
         return ParseOk(const GetSettings());
-      if (name == Protocol.updateSettings.name)
+      }
+      if (name == Protocol.updateSettings.name) {
         return _parseUpdateSettings(args);
+      }
       // a tool of the MCP server: the engine's schema already limited it to the tools this turn
-      if (name.startsWith('mcp_'))
+      if (name.startsWith('mcp_')) {
         return ParseOk(McpCall(name, args.cast<String, Object?>()));
+      }
       return ParseInvalid("tool '$name' has no handler");
     } on _WrongType catch (e) {
       return ParseInvalid('argument has the wrong type: ${e.key}');
@@ -403,12 +408,15 @@ abstract final class ToolCallParser {
           (o?.toString().trim() ?? ''),
     ];
     if (options.isEmpty) return const ParseInvalid('question has no options');
-    if (options.length > QuestionTile.maxOptions)
+    if (options.length > QuestionTile.maxOptions) {
       return const ParseInvalid('too many options');
-    if (options.any((o) => o.isEmpty))
+    }
+    if (options.any((o) => o.isEmpty)) {
       return const ParseInvalid('an option is blank');
-    if (options.toSet().length != options.length)
+    }
+    if (options.toSet().length != options.length) {
       return const ParseInvalid('options are not distinct');
+    }
 
     return ParseOk(
       AskUser(

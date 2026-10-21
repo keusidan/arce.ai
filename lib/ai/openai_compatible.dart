@@ -132,8 +132,9 @@ class OpenAiCompatibleProvider implements AiProvider {
         final delta = choice['delta'];
         if (delta is Map) {
           final reasoning = delta['reasoning_content'] ?? delta['reasoning'];
-          if (reasoning is String && reasoning.isNotEmpty)
+          if (reasoning is String && reasoning.isNotEmpty) {
             yield ReasoningDelta(reasoning);
+          }
           final text = delta['content'];
           if (text is String && text.isNotEmpty) yield TextDelta(text);
           for (final call in (delta['tool_calls'] as List? ?? const [])) {
@@ -208,8 +209,9 @@ class OpenAiCompatibleProvider implements AiProvider {
       case AiRole.user:
         return {'role': 'user', 'content': message.text};
       case AiRole.assistant:
-        if (message.toolCalls.isEmpty)
+        if (message.toolCalls.isEmpty) {
           return {'role': 'assistant', 'content': message.text};
+        }
         return {
           'role': 'assistant',
           'content': message.text,
@@ -282,16 +284,18 @@ class OpenAiCompatibleProvider implements AiProvider {
       final decoded = jsonDecode(body);
       if (decoded is Map) {
         final error = decoded['error'];
-        if (error is Map && error['message'] is String)
+        if (error is Map && error['message'] is String) {
           return error['message'] as String;
+        }
         if (error is String) return error;
         if (decoded['message'] is String) return decoded['message'] as String;
       }
     } catch (_) {
       // not JSON: show the start of the body instead
       final text = body.trim();
-      if (text.isNotEmpty)
+      if (text.isNotEmpty) {
         return text.length > 200 ? text.substring(0, 200) : text;
+      }
     }
     return null;
   }

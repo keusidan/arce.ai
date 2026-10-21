@@ -769,11 +769,13 @@ class _ModelEditorState extends State<_ModelEditor> {
     final temperature = double.tryParse(_temperature.text.trim());
     final topP = double.tryParse(_topP.text.trim());
     final maxTokens = int.tryParse(_maxTokens.text.trim());
-    if (temperature != null)
+    if (temperature != null) {
       params['temperature'] = temperature.clamp(0, 2).toDouble();
+    }
     if (topP != null) params['topP'] = topP.clamp(0, 1).toDouble();
-    if (maxTokens != null)
+    if (maxTokens != null) {
       params['maxTokens'] = maxTokens.clamp(1, 131072).toDouble();
+    }
     final model = widget.model.copyWith(
       name: _name.text.trim().isEmpty ? widget.model.id : _name.text.trim(),
       params: params,

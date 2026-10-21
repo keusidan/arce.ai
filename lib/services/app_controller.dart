@@ -254,8 +254,9 @@ class AppController extends ChangeNotifier {
   /// What the chat shows under the composer: who will answer, and whether it leaves the device.
   String get engineLabel {
     final config = providers.active;
-    if (config != null)
+    if (config != null) {
       return '${config.label} · ${providers.activeModelId}（外部送信）';
+    }
     if (providers.isCloud) return 'プロバイダの設定が未完了です';
     return engine.isLoaded
         ? '${models.loadedName ?? 'モデル'} · ${models.backend ?? ''}'
@@ -490,8 +491,9 @@ class _SettingsToolRuntime implements ToolRuntime {
           '${provider.models.isEmpty ? '（未追加）' : ''}'
           '、APIキー: ${_providers.hasKey(provider.id) ? '設定済み' : '未設定'}',
         );
-        if (_providers.activeId == provider.id)
+        if (_providers.activeId == provider.id) {
           b.write('、使用中（モデル ${_providers.activeModelId}）');
+        }
         b.write('\n');
       }
     }
