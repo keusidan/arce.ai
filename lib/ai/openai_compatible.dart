@@ -39,12 +39,14 @@ class OpenAiCompatibleProvider implements AiProvider {
   @override
   String get modelId => model;
 
+  @override
+  final ModelConfig? modelConfig;
+
   /// Everything before `/chat/completions`, e.g. `https://api.openai.com/v1`.
   final String baseUrl;
   final String model;
 
-  /// The settings of [model] (sampling overrides and an extra system prompt), when known.
-  final ModelConfig? modelConfig;
+
   final String apiKey;
   final Map<String, String> headers;
   final Map<String, Object?> body;

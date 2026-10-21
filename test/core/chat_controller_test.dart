@@ -268,7 +268,7 @@ void main() {
     final chat = ChatController(
       engine,
       toolRuntime: _Runtime(
-        (_) async => const ToolOutcome(
+        (_) => const ToolOutcome(
           'Current time: 2026-10-21',
           ToolActivity('Time', '2026-10-21'),
         ),
