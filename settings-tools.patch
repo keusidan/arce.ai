@@ -1,0 +1,62 @@
+diff --git a/lib/core/agents.dart b/lib/core/agents.dart
+index c434b52..08339d5 100644
+--- a/lib/core/agents.dart
++++ b/lib/core/agents.dart
+@@ -29,7 +29,14 @@ abstract final class Agents {
+     id: 'general',
+     displayName: 'General Chat',
+     instructions: 'Answer conversationally. Use tools only when they are clearly needed.',
+-    tools: [Protocol.askUser, Protocol.webSearch, Protocol.getWeather, Protocol.getTime],
++    tools: [
++      Protocol.askUser,
++      Protocol.webSearch,
++      Protocol.getWeather,
++      Protocol.getTime,
++      Protocol.getSettings,
++      Protocol.updateSettings,
++    ],
+     minModelParamsB: 1.7,
+     keywords: const [],
+   );
+@@ -40,7 +47,7 @@ abstract final class Agents {
+     instructions: 'You are writing code. Give complete, runnable files, each in its own fenced block '
+         'with the language (```kotlin, ```python, ```html ...). Ask with ask_user when a key choice '
+         '(language, platform, scope) is missing instead of guessing.',
+-    tools: [Protocol.askUser, Protocol.webSearch],
++    tools: [Protocol.askUser, Protocol.webSearch, Protocol.getSettings, Protocol.updateSettings],
+     minModelParamsB: 4.0,
+     keywords: const [
+       '作って', '実装', 'コード', 'プログラム', '関数', 'バグ', 'エラー', 'code', 'implement',
+@@ -52,7 +59,13 @@ abstract final class Agents {
+     id: 'research',
+     displayName: 'Research / Search',
+     instructions: 'Research the question. Search first, compare sources, and cite the URLs you rely on.',
+-    tools: [Protocol.webSearch, Protocol.getTime, Protocol.askUser],
++    tools: [
++      Protocol.webSearch,
++      Protocol.getTime,
++      Protocol.askUser,
++      Protocol.getSettings,
++      Protocol.updateSettings,
++    ],
+     minModelParamsB: 4.0,
+     keywords: const ['調べ', '検索', '最新', 'ニュース', '比較', 'ソース', 'search', 'latest', 'news', 'compare', 'source'],
+   );
+@@ -62,7 +75,7 @@ abstract final class Agents {
+     displayName: 'Artifact',
+     instructions: 'Build a self-contained web page. Put all HTML, CSS and JavaScript in ONE ```html block '
+         'so it can be previewed; do not load external scripts. Add a short usage note after the block.',
+-    tools: [Protocol.askUser],
++    tools: [Protocol.askUser, Protocol.getSettings, Protocol.updateSettings],
+     minModelParamsB: 4.0,
+     keywords: const [
+       'html', 'css', 'webページ', 'ウェブページ', 'サイト', 'ゲーム', 'プレビュー', 'artifact',
+@@ -74,7 +87,7 @@ abstract final class Agents {
+     id: 'file-analysis',
+     displayName: 'File Analysis',
+     instructions: 'The user attached files. Base the answer on their contents and quote the relevant parts.',
+-    tools: [Protocol.askUser],
++    tools: [Protocol.askUser, Protocol.getSettings, Protocol.updateSettings],
+     minModelParamsB: 4.0,
+     keywords: const ['ファイル', '添付', '要約', '解析', '読んで', 'file', 'attached', 'summarize', 'analyze'],
+   );
