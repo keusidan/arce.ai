@@ -1,0 +1,154 @@
+diff --git a/lib/core/chat_controller.dart b/lib/core/chat_controller.dart
+index f38fdba..db0f100 100644
+--- a/lib/core/chat_controller.dart
++++ b/lib/core/chat_controller.dart
+@@ -23,6 +23,7 @@ class UiMessage {
+     this.thinking = '',
+     this.question,
+     this.settings,
++    this.tool,
+     this.finish,
+     this.activities = const [],
+     this.agent,
+@@ -38,6 +39,9 @@ class UiMessage {
+ 
+   /// Set with [question] when the card asks the user to approve a settings change.
+   final List<SettingsChangeOk>? settings;
++
++  /// Set with [question] when the card asks the user to approve one MCP tool call.
++  final McpCall? tool;
+   final FinishReason? finish;
+   final List<ToolActivity> activities;
+   final String? agent;
+@@ -49,6 +53,7 @@ class UiMessage {
+     String? thinking,
+     QuestionTile? question,
+     List<SettingsChangeOk>? settings,
++    McpCall? tool,
+     FinishReason? finish,
+     List<ToolActivity>? activities,
+   }) =>
+@@ -59,6 +64,7 @@ class UiMessage {
+         thinking: thinking ?? this.thinking,
+         question: question ?? this.question,
+         settings: settings ?? this.settings,
++        tool: tool ?? this.tool,
+         finish: finish ?? this.finish,
+         activities: activities ?? this.activities,
+         agent: agent,
+@@ -72,6 +78,7 @@ class UiMessage {
+         'text': text,
+         'thinking': thinking,
+         'question': question?.toJson(),
++        'tool': tool == null ? null : {'name': tool!.name, 'arguments': tool!.arguments},
+         'settings': settings == null
+             ? null
+             : [for (final change in settings!) {'key': change.key, 'value': change.value}],
+@@ -89,6 +96,14 @@ class UiMessage {
+         thinking: json['thinking'] as String? ?? '',
+         question: json['question'] == null ? null : QuestionTile.fromJson((json['question'] as Map).cast()),
+         settings: json['settings'] is List ? _settingsFromJson(json['settings'] as List) : null,
++        tool: json['tool'] is Map && (json['tool'] as Map)['name'] is String
++            ? McpCall(
++                (json['tool'] as Map)['name'] as String,
++                (json['tool'] as Map)['arguments'] is Map
++                    ? ((json['tool'] as Map)['arguments'] as Map).cast<String, Object?>()
++                    : const {},
++              )
++            : null,
+         finish: json['finish'] == null ? null : FinishReason.values.byName(json['finish'] as String),
+         activities: [
+           for (final a in (json['activities'] as List? ?? const [])) ToolActivity.fromJson((a as Map).cast()),
+@@ -128,6 +143,10 @@ class ChatState {
+   List<SettingsChangeOk>? get pendingSettings =>
+       task == TaskState.userWait && messages.isNotEmpty ? messages.last.settings : null;
+ 
++  /// The MCP tool call waiting for the user's approval.
++  McpCall? get pendingTool =>
++      task == TaskState.userWait && messages.isNotEmpty ? messages.last.tool : null;
++
+   /// The last reply stopped before it was finished and can be continued (spec: 続行).
+   bool get canContinue {
+     if (isGenerating || messages.isEmpty) return false;
+@@ -261,6 +280,7 @@ class ChatController extends ChangeNotifier {
+     this._toolRuntime = const NoToolRuntime(),
+     GenerationSettings Function()? settings,
+     ConversationStore? store,
++    this._extraTools,
+     this._applySettings,
+   })  : _settings = settings ?? (() => const GenerationSettings()),
+         _store = store ?? ((_, {required generating}) {}) {
+@@ -293,6 +313,10 @@ class ChatController extends ChangeNotifier {
+   final GenerationSettings Function() _settings;
+   final ConversationStore _store;
+   final SettingsApplier? _applySettings;
++
++  /// Tools from outside the app (an MCP server). Read for every generation, so adding or removing
++  /// one applies to the next reply.
++  final Future<List<ToolDefinition>> Function()? _extraTools;
+   late final AgentRouter _router;
+ 
+   ChatState _state = const ChatState();
+@@ -360,8 +384,26 @@ class ChatController extends ChangeNotifier {
+     final free = freeText != null && freeText.trim().isNotEmpty ? [freeText] : const <String>[];
+     final answer = [...selected, ...free].join(', ');
+     final changes = _state.pendingSettings;
++    final pending = _state.pendingTool;
+     var toolResponse = answer;
+-    if (changes != null) {
++    if (pending != null) {
++      _busy = true;
++      try {
++        if (ToolApproval.isApproval(selected)) {
++          final outcome = await _toolRuntime.run(pending);
++          toolResponse = outcome.response;
++          _update((s) => s.copyWith(messages: [
++                for (final m in s.messages)
++                  m.id == s.messages.last.id ? m.copyWith(activities: [...m.activities, outcome.activity]) : m,
++              ]));
++        } else {
++          toolResponse = 'The user declined to run ${pending.name}. Nothing was done. '
++              'Do not call it again unless they ask for it.';
++        }
++      } finally {
++        _busy = false;
++      }
++    } else if (changes != null) {
+       // the card is the approval: nothing is written unless the user picked 承認
+       _busy = true;
+       try {
+@@ -444,7 +486,12 @@ class ChatController extends ChangeNotifier {
+       config.agentOverride,
+       useModel: config.aiAgentSelection && _engine.isLoaded,
+     );
+-    final tools = [for (final t in agent.tools) if (config.searchEnabled || t != Protocol.webSearch) t];
++    final extra = _extraTools == null ? const <ToolDefinition>[] : await _extraTools();
++    final tools = [
++      for (final t in agent.tools)
++        if (config.searchEnabled || t != Protocol.webSearch) t,
++      ...extra,
++    ];
+     final schema = tools.isEmpty ? null : jsonEncodeSchema(Protocol.toolCallSchema(tools));
+     final retry = RetryPolicy(config.retryLimit);
+     final instructions = [
+@@ -532,6 +579,20 @@ class ChatController extends ChangeNotifier {
+           _replace(id, (m) => m.copyWith(text: shown, question: tile, finish: result.reason, activities: List.of(activities)));
+           _finishWith(TaskState.userWait);
+           return;
++        case final McpCall mcp when ToolApproval.needsApproval(mcp.name):
++          // a tool that writes outside the device: one card, and nothing runs until 実行する
++          _replace(
++            id,
++            (m) => m.copyWith(
++              text: shown,
++              question: ToolApproval.tile(mcp),
++              tool: mcp,
++              finish: result.reason,
++              activities: List.of(activities),
++            ),
++          );
++          _finishWith(TaskState.userWait);
++          return;
+         case UpdateSettings(:final changes):
+           _replace(
+             id,

@@ -1,0 +1,62 @@
+diff --git a/lib/core/protocol.dart b/lib/core/protocol.dart
+index 1679d90..8a7cd53 100644
+--- a/lib/core/protocol.dart
++++ b/lib/core/protocol.dart
+@@ -98,6 +98,14 @@ class UpdateSettings extends ToolCall {
+   final List<SettingsChangeOk> changes;
+ }
+ 
++/// A tool that comes from an MCP server. [arguments] is exactly what the server was sent.
++class McpCall extends ToolCall {
++  const McpCall(this.name, this.arguments);
++
++  final String name;
++  final Map<String, Object?> arguments;
++}
++
+ sealed class ParseResult {
+   const ParseResult();
+ }
+@@ -246,6 +254,33 @@ abstract final class SettingsApproval {
+   static bool isApproval(List<String> selected) => selected.contains(approve);
+ }
+ 
++/// The card the chat shows for an [McpCall] that changes something outside the device.
++abstract final class ToolApproval {
++  static const approve = '実行する';
++  static const reject = 'やめる';
++
++  static QuestionTile tile(McpCall call) => QuestionTile(
++        title: 'この道具を実行します。${call.name}\n'
++            '${call.arguments.isEmpty ? '' : call.arguments.toString()}',
++        options: const [approve, reject],
++        allowFreeInput: false,
++        multiSelect: false,
++      );
++
++  static bool isApproval(List<String> selected) => selected.contains(approve);
++
++  /// The tools that change something outside the device. Their names come from the server, so this
++  /// reads the verb: `create_or_update_file`, `push_files`, `merge_pull_request` ...
++  static bool needsApproval(String name) {
++    const verbs = [
++      'create', 'update', 'delete', 'remove', 'push', 'merge', 'commit', 'write', 'edit',
++      'close', 'reopen', 'add', 'set', 'put', 'patch', 'fork', 'transfer', 'review',
++    ];
++    final lowered = name.toLowerCase();
++    return verbs.any(lowered.contains);
++  }
++}
++
+ /// Turns the body of a `<tool_call>` block into a [ToolCall] and checks what the grammar
+ /// cannot: meaning. GBNF guarantees the JSON shape, not that option labels are non-blank
+ /// or distinct.
+@@ -278,6 +313,8 @@ abstract final class ToolCallParser {
+       if (name == Protocol.getTime.name) return ParseOk(GetTime(_requiredText(args, 'timezone')));
+       if (name == Protocol.getSettings.name) return ParseOk(const GetSettings());
+       if (name == Protocol.updateSettings.name) return _parseUpdateSettings(args);
++      // a tool of the MCP server: the engine's schema already limited it to the tools this turn
++      if (name.startsWith('mcp_')) return ParseOk(McpCall(name, args.cast<String, Object?>()));
+       return ParseInvalid("tool '$name' has no handler");
+     } on _WrongType catch (e) {
+       return ParseInvalid('argument has the wrong type: ${e.key}');
