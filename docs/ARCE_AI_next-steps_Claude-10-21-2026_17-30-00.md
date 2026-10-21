@@ -65,3 +65,13 @@ v0.7.0 の状態：設定が「一覧 → 詳細」に分かれた／下のバ�
 
 - 各項目ごとに：実装 → `flutter analyze` / `flutter test` を CI で通す → main へ → 版を上げて配布。
 - 「参考にしたアプリ」の名前はコードにもドキュメントにも書かない（画面名と挙動だけ）。
+
+## 実装メモ（2026-10-21 夜）
+
+- 上記1〜5は `next-steps` ブランチで実装済み。CI が通ってから main にマージする。
+- 1：`ProviderConfig.models` と `activeModel`。旧 `model` だけの保存は読み込み時に1件へ移行。
+- 2：`AppSettings.mcpServers`。旧 `mcpUrl` は `id=default` の1台へ移行。ツール名は
+  `mcp_<id>__<tool>`、`tools/list` はサーバーごとにキャッシュ。
+- 3：`GenerationService`（dataSync）と `ai.arce.app/system` の `startForeground` / `stopForeground`。
+- 4：同じ道具・同じ引数が3回続いたら `同じ道具を繰り返し呼んでいます` で止める。
+- 5：`get_settings` にプロバイダ・モデル・MCP サーバーを追加（キーとトークンは伏せる）。
