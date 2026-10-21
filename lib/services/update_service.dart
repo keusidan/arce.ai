@@ -100,7 +100,7 @@ class UpdateService extends ChangeNotifier {
     notifyListeners();
     _schedule();
     _settings.addListener(_schedule);
-    if (_settings.value.autoUpdateCheck) unawaited(check(silent: true));
+    if (_settings.value.autoUpdateCheck) unawaited(_autoCheck());
     // the build we are now running has been installed, so its download is no longer needed
     unawaited(removeOldDownloads());
   }
@@ -109,7 +109,19 @@ class UpdateService extends ChangeNotifier {
     _timer?.cancel();
     final s = _settings.value;
     if (!s.autoUpdateCheck) return;
-    _timer = Timer.periodic(Duration(hours: s.updateIntervalHours.clamp(1, 168)), (_) => check(silent: true));
+    _timer = Timer.periodic(Duration(hours: s.updateIntervalHours.clamp(1, 168)), (_) => _autoCheck());
+  }
+
+  /// The check that runs by itself (at start and on the timer). When the user asked for automatic
+  /// updates, a newer build is downloaded and the installer is opened without waiting for a tap.
+  /// A manual check stays manual: the screen offers 「ダウンロード」 as before.
+  Future<void> _autoCheck() async {
+    await check(silent: true);
+    if (_state is UpdateAvailable &&
+        _settings.value.autoInstallUpdate &&
+        target != UpdateTarget.ios) {
+      await _downloadAndInstall();
+    }
   }
 
   void _set(UpdateState state) {
@@ -134,6 +146,15 @@ class UpdateService extends ChangeNotifier {
     } catch (e) {
       if (!silent) _set(UpdateFailed(_explain(e)));
     }
+  }
+
+  /// Downloads the release found by [check] and opens the installer as soon as the file is
+  /// verified. Nothing is forced: the same states the screen shows drive both steps, so a failure
+  /// stops here and the user still sees what happened.
+  Future<void> _downloadAndInstall() async {
+    if (_state is! UpdateAvailable) return;
+    await download();
+    if (_state is UpdateReady) await install();
   }
 
   /// The newest release made for this platform. Every platform has its own releases, so the list is read
@@ -364,6 +385,12 @@ class UpdateService extends ChangeNotifier {
     if (current is! UpdateReady) return;
     try {
       if (Platform.isAndroid) {
+        // 初回だけは利用者がシステムの画面で許可する必要がある。許可待ちのあいだも、
+        // 検証済みのファイルは残るので、許可後に「インストール」を押せばそのまま入る。
+        if (!await canInstall()) {
+          await requestInstallPermission();
+          return;
+        }
         await _system.invokeMethod<void>('install', {'path': current.file.path});
       } else {
         await DesktopInstaller.apply(current.file);

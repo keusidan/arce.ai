@@ -42,6 +42,13 @@ class CloudEngine implements InferenceEngine {
     final adapter = CloudEventAdapter();
     final aiRequest = AiRequest(
       messages: messages,
+      // The prompt already teaches the `<tool_call>` form; sending the definitions as function
+      // calling as well is what makes cloud models actually call one.
+      tools: [
+        if (provider.capabilities.tools)
+          for (final tool in request.tools)
+            AiToolSpec(name: tool.name, description: tool.description, parameters: tool.parameters),
+      ],
       maxTokens: request.maxTokens,
       temperature: request.sampling.temperature,
       topP: request.sampling.topP,

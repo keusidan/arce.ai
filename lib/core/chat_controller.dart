@@ -485,6 +485,7 @@ class ChatController extends ChangeNotifier {
       final request = GenerateRequest(
         prompt: prompt,
         toolCallSchema: schema,
+        tools: tools,
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
         sampling: thinking ? SamplingParams.qwen3Thinking : SamplingParams.qwen3NonThinking,

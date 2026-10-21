@@ -39,6 +39,7 @@ class AppSettings {
     this.forceExecution = false,
     this.updateRepo = defaultRepo,
     this.autoUpdateCheck = true,
+    this.autoInstallUpdate = true,
     this.updateIntervalHours = 12,
   });
 
@@ -67,6 +68,9 @@ class AppSettings {
   final bool forceExecution;
   final String updateRepo;
   final bool autoUpdateCheck;
+
+  /// Download a newer build as soon as it is found and open the installer without being asked.
+  final bool autoInstallUpdate;
   final int updateIntervalHours;
 
   AppSettings copyWith({
@@ -93,6 +97,7 @@ class AppSettings {
     bool? forceExecution,
     String? updateRepo,
     bool? autoUpdateCheck,
+    bool? autoInstallUpdate,
     int? updateIntervalHours,
   }) =>
       AppSettings(
@@ -119,6 +124,7 @@ class AppSettings {
         forceExecution: forceExecution ?? this.forceExecution,
         updateRepo: updateRepo ?? this.updateRepo,
         autoUpdateCheck: autoUpdateCheck ?? this.autoUpdateCheck,
+        autoInstallUpdate: autoInstallUpdate ?? this.autoInstallUpdate,
         updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
       );
 
@@ -146,6 +152,7 @@ class AppSettings {
         'forceExecution': forceExecution,
         'updateRepo': updateRepo,
         'autoUpdateCheck': autoUpdateCheck,
+        'autoInstallUpdate': autoInstallUpdate,
         'updateIntervalHours': updateIntervalHours,
       };
 
@@ -187,6 +194,7 @@ class AppSettings {
       forceExecution: flag('forceExecution', d.forceExecution),
       updateRepo: text('updateRepo', d.updateRepo),
       autoUpdateCheck: flag('autoUpdateCheck', d.autoUpdateCheck),
+      autoInstallUpdate: flag('autoInstallUpdate', d.autoInstallUpdate),
       updateIntervalHours: whole('updateIntervalHours', d.updateIntervalHours),
     );
   }

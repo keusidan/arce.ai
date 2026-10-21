@@ -284,6 +284,12 @@ class _SettingsPageState extends State<SettingsPage> {
                     trailing: ArceSwitch(value: s.autoUpdateCheck, onChanged: (v) => set((x) => x.copyWith(autoUpdateCheck: v))),
                   ),
                   SettingRow(
+                    icon: ArceSvg.bolt,
+                    title: '自動で更新する',
+                    subtitle: '見つけたらダウンロードとインストールまで自動で進めます',
+                    trailing: ArceSwitch(value: s.autoInstallUpdate, onChanged: (v) => set((x) => x.copyWith(autoInstallUpdate: v))),
+                  ),
+                  SettingRow(
                     icon: ArceSvg.clock,
                     title: '確認の間隔',
                     subtitle: '時間',
