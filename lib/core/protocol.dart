@@ -129,7 +129,7 @@ class ParseInvalid extends ParseResult {
 abstract final class Protocol {
   /// Bumped whenever a tool schema changes. Stored with each generation so a regeneration
   /// can tell whether it runs under the same protocol as the original.
-  static const schemaVersion = 4;
+  static const schemaVersion = 3;
 
   static final askUser = ToolDefinition(
     name: 'ask_user',
