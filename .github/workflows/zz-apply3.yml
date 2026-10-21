@@ -30,6 +30,7 @@ jobs:
             echo "applying $f"
             git apply "$f"
           done
+          if [ -d extra ]; then cp -r extra/. .; rm -rf extra; fi
           git add -A
           git -c user.name=keusidan -c user.email=87552495+keusidan@users.noreply.github.com \
             commit -m "MCP: 外部の道具をチャットから使えるようにする"
@@ -48,7 +49,7 @@ jobs:
           flutter test > t.txt 2>&1
           status=$?
           if [ "$status" -eq 0 ]; then echo pass; exit 0; fi
-          grep -nE "\[E\]|Expected:|Some tests failed" t.txt | head -20 > tf.txt
+          grep -nE "Expected:|Some tests failed" t.txt | head -20 > tf.txt
           tail -20 t.txt >> tf.txt
           while IFS= read -r l; do echo "::error::$l"; done < tf.txt
           exit 1
