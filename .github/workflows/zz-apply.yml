@@ -1,0 +1,40 @@
+name: zz apply
+
+# Temporary: apply the patches on the v0.4.6 tree, check them, and only then move main there.
+on:
+  push:
+    branches: ["zz-apply"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.6"
+          channel: stable
+          cache: true
+      - name: apply the patches on the v0.4.6 tree
+        run: |
+          mkdir -p /tmp/p
+          cp settings-tools*.patch /tmp/p/
+          git checkout -B work 5f1a4af5975abdc90f11bf3e531a93ce3142ffdd
+          for f in $(ls /tmp/p/*.patch | sort); do
+            echo "applying $f"
+            git apply "$f"
+          done
+          git add -A
+          git -c user.name=keusidan -c user.email=87552495+keusidan@users.noreply.github.com \
+            commit -m "設定を読む get_settings を足し、update_settings を承認つきで動かす"
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: push main
+        run: git push origin work:refs/heads/main
