@@ -23,14 +23,15 @@ jobs:
           cache: true
       - name: apply the patches
         run: |
-          mkdir -p /tmp/r
+          mkdir -p /tmp/r /tmp/x
           cp r-*.patch /tmp/r/
+          if [ -d extra ]; then cp -r extra/. /tmp/x/; fi
           git checkout -B work origin/main
           for f in $(ls /tmp/r/*.patch | sort); do
             echo "applying $f"
             git apply "$f"
           done
-          if [ -d extra ]; then cp -r extra/. .; rm -rf extra; fi
+          cp -r /tmp/x/. .
           git add -A
           git -c user.name=keusidan -c user.email=87552495+keusidan@users.noreply.github.com \
             commit -m "MCP: 外部の道具をチャットから使えるようにする"
