@@ -96,6 +96,9 @@ void main() {
 
     app.goTo(AppPage.settings);
     await tester.pump(const Duration(milliseconds: 300));
+    // 設定はいま一覧と詳細に分かれている: まず「基本設定」を開く
+    await tester.tap(find.text('基本設定').first);
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('Thinking 表示'), findsOneWidget);
 
     expect(app.settings.value.hyperLoad, isFalse);

@@ -29,7 +29,7 @@ import 'update_service.dart';
 enum AppPage { chat, models, artifacts, settings, history }
 
 /// Anchors of the sections of the settings page, so the desktop sidebar can jump to one.
-enum SettingsSection { providers, basic, answer, display, developer, update }
+enum SettingsSection { providers, mcp, basic, answer, display, developer, update }
 
 /// A generation that was still running when the app last stopped (spec §25.1).
 class InterruptedConversation {
