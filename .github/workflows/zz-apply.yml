@@ -34,7 +34,33 @@ jobs:
           git -c user.name=keusidan -c user.email=87552495+keusidan@users.noreply.github.com \
             commit -m "設定を読む get_settings を足し、update_settings を承認つきで動かす"
       - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
+      - name: analyze
+        run: |
+          set +e
+          flutter analyze > an.txt 2>&1
+          if grep -q "No issues found" an.txt; then
+            echo "analyze clean"
+            exit 0
+          fi
+          grep -E " • |issues? found" an.txt | head -20 > issues.txt
+          while IFS= read -r line; do
+            clean=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r//g')
+            echo "::error::$clean"
+          done < issues.txt
+          exit 1
+      - name: test
+        run: |
+          set +e
+          flutter test > t.txt 2>&1
+          if grep -qE "All tests passed|No tests ran" t.txt; then
+            echo "tests pass"
+            exit 0
+          fi
+          grep -E "\[E\]|Expected|Actual|Some tests failed" t.txt | head -20 > tf.txt
+          while IFS= read -r line; do
+            clean=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r//g')
+            echo "::error::$clean"
+          done < tf.txt
+          exit 1
       - name: push main
         run: git push origin work:refs/heads/main
