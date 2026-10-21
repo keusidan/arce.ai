@@ -1,0 +1,61 @@
+diff --git a/lib/core/protocol.dart b/lib/core/protocol.dart
+index 3c71da4..1679d90 100644
+--- a/lib/core/protocol.dart
++++ b/lib/core/protocol.dart
+@@ -81,6 +81,11 @@ class GetWeather extends ToolCall {
+   final String location;
+ }
+ 
++/// Reads the settings the model may change, with their current values (never API keys).
++class GetSettings extends ToolCall {
++  const GetSettings();
++}
++
+ class GetTime extends ToolCall {
+   const GetTime(this.timezone);
+   final String? timezone;
+@@ -154,6 +159,14 @@ abstract final class Protocol {
+     }),
+   );
+ 
++  static final getSettings = ToolDefinition(
++    name: 'get_settings',
++    description: 'Read the app settings the model may change, with their current values, labels, '
++        "allowed choices and ranges. Call this when the user asks about the app's settings or "
++        'configuration instead of guessing. API keys and the update source are never returned.',
++    parameters: _objectSchema(required: [], properties: {}),
++  );
++
+   static final updateSettings = ToolDefinition(
+     name: 'update_settings',
+     description: 'Change the app settings (thinking, search, tone, theme, model options, ...). '
+@@ -218,6 +231,21 @@ abstract final class Protocol {
+       };
+ }
+ 
++/// The card the chat shows for [UpdateSettings]: nothing is written until the user approves.
++abstract final class SettingsApproval {
++  static const approve = '承認';
++  static const reject = '拒否';
++
++  static QuestionTile tile(List<SettingsChangeOk> changes) => QuestionTile(
++        title: '設定を変更します。${changes.map((c) => c.description).join('、')}。承認しますか？',
++        options: const [approve, reject],
++        allowFreeInput: false,
++        multiSelect: false,
++      );
++
++  static bool isApproval(List<String> selected) => selected.contains(approve);
++}
++
+ /// Turns the body of a `<tool_call>` block into a [ToolCall] and checks what the grammar
+ /// cannot: meaning. GBNF guarantees the JSON shape, not that option labels are non-blank
+ /// or distinct.
+@@ -248,6 +276,7 @@ abstract final class ToolCallParser {
+         return l == null ? const ParseInvalid('weather location is blank') : ParseOk(GetWeather(l));
+       }
+       if (name == Protocol.getTime.name) return ParseOk(GetTime(_requiredText(args, 'timezone')));
++      if (name == Protocol.getSettings.name) return ParseOk(const GetSettings());
+       if (name == Protocol.updateSettings.name) return _parseUpdateSettings(args);
+       return ParseInvalid("tool '$name' has no handler");
+     } on _WrongType catch (e) {
