@@ -1,8 +1,16 @@
 diff --git a/lib/services/app_controller.dart b/lib/services/app_controller.dart
-index 0c06a88..5e2867f 100644
+index 0c06a88..e11bc5e 100644
 --- a/lib/services/app_controller.dart
 +++ b/lib/services/app_controller.dart
-@@ -53,6 +53,7 @@ class AppController extends ChangeNotifier {
+@@ -9,6 +9,7 @@ import '../ai/routing_engine.dart';
+ import '../core/chat_controller.dart';
+ import '../core/http_get.dart';
+ import '../core/search.dart';
++import '../core/settings_spec.dart';
+ import '../core/tool_runtime.dart';
+ import '../core/weather.dart';
+ import '../engine/demo_engine.dart';
+@@ -53,6 +54,7 @@ class AppController extends ChangeNotifier {
        toolRuntime: _toolRuntime,
        settings: () => settings.value.toGeneration(models.loadedParamsB),
        store: (snapshot, {required generating}) => _persist(snapshot, generating),
@@ -10,7 +18,7 @@ index 0c06a88..5e2867f 100644
      )..setThinking(settings.value.thinking);
      _applyProvider();
    }
-@@ -122,6 +123,22 @@ class AppController extends ChangeNotifier {
+@@ -122,6 +124,22 @@ class AppController extends ChangeNotifier {
    /// Built per call so a changed SearXNG address or search switch applies immediately.
    late final ToolRuntime _toolRuntime = _SettingsToolRuntime(settings, _http);
  
@@ -33,7 +41,7 @@ index 0c06a88..5e2867f 100644
    Future<void> _start() async {
      settings.addListener(() => chat.setThinking(settings.value.thinking));
      // adding, removing or editing a provider changes which one answers
-@@ -331,6 +348,7 @@ class _SettingsToolRuntime implements ToolRuntime {
+@@ -331,6 +349,7 @@ class _SettingsToolRuntime implements ToolRuntime {
      return DefaultToolRuntime(
        search: s.searchEnabled ? SearchService(providers, retriesPerProvider: s.retryLimit.clamp(0, 3)) : null,
        weather: OpenMeteoWeather(_http),
