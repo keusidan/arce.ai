@@ -48,7 +48,7 @@ jobs:
           flutter test > t.txt 2>&1
           status=$?
           if [ "$status" -eq 0 ]; then echo pass; exit 0; fi
-          tail -20 t.txt > tf.txt
+          grep -nE "\[E\]|Some tests failed|Expected:|Actual:|Which:" t.txt | head -25 > tf.txt
           while IFS= read -r l; do echo "::error::$l"; done < tf.txt
           exit 1
       - name: push main
