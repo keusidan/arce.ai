@@ -40,11 +40,7 @@ jobs:
           flutter test 2>&1 | tee /tmp/test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            {
-              echo '### Failed tests'
-              echo '```'
-              grep -E "^(  )?[0-9]+:[0-9]+|Expected:|Actual:|Failing|failed|Some tests failed|Error" /tmp/test.log | tail -120
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+            message=$(grep -A10 "\[E\]" /tmp/test.log | head -80 | tr '\n' '~' | tr -d '\r')
+            echo "::error title=Failed test::$message"
           fi
           exit "$status"
