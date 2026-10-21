@@ -28,63 +28,85 @@ class ProvidersSection extends StatelessWidget {
         final local = !store.isCloud;
         final providers = store.providers;
         return ArceCard(
-          child: Column(children: [
-            _ProviderRow(
-              icon: ArceSvg.cube,
-              title: '端末のモデル',
-              detail: 'この端末の中だけで動きます（外部に送りません）',
-              selected: local,
-              badge: local ? '使用中' : null,
-              onPick: () => app.setActiveProvider(ProviderList.localId),
-              last: providers.isEmpty,
-            ),
-            for (var i = 0; i < providers.length; i++)
+          child: Column(
+            children: [
               _ProviderRow(
-                icon: ArceSvg.globe,
-                title: providers[i].label.isEmpty ? providers[i].id : providers[i].label,
-                detail: '${providers[i].model} · ${providers[i].baseUrl}',
-                selected: store.activeId == providers[i].id,
-                badge: !store.hasKey(providers[i].id)
-                    ? 'APIキー未設定'
-                    : (store.activeId == providers[i].id ? '使用中' : null),
-                onPick: () => app.setActiveProvider(providers[i].id),
-                onEdit: () => _openEditor(context, app, providers[i]),
-                onDelete: () => _confirmDelete(context, app, providers[i]),
-                last: i == providers.length - 1,
+                icon: ArceSvg.cube,
+                title: '端末のモデル',
+                detail: 'この端末の中だけで動きます（外部に送りません）',
+                selected: local,
+                badge: local ? '使用中' : null,
+                onPick: () => app.setActiveProvider(ProviderList.localId),
+                last: providers.isEmpty,
               ),
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Row(children: [
-                SoftButton(
-                  label: 'プロバイダを追加',
-                  svg: ArceSvg.plus,
-                  onTap: () => _openEditor(context, app, null),
+              for (var i = 0; i < providers.length; i++)
+                _ProviderRow(
+                  icon: ArceSvg.globe,
+                  title: providers[i].label.isEmpty
+                      ? providers[i].id
+                      : providers[i].label,
+                  detail:
+                      '${_modelLabel(store.modelOf(providers[i].id))} · ${providers[i].baseUrl}',
+                  selected: store.activeId == providers[i].id,
+                  badge: providers[i].models.isEmpty
+                      ? 'モデル未追加'
+                      : (!store.hasKey(providers[i].id)
+                            ? 'APIキー未設定'
+                            : (store.activeId == providers[i].id
+                                  ? '使用中'
+                                  : null)),
+                  onPick: () => app.setActiveProvider(providers[i].id),
+                  onModels: () => _openModels(context, app, providers[i]),
+                  onEdit: () => _openEditor(context, app, providers[i]),
+                  onDelete: () => _confirmDelete(context, app, providers[i]),
+                  last: i == providers.length - 1,
                 ),
-              ]),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'OpenAI 互換の API ならどれでも使えます（OpenAI、Groq、OpenRouter、Ollama、LM Studio など）。'
-                'Base URL は /chat/completions より前までです。',
-                style: ts(context, 9, color: context.c.muted, height: 1.5),
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Row(
+                  children: [
+                    SoftButton(
+                      label: 'プロバイダを追加',
+                      svg: ArceSvg.plus,
+                      onTap: () => _openEditor(context, app, null),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ]),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'OpenAI 互換の API ならどれでも使えます（OpenAI、Groq、OpenRouter、Ollama、LM Studio など）。'
+                  'Base URL は /chat/completions より前までです。',
+                  style: ts(context, 9, color: context.c.muted, height: 1.5),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
   }
 
-  static Future<void> _confirmDelete(BuildContext context, AppController app, ProviderConfig config) async {
+  static Future<void> _confirmDelete(
+    BuildContext context,
+    AppController app,
+    ProviderConfig config,
+  ) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(config.label.isEmpty ? config.id : config.label),
         content: const Text('このプロバイダと、保存したAPIキーを削除します。'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('やめる')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('削除')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('やめる'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('削除'),
+          ),
         ],
       ),
     );
@@ -94,13 +116,39 @@ class ProvidersSection extends StatelessWidget {
     app.showToast('削除しました');
   }
 
-  static Future<void> _openEditor(BuildContext context, AppController app, ProviderConfig? existing) {
+  static String _modelLabel(ModelConfig? model) =>
+      model == null ? 'モデル未追加' : model.id;
+
+  static Future<void> _openModels(
+    BuildContext context,
+    AppController app,
+    ProviderConfig config,
+  ) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: context.c.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-      builder: (context) => _ProviderEditor(app: app, store: app.providers, existing: existing),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) => _ModelsSheet(app: app, config: config),
+    );
+  }
+
+  static Future<void> _openEditor(
+    BuildContext context,
+    AppController app,
+    ProviderConfig? existing,
+  ) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) =>
+          _ProviderEditor(app: app, store: app.providers, existing: existing),
     );
   }
 }
@@ -113,6 +161,7 @@ class _ProviderRow extends StatelessWidget {
     required this.selected,
     required this.onPick,
     this.badge,
+    this.onModels,
     this.onEdit,
     this.onDelete,
     this.last = false,
@@ -124,6 +173,7 @@ class _ProviderRow extends StatelessWidget {
   final bool selected;
   final VoidCallback onPick;
   final String? badge;
+  final VoidCallback? onModels;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final bool last;
@@ -133,57 +183,92 @@ class _ProviderRow extends StatelessWidget {
     final c = context.c;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 1),
-      decoration: BoxDecoration(border: last ? null : Border(bottom: BorderSide(color: c.line))),
-      child: Row(children: [
-        ArceIcon(icon, size: 16, color: selected ? c.accent : c.muted),
-        const SizedBox(width: 10),
-        Expanded(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onPick,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Flexible(
-                  child: Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    style: ts(context, 12, weight: FontWeight.w700, color: selected ? c.accent : c.ink),
+      decoration: BoxDecoration(
+        border: last ? null : Border(bottom: BorderSide(color: c.line)),
+      ),
+      child: Row(
+        children: [
+          ArceIcon(icon, size: 16, color: selected ? c.accent : c.muted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onPick,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          overflow: TextOverflow.ellipsis,
+                          style: ts(
+                            context,
+                            12,
+                            weight: FontWeight.w700,
+                            color: selected ? c.accent : c.ink,
+                          ),
+                        ),
+                      ),
+                      if (badge != null) ...[
+                        const SizedBox(width: 6),
+                        StatusLabel(
+                          badge!,
+                          color: selected ? c.accent : c.amber,
+                          background: selected ? c.accentSoft : c.amberSoft,
+                        ),
+                      ],
+                    ],
                   ),
-                ),
-                if (badge != null) ...[
-                  const SizedBox(width: 6),
-                  StatusLabel(
-                    badge!,
-                    color: selected ? c.accent : c.amber,
-                    background: selected ? c.accentSoft : c.amberSoft,
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: ts(context, 9, color: c.muted),
                   ),
                 ],
-              ]),
-              const SizedBox(height: 2),
-              Text(detail, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(context, 9, color: c.muted)),
-            ]),
+              ),
+            ),
           ),
-        ),
-        if (onEdit != null) ...[
-          const SizedBox(width: 6),
-          IconTap(svg: ArceSvg.pencil, onTap: onEdit!, tooltip: '編集', size: 16),
+          if (onModels != null) ...[
+            const SizedBox(width: 6),
+            SoftButton(label: 'モデル', height: 28, onTap: onModels),
+          ],
+          if (onEdit != null) ...[
+            const SizedBox(width: 6),
+            IconTap(
+              svg: ArceSvg.pencil,
+              onTap: onEdit!,
+              tooltip: '編集',
+              size: 16,
+            ),
+          ],
+          if (onDelete != null) ...[
+            const SizedBox(width: 6),
+            SoftButton(label: '削除', height: 28, onTap: onDelete),
+          ],
+          if (onEdit == null) ...[
+            const SizedBox(width: 8),
+            StatusLabel(
+              selected ? '選択中' : '選ぶ',
+              color: selected ? c.accent : c.muted,
+            ),
+          ],
         ],
-        if (onDelete != null) ...[
-          const SizedBox(width: 6),
-          SoftButton(label: '削除', height: 28, onTap: onDelete),
-        ],
-        if (onEdit == null) ...[
-          const SizedBox(width: 8),
-          StatusLabel(selected ? '選択中' : '選ぶ', color: selected ? c.accent : c.muted),
-        ],
-      ]),
+      ),
     );
   }
 }
 
 /// Add or edit one provider; the connection check uses what is typed, not what was saved.
 class _ProviderEditor extends StatefulWidget {
-  const _ProviderEditor({required this.app, required this.store, this.existing});
+  const _ProviderEditor({
+    required this.app,
+    required this.store,
+    this.existing,
+  });
 
   final AppController app;
   final ProviderStore store;
@@ -194,11 +279,16 @@ class _ProviderEditor extends StatefulWidget {
 }
 
 class _ProviderEditorState extends State<_ProviderEditor> {
-  late final TextEditingController _label = TextEditingController(text: widget.existing?.label ?? '');
-  late final TextEditingController _baseUrl = TextEditingController(text: widget.existing?.baseUrl ?? '');
-  late final TextEditingController _model = TextEditingController(text: widget.existing?.model ?? '');
+  late final TextEditingController _label = TextEditingController(
+    text: widget.existing?.label ?? '',
+  );
+  late final TextEditingController _baseUrl = TextEditingController(
+    text: widget.existing?.baseUrl ?? '',
+  );
   late final TextEditingController _key = TextEditingController(
-    text: widget.existing == null ? '' : widget.store.keyOf(widget.existing!.id),
+    text: widget.existing == null
+        ? ''
+        : widget.store.keyOf(widget.existing!.id),
   );
 
   String? _result;
@@ -206,7 +296,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
 
   @override
   void dispose() {
-    for (final controller in [_label, _baseUrl, _model, _key]) {
+    for (final controller in [_label, _baseUrl, _key]) {
       controller.dispose();
     }
     super.dispose();
@@ -219,7 +309,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
       id: existing?.id ?? ProviderList.idFor(label, widget.store.providers),
       label: label.isEmpty ? 'プロバイダ' : label,
       baseUrl: _baseUrl.text.trim(),
-      model: _model.text.trim(),
+      models: existing?.models ?? const [],
       headers: existing?.headers ?? const {},
       body: existing?.body ?? const {},
       supportsTools: existing?.supportsTools ?? true,
@@ -228,8 +318,9 @@ class _ProviderEditorState extends State<_ProviderEditor> {
 
   Future<void> _check() async {
     final config = _config();
-    if (!config.isComplete) {
-      setState(() => _result = 'Base URL（https://…）とモデル名を入れてください');
+    final model = config.defaultModel;
+    if (config.baseUrl.trim().isEmpty || model == null) {
+      setState(() => _result = 'Base URL（https://…）とモデルを用意してください');
       return;
     }
     setState(() {
@@ -240,7 +331,8 @@ class _ProviderEditorState extends State<_ProviderEditor> {
       id: config.id,
       label: config.label,
       baseUrl: config.baseUrl,
-      model: config.model,
+      model: model.id,
+      modelConfig: model,
       apiKey: _key.text.trim(),
       headers: config.headers,
       body: config.body,
@@ -249,7 +341,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
     try {
       await provider.verify();
       if (!mounted) return;
-      setState(() => _result = '接続できました（${config.model}）');
+      setState(() => _result = '接続できました（${model.id}）');
     } on AiProviderException catch (e) {
       if (!mounted) return;
       setState(() => _result = e.message);
@@ -263,8 +355,8 @@ class _ProviderEditorState extends State<_ProviderEditor> {
 
   Future<void> _save() async {
     final config = _config();
-    if (!config.isComplete) {
-      setState(() => _result = 'Base URL（https://…）とモデル名を入れてください');
+    if (config.baseUrl.trim().isEmpty) {
+      setState(() => _result = 'Base URL（https://…）を入れてください');
       return;
     }
     await widget.store.save(config);
@@ -286,45 +378,476 @@ class _ProviderEditorState extends State<_ProviderEditor> {
         bottom: MediaQuery.of(context).viewInsets.bottom + 16,
       ),
       child: SingleChildScrollView(
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(editing ? 'プロバイダを編集' : 'プロバイダを追加', style: ts(context, 14, weight: FontWeight.w700)),
-          const SizedBox(height: 12),
-          _field('名前', _label, '例: OpenAI / Groq / 自宅の Ollama'),
-          _field('Base URL', _baseUrl, 'https://api.openai.com/v1'),
-          _field('モデル', _model, 'gpt-4o-mini'),
-          _field('APIキー', _key, 'sk-…（端末の安全な領域に保存します）', obscure: true),
-          if (_result != null) ...[
-            const SizedBox(height: 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              _result!,
-              style: ts(context, 10, color: _result!.contains('でき') ? c.green : c.amber, height: 1.5),
+              editing ? 'プロバイダを編集' : 'プロバイダを追加',
+              style: ts(context, 14, weight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            _field('名前', _label, '例: OpenAI / Groq / 自宅の Ollama'),
+            _field('Base URL', _baseUrl, 'https://api.openai.com/v1'),
+            _field('APIキー', _key, 'sk-…（端末の安全な領域に保存します）', obscure: true),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                'モデルは保存したあと、一覧の「モデル」から取得または追加できます。',
+                style: ts(context, 9.5, color: context.c.muted, height: 1.5),
+              ),
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _result!,
+                style: ts(
+                  context,
+                  10,
+                  color: _result!.contains('でき') ? c.green : c.amber,
+                  height: 1.5,
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                SoftButton(
+                  label: '接続を確認',
+                  svg: ArceSvg.shield,
+                  onTap: _busy ? null : _check,
+                ),
+                const SizedBox(width: 8),
+                PrimaryButton(label: '保存', onTap: _busy ? null : _save),
+              ],
             ),
           ],
-          const SizedBox(height: 14),
-          Row(children: [
-            SoftButton(label: '接続を確認', svg: ArceSvg.shield, onTap: _busy ? null : _check),
-            const SizedBox(width: 8),
-            PrimaryButton(label: '保存', onTap: _busy ? null : _save),
-          ]),
-        ]),
+        ),
       ),
     );
   }
 
-  Widget _field(String label, TextEditingController controller, String hint, {bool obscure = false}) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: TextField(
+  Widget _field(
+    String label,
+    TextEditingController controller,
+    String hint, {
+    bool obscure = false,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: TextField(
+      controller: controller,
+      obscureText: obscure,
+      autocorrect: false,
+      enableSuggestions: false,
+      style: ts(context, 12),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        isDense: true,
+        border: const OutlineInputBorder(),
+      ),
+    ),
+  );
+}
+
+/// The models of one provider: fetch them from `/models`, add one by hand, choose the one in use.
+class _ModelsSheet extends StatefulWidget {
+  const _ModelsSheet({required this.app, required this.config});
+
+  final AppController app;
+  final ProviderConfig config;
+
+  @override
+  State<_ModelsSheet> createState() => _ModelsSheetState();
+}
+
+class _ModelsSheetState extends State<_ModelsSheet> {
+  String? _result;
+  bool _busy = false;
+
+  ProviderConfig get _config =>
+      widget.app.providers.byId(widget.config.id) ?? widget.config;
+
+  Future<void> _fetch() async {
+    setState(() {
+      _busy = true;
+      _result = 'モデル一覧を読み込んでいます…';
+    });
+    try {
+      final provider = widget.app.providers.build(_config);
+      final names = provider is OpenAiCompatibleProvider
+          ? await provider.listModels()
+          : const <String>[];
+      if (!mounted) return;
+      final existing = {for (final model in _config.models) model.id};
+      final added = [
+        for (final name in names)
+          if (!existing.contains(name)) ModelConfig(id: name, name: name),
+      ];
+      if (added.isNotEmpty) {
+        await widget.app.providers.save(
+          _config.copyWith(models: [..._config.models, ...added]),
+        );
+      }
+      if (!mounted) return;
+      setState(
+        () => _result = added.isEmpty
+            ? '新しいモデルはありませんでした（${names.length}件）'
+            : '${added.length}件のモデルを追加しました',
+      );
+    } on AiProviderException catch (e) {
+      if (mounted) setState(() => _result = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _result = '取得できませんでした（$e）');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _add() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('モデルを追加'),
+        content: TextField(
           controller: controller,
-          obscureText: obscure,
-          autocorrect: false,
-          enableSuggestions: false,
-          style: ts(context, 12),
-          decoration: InputDecoration(
-            labelText: label,
-            hintText: hint,
-            isDense: true,
-            border: const OutlineInputBorder(),
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'モデル名',
+            hintText: 'gpt-4o-mini',
           ),
         ),
-      );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('やめる'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('追加'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.isEmpty) return;
+    if (_config.modelById(name) != null) {
+      setState(() => _result = 'そのモデルはすでにあります');
+      return;
+    }
+    await widget.app.providers.save(
+      _config.copyWith(
+        models: [
+          ..._config.models,
+          ModelConfig(id: name, name: name),
+        ],
+      ),
+    );
+    if (mounted) setState(() => _result = '$name を追加しました');
+  }
+
+  Future<void> _edit(ModelConfig model) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) =>
+          _ModelEditor(app: widget.app, provider: _config, model: model),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _remove(ModelConfig model) async {
+    final left = [
+      for (final m in _config.models)
+        if (m.id != model.id) m,
+    ];
+    await widget.app.providers.save(_config.copyWith(models: left));
+    if (mounted) setState(() => _result = '${model.id} を削除しました');
+  }
+
+  Future<void> _pick(ModelConfig model) async {
+    await widget.app.providers.setActiveModel(_config.id, model.id);
+    widget.app.showToast('${_config.label} · ${model.id} で答えます');
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final store = widget.app.providers;
+    final models = _config.models;
+    final selected = store.modelOf(_config.id)?.id;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${_config.label} のモデル',
+              style: ts(context, 14, weight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '選んだモデルがチャットで使われます。パラメータとプロンプトはモデルごとに保存します。',
+              style: ts(context, 9.5, color: c.muted, height: 1.5),
+            ),
+            const SizedBox(height: 10),
+            if (models.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Text(
+                  'モデルがまだありません。「取得」か「追加」で用意してください。',
+                  style: ts(context, 10, color: c.amber, height: 1.5),
+                ),
+              ),
+            for (var i = 0; i < models.length; i++)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 7),
+                decoration: BoxDecoration(
+                  border: i == models.length - 1
+                      ? null
+                      : Border(bottom: BorderSide(color: c.line)),
+                ),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _pick(models[i]),
+                      child: Row(
+                        children: [
+                          Icon(
+                            selected == models[i].id
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_unchecked,
+                            size: 17,
+                            color: selected == models[i].id
+                                ? c.accent
+                                : c.muted,
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _pick(models[i]),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              models[i].id,
+                              style: ts(context, 11.5, weight: FontWeight.w600),
+                            ),
+                            Text(
+                              _paramsLabel(models[i]),
+                              style: ts(context, 9, color: c.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconTap(
+                      svg: ArceSvg.pencil,
+                      onTap: () => _edit(models[i]),
+                      tooltip: '編集',
+                      size: 15,
+                    ),
+                    const SizedBox(width: 6),
+                    IconTap(
+                      svg: ArceSvg.close,
+                      onTap: () => _remove(models[i]),
+                      tooltip: '削除',
+                      size: 15,
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                SoftButton(
+                  label: '取得',
+                  svg: ArceSvg.retry,
+                  onTap: _busy ? null : _fetch,
+                ),
+                const SizedBox(width: 8),
+                SoftButton(
+                  label: '追加',
+                  svg: ArceSvg.plus,
+                  onTap: _busy ? null : _add,
+                ),
+              ],
+            ),
+            if (_result != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _result!,
+                style: ts(context, 10, color: c.muted, height: 1.5),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _paramsLabel(ModelConfig model) {
+    final parts = <String>[
+      if (model.param('temperature') != null)
+        'temperature ${model.param('temperature')}',
+      if (model.param('topP') != null) 'top_p ${model.param('topP')}',
+      if (model.param('maxTokens') != null)
+        'max ${model.intParam('maxTokens')}',
+      if (model.prompt.trim().isNotEmpty) 'プロンプトあり',
+    ];
+    return parts.isEmpty ? 'アプリの既定値' : parts.join(' · ');
+  }
+}
+
+/// The sampling overrides and the extra prompt of one model.
+class _ModelEditor extends StatefulWidget {
+  const _ModelEditor({
+    required this.app,
+    required this.provider,
+    required this.model,
+  });
+
+  final AppController app;
+  final ProviderConfig provider;
+  final ModelConfig model;
+
+  @override
+  State<_ModelEditor> createState() => _ModelEditorState();
+}
+
+class _ModelEditorState extends State<_ModelEditor> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.model.name,
+  );
+  late final TextEditingController _temperature = TextEditingController(
+    text: widget.model.param('temperature')?.toString() ?? '',
+  );
+  late final TextEditingController _topP = TextEditingController(
+    text: widget.model.param('topP')?.toString() ?? '',
+  );
+  late final TextEditingController _maxTokens = TextEditingController(
+    text: widget.model.intParam('maxTokens')?.toString() ?? '',
+  );
+  late final TextEditingController _prompt = TextEditingController(
+    text: widget.model.prompt,
+  );
+
+  @override
+  void dispose() {
+    for (final controller in [
+      _name,
+      _temperature,
+      _topP,
+      _maxTokens,
+      _prompt,
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final params = <String, double>{};
+    final temperature = double.tryParse(_temperature.text.trim());
+    final topP = double.tryParse(_topP.text.trim());
+    final maxTokens = int.tryParse(_maxTokens.text.trim());
+    if (temperature != null)
+      params['temperature'] = temperature.clamp(0, 2).toDouble();
+    if (topP != null) params['topP'] = topP.clamp(0, 1).toDouble();
+    if (maxTokens != null)
+      params['maxTokens'] = maxTokens.clamp(1, 131072).toDouble();
+    final model = widget.model.copyWith(
+      name: _name.text.trim().isEmpty ? widget.model.id : _name.text.trim(),
+      params: params,
+      prompt: _prompt.text.trim(),
+    );
+    final provider =
+        widget.app.providers.byId(widget.provider.id) ?? widget.provider;
+    await widget.app.providers.save(
+      provider.copyWith(
+        models: [
+          for (final m in provider.models)
+            if (m.id == model.id) model else m,
+        ],
+      ),
+    );
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    widget.app.showToast('${model.id} を保存しました');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.model.id,
+              style: ts(context, 14, weight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text('空欄はアプリの既定値を使います。', style: ts(context, 9.5, color: c.muted)),
+            const SizedBox(height: 10),
+            _field('表示名', _name, widget.model.id),
+            _field('temperature', _temperature, '0.7'),
+            _field('top_p', _topP, '0.95'),
+            _field('最大トークン', _maxTokens, '2048'),
+            _field('追加プロンプト', _prompt, 'このモデルにだけ送る指示（任意）', maxLines: 3),
+            const SizedBox(height: 10),
+            PrimaryButton(label: '保存', onTap: _save),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(
+    String label,
+    TextEditingController controller,
+    String hint, {
+    int maxLines = 1,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: TextField(
+      controller: controller,
+      maxLines: maxLines,
+      autocorrect: false,
+      enableSuggestions: false,
+      style: ts(context, 12),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        isDense: true,
+        border: const OutlineInputBorder(),
+      ),
+    ),
+  );
 }

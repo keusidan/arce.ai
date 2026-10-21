@@ -12,12 +12,18 @@ class Link {
   final String url;
 
   Map<String, Object?> toJson() => {'title': title, 'url': url};
-  factory Link.fromJson(Map<String, Object?> json) => Link(json['title'] as String, json['url'] as String);
+  factory Link.fromJson(Map<String, Object?> json) =>
+      Link(json['title'] as String, json['url'] as String);
 }
 
 /// What the chat shows about a tool run (e.g. the collapsible Search list).
 class ToolActivity {
-  const ToolActivity(this.tool, this.summary, {this.links = const [], this.failed = false});
+  const ToolActivity(
+    this.tool,
+    this.summary, {
+    this.links = const [],
+    this.failed = false,
+  });
 
   final String tool;
   final String summary;
@@ -25,18 +31,21 @@ class ToolActivity {
   final bool failed;
 
   Map<String, Object?> toJson() => {
-        'tool': tool,
-        'summary': summary,
-        'links': [for (final l in links) l.toJson()],
-        'failed': failed,
-      };
+    'tool': tool,
+    'summary': summary,
+    'links': [for (final l in links) l.toJson()],
+    'failed': failed,
+  };
 
   factory ToolActivity.fromJson(Map<String, Object?> json) => ToolActivity(
-        json['tool'] as String,
-        json['summary'] as String,
-        links: [for (final l in (json['links'] as List? ?? const [])) Link.fromJson((l as Map).cast())],
-        failed: json['failed'] as bool? ?? false,
-      );
+    json['tool'] as String,
+    json['summary'] as String,
+    links: [
+      for (final l in (json['links'] as List? ?? const []))
+        Link.fromJson((l as Map).cast()),
+    ],
+    failed: json['failed'] as bool? ?? false,
+  );
 }
 
 /// [response] goes back to the model inside `<tool_response>`; [activity] goes to the UI.
@@ -56,16 +65,21 @@ class NoToolRuntime implements ToolRuntime {
 
   @override
   Future<ToolOutcome> run(ToolCall call) async => ToolOutcome(
-        'This tool is not available.',
-        ToolActivity(call.runtimeType.toString(), '利用できません', failed: true),
-      );
+    'This tool is not available.',
+    ToolActivity(call.runtimeType.toString(), '利用できません', failed: true),
+  );
 }
 
 typedef Clock = DateTime Function();
 
 class DefaultToolRuntime implements ToolRuntime {
-  DefaultToolRuntime({this.search, this.weather, this.settingsValues, Clock? clock})
-      : _clock = clock ?? DateTime.now;
+  DefaultToolRuntime({
+    this.search,
+    this.weather,
+    this.settingsValues,
+    this.extraSettings,
+    Clock? clock,
+  }) : _clock = clock ?? DateTime.now;
 
   final SearchService? search;
   final OpenMeteoWeather? weather;
@@ -73,20 +87,27 @@ class DefaultToolRuntime implements ToolRuntime {
   /// Current values of the app settings (`AppSettings.toJson`), read for get_settings. Null where
   /// there is no settings store, which makes the tool answer that it is not available.
   final Map<String, Object?> Function()? settingsValues;
+
+  /// Providers and MCP servers, appended to `get_settings`; never contains a key or a token.
+  final String Function()? extraSettings;
   final Clock _clock;
 
   static bool _zonesReady = false;
 
   @override
   Future<ToolOutcome> run(ToolCall call) async => switch (call) {
-        WebSearch() => _search(call.query),
-        GetWeather() => _weather(call.location),
-        GetTime() => _time(call.timezone),
-        AskUser() => throw StateError('ask_user is answered by the user, not run as a tool'),
-        GetSettings() => _settings(),
-        UpdateSettings() => throw StateError('update_settings is answered by the user, not run as a tool'),
-        McpCall() => throw StateError('MCP tools are run by the MCP runtime'),
-      };
+    WebSearch() => _search(call.query),
+    GetWeather() => _weather(call.location),
+    GetTime() => _time(call.timezone),
+    AskUser() => throw StateError(
+      'ask_user is answered by the user, not run as a tool',
+    ),
+    GetSettings() => _settings(),
+    UpdateSettings() => throw StateError(
+      'update_settings is answered by the user, not run as a tool',
+    ),
+    McpCall() => throw StateError('MCP tools are run by the MCP runtime'),
+  };
 
   ToolOutcome _settings() {
     final values = settingsValues?.call();
@@ -96,8 +117,10 @@ class DefaultToolRuntime implements ToolRuntime {
         ToolActivity('Settings', '設定を読み取れません', failed: true),
       );
     }
+    final extra = extraSettings?.call() ?? '';
     return ToolOutcome(
-      'Current settings of this app (key = value # label):\n${AgentSettings.describe(values)}',
+      'Current settings of this app (key = value # label):\n${AgentSettings.describe(values)}'
+      '${extra.trim().isEmpty ? '' : '\n$extra'}',
       ToolActivity('Settings', '設定 ${AgentSettings.specs.length} 項目を読み取り'),
     );
   }
@@ -119,19 +142,29 @@ class DefaultToolRuntime implements ToolRuntime {
             ..write('${i + 1}. ${hit.title}\n')
             ..write('   ${hit.url}\n');
           if (hit.snippet.trim().isNotEmpty) {
-            b.write('   ${hit.snippet.length > 300 ? hit.snippet.substring(0, 300) : hit.snippet}\n');
+            b.write(
+              '   ${hit.snippet.length > 300 ? hit.snippet.substring(0, 300) : hit.snippet}\n',
+            );
           }
         }
         b.write('Cite the URLs you use.');
         return ToolOutcome(
           b.toString(),
-          ToolActivity('Search', '「$query」 ${hits.length}件（$provider）', links: [for (final h in hits) Link(h.title, h.url)]),
+          ToolActivity(
+            'Search',
+            '「$query」 ${hits.length}件（$provider）',
+            links: [for (final h in hits) Link(h.title, h.url)],
+          ),
         );
       // spec §10.1: every provider failed -> continue with the local model only
       case SearchFailed(:final errors):
         return ToolOutcome(
           'Web search failed. Answer from your own knowledge and tell the user the answer was not checked online.',
-          ToolActivity('Search', '検索に失敗（ローカルAIのみで回答）: ${errors.isEmpty ? '' : errors.last}', failed: true),
+          ToolActivity(
+            'Search',
+            '検索に失敗（ローカルAIのみで回答）: ${errors.isEmpty ? '' : errors.last}',
+            failed: true,
+          ),
         );
     }
   }
@@ -139,7 +172,10 @@ class DefaultToolRuntime implements ToolRuntime {
   Future<ToolOutcome> _weather(String location) async {
     final service = weather;
     if (service == null) {
-      return const ToolOutcome('Weather is unavailable.', ToolActivity('Weather', '天気は利用できません', failed: true));
+      return const ToolOutcome(
+        'Weather is unavailable.',
+        ToolActivity('Weather', '天気は利用できません', failed: true),
+      );
     }
     try {
       final r = await service.report(location);
@@ -151,10 +187,17 @@ class DefaultToolRuntime implements ToolRuntime {
       ].join(', ');
       return ToolOutcome(
         'Current weather: $text (Open-Meteo)',
-        ToolActivity('Weather', text, links: const [Link('Open-Meteo', 'https://open-meteo.com/')]),
+        ToolActivity(
+          'Weather',
+          text,
+          links: const [Link('Open-Meteo', 'https://open-meteo.com/')],
+        ),
       );
     } catch (e) {
-      return ToolOutcome('Weather lookup failed: $e', ToolActivity('Weather', '天気の取得に失敗: $e', failed: true));
+      return ToolOutcome(
+        'Weather lookup failed: $e',
+        ToolActivity('Weather', '天気の取得に失敗: $e', failed: true),
+      );
     }
   }
 
@@ -180,7 +223,8 @@ class DefaultToolRuntime implements ToolRuntime {
     } else {
       now = _clock();
     }
-    final text = '${now.year}-${two(now.month)}-${two(now.day)} (${weekdays[now.weekday - 1]}) '
+    final text =
+        '${now.year}-${two(now.month)}-${two(now.day)} (${weekdays[now.weekday - 1]}) '
         '${two(now.hour)}:${two(now.minute)}:${two(now.second)} $zoneName';
     return ToolOutcome('Current time: $text', ToolActivity('Time', text));
   }

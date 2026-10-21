@@ -1,73 +1,141 @@
 import '../core/protocol.dart';
 import '../core/tool_runtime.dart';
 import 'mcp_client.dart';
+import 'mcp_server.dart';
 
-/// The tools of the MCP server the user configured, as the chat sees them.
+/// One configured server together with the client that talks to it.
+class McpServerClient {
+  const McpServerClient(this.config, this.client);
+  final McpServerConfig config;
+  final McpClient client;
+}
+
+/// The tools of every MCP server the user configured, as the chat sees them.
 ///
-/// The model gets one flat list, and a server may use a name the app already has (`search`,
-/// `get_time` ...), so every name is prefixed with [prefix]. The prefix is stripped again before
-/// the call goes out.
+/// A server may publish a name the app already has (`search`, `get_time` ...), so every tool is
+/// prefixed with its server: `mcp_<serverId>__<tool>`. The prefix is stripped again before the
+/// call goes out and routed to that server only.
+///
+/// `tools/list` is cached per server for the life of the [cache] map, so a chat turn does not ask
+/// every server again. A server that fails is left out for this turn and tried again next time.
 class McpTools {
-  McpTools(this._client);
+  McpTools(this._servers, {Map<String, List<McpTool>>? cache})
+    : _cache = cache ?? {};
 
-  final McpClient? _client;
+  final List<McpServerClient> _servers;
+  final Map<String, List<McpTool>> _cache;
 
   static const prefix = 'mcp_';
+  static const separator = '__';
+
+  static String toolName(String serverId, String tool) =>
+      '$prefix$serverId$separator$tool';
+
+  /// Splits `mcp_<id>__<tool>`; null when [name] is not an MCP tool of this shape.
+  static (String, String)? parseName(String name) {
+    if (!name.startsWith(prefix)) return null;
+    final rest = name.substring(prefix.length);
+    final at = rest.indexOf(separator);
+    if (at <= 0 || at + separator.length >= rest.length) return null;
+    return (rest.substring(0, at), rest.substring(at + separator.length));
+  }
+
+  static String _cacheKey(McpServerConfig config) =>
+      '${config.id}|${config.url}';
 
   /// The verbs of tools that change something outside the device. Those are shown to the user as
   /// one card and run only when they approve: a chat message must not push code to a repository
   /// without a second look.
   static bool needsApproval(String name) => ToolApproval.needsApproval(name);
 
-  /// The server's tools in the app's own form; an unreachable server yields none, so the chat still
-  /// works (and the model simply has no external tools this turn).
-  Future<List<ToolDefinition>> definitions() async {
-    final client = _client;
-    if (client == null) return const [];
+  /// Whether [name] needs an approval card, following the server's own setting as well.
+  bool approvalRequired(String name) {
+    final parsed = parseName(name);
+    if (parsed == null) return false;
+    final server = _serverById(parsed.$1);
+    if (server == null) return false;
+    return server.config.approveWrites && needsApproval(name);
+  }
+
+  McpServerClient? _serverById(String id) {
+    for (final server in _servers) {
+      if (server.config.id == id) return server;
+    }
+    return null;
+  }
+
+  Future<List<McpTool>?> _toolsOf(McpServerClient server) async {
+    final key = _cacheKey(server.config);
+    final cached = _cache[key];
+    if (cached != null) return cached;
     try {
-      final tools = await client.listTools();
-      return [
-        for (final tool in tools)
-          ToolDefinition(
-            name: '$prefix${tool.name}',
-            description: tool.description.trim().isEmpty
-                ? 'MCP tool ${tool.name}'
-                : '${tool.description.trim()}\n(MCP tool: ${tool.name})',
-            parameters: tool.parameters,
-          ),
-      ];
+      final tools = await server.client.listTools();
+      _cache[key] = tools;
+      return tools;
     } on Object {
-      return const [];
+      // an unreachable server yields no tools; the chat still works this turn
+      _cache.remove(key);
+      return null;
     }
   }
 
-  /// Human-readable list for the settings screen ("what did this server offer?").
-  Future<String> describe() async {
-    final client = _client;
-    if (client == null) return 'URL が未設定か、MCP が無効です';
-    try {
-      final tools = await client.listTools();
-      if (tools.isEmpty) return 'ツールが1つも公開されていません';
-      return '${tools.length} 個のツール: ${tools.map((t) => t.name).join(', ')}';
-    } catch (e) {
-      return '接続できません: $e';
+  /// The tools of all reachable servers in the app's own form.
+  Future<List<ToolDefinition>> definitions() async {
+    final out = <ToolDefinition>[];
+    for (final server in _servers) {
+      final tools = await _toolsOf(server);
+      if (tools == null) continue;
+      for (final tool in tools) {
+        out.add(
+          ToolDefinition(
+            name: toolName(server.config.id, tool.name),
+            description: tool.description.trim().isEmpty
+                ? 'MCP tool ${tool.name} (${server.config.name})'
+                : '${tool.description.trim()}\n(MCP tool: ${tool.name} / server: ${server.config.name})',
+            parameters: tool.parameters,
+          ),
+        );
+      }
     }
+    return out;
+  }
+
+  /// Human-readable list for the settings screen, for one server.
+  Future<String> describe(String id) async {
+    final server = _serverById(id);
+    if (server == null) return 'サーバーが設定されていません';
+    _cache.remove(_cacheKey(server.config));
+    final tools = await _toolsOf(server);
+    if (tools == null) return '接続できません';
+    if (tools.isEmpty) return 'ツールが1つも公開されていません';
+    return '${tools.length} 個のツール: ${tools.map((t) => t.name).join(', ')}';
   }
 
   Future<ToolOutcome> run(McpCall call) async {
-    final client = _client;
-    final name = call.name.startsWith(prefix) ? call.name.substring(prefix.length) : call.name;
-    if (client == null) {
+    final parsed = parseName(call.name);
+    final server = parsed == null ? null : _serverById(parsed.$1);
+    if (parsed == null || server == null) {
       return ToolOutcome(
-        'No MCP server is configured, so this tool cannot run.',
-        const ToolActivity('MCP', 'MCPは未設定です', failed: true),
+        'That MCP server is not configured any more, so this tool cannot run.',
+        const ToolActivity('MCP', 'MCPサーバーが見つかりません', failed: true),
       );
     }
+    final tool = parsed.$2;
     try {
-      final text = await client.callTool(name, call.arguments);
-      return ToolOutcome(text, ToolActivity('MCP', '$name を実行'));
+      final text = await server.client.callTool(tool, call.arguments);
+      return ToolOutcome(
+        text,
+        ToolActivity('MCP', '${server.config.name}: $tool を実行'),
+      );
     } catch (e) {
-      return ToolOutcome('The MCP tool failed: $e', ToolActivity('MCP', '$name に失敗: $e', failed: true));
+      return ToolOutcome(
+        'The MCP tool failed: $e',
+        ToolActivity(
+          'MCP',
+          '${server.config.name}: $tool に失敗: $e',
+          failed: true,
+        ),
+      );
     }
   }
 }

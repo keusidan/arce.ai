@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../ai/cloud_engine.dart';
 import '../ai/provider.dart';
+import '../ai/provider_config.dart';
 import '../ai/routing_engine.dart';
 import '../core/chat_controller.dart';
 import '../core/http_get.dart';
@@ -20,6 +21,7 @@ import '../engine/hybrid_engine.dart';
 import '../engine/native_engine.dart';
 import 'conversation_database.dart';
 import 'device_info.dart';
+import 'foreground_service.dart';
 import 'model_manager.dart';
 import 'preview_server.dart';
 import 'provider_store.dart';
@@ -29,7 +31,15 @@ import 'update_service.dart';
 enum AppPage { chat, models, artifacts, settings, history }
 
 /// Anchors of the sections of the settings page, so the desktop sidebar can jump to one.
-enum SettingsSection { providers, mcp, basic, answer, display, developer, update }
+enum SettingsSection {
+  providers,
+  mcp,
+  basic,
+  answer,
+  display,
+  developer,
+  update,
+}
 
 /// A generation that was still running when the app last stopped (spec §25.1).
 class InterruptedConversation {
@@ -56,10 +66,13 @@ class AppController extends ChangeNotifier {
       engine,
       toolRuntime: _toolRuntime,
       settings: () => settings.value.toGeneration(models.loadedParamsB),
-      store: (snapshot, {required generating}) => _persist(snapshot, generating),
+      store: (snapshot, {required generating}) =>
+          _persist(snapshot, generating),
       extraTools: _mcpDefinitions,
       applySettings: _applySettings,
+      mcpApproval: _mcpApprovalRequired,
     )..setThinking(settings.value.thinking);
+    chat.addListener(_syncForeground);
     _applyProvider();
   }
 
@@ -78,6 +91,7 @@ class AppController extends ChangeNotifier {
   /// Sends each request to the device model or to the chosen provider.
   final RoutingEngine engine;
   final PreviewServer preview;
+  final foreground = ForegroundService();
   late final ChatController chat;
 
   AppPage page = AppPage.chat;
@@ -93,7 +107,10 @@ class AppController extends ChangeNotifier {
   Timer? _toastTimer;
 
   /// [supportDirectory] replaces the platform's app-data folder (tests use a temporary one).
-  static Future<AppController> create({Directory? supportDirectory, UpdateService? updateService}) async {
+  static Future<AppController> create({
+    Directory? supportDirectory,
+    UpdateService? updateService,
+  }) async {
     final settings = await SettingsStore.load();
     final providers = await ProviderStore.load();
     final device = DeviceInfoService();
@@ -104,7 +121,9 @@ class AppController extends ChangeNotifier {
       device: device,
       supportDirectory: supportDirectory,
     );
-    final history = await ConversationDatabase.open(supportDirectory: supportDirectory);
+    final history = await ConversationDatabase.open(
+      supportDirectory: supportDirectory,
+    );
     final updates = updateService ?? UpdateService(settings);
     final cloud = CloudEngine(const _NoProvider());
     final app = AppController._(
@@ -116,7 +135,10 @@ class AppController extends ChangeNotifier {
       device: device,
       cloud: cloud,
       // the device model answers until the user picks a provider
-      engine: RoutingEngine(local: HybridEngine(native, DemoEngine()), cloud: cloud),
+      engine: RoutingEngine(
+        local: HybridEngine(native, DemoEngine()),
+        cloud: cloud,
+      ),
       preview: PreviewServer(),
     );
     unawaited(app._start());
@@ -126,7 +148,11 @@ class AppController extends ChangeNotifier {
   final _http = packageHttpGet();
 
   /// Built per call so a changed SearXNG address or search switch applies immediately.
-  late final ToolRuntime _toolRuntime = _SettingsToolRuntime(settings, _http);
+  late final ToolRuntime _toolRuntime = _SettingsToolRuntime(
+    settings,
+    providers,
+    _http,
+  );
 
   /// Applies the settings the user approved in the chat (protocol `update_settings`). The reply
   /// says what the settings are now, so the model can confirm instead of assuming.
@@ -134,7 +160,8 @@ class AppController extends ChangeNotifier {
     await settings.update((current) => withSettings(current, changes));
     final values = settings.value.toJson();
     final now = [
-      for (final change in changes) '${change.key}=${change.spec.format(values[change.key])}',
+      for (final change in changes)
+        '${change.key}=${change.spec.format(values[change.key])}',
     ].join(', ');
     final reload = changes.any((c) => _reloadNeeded.contains(c.key));
     return 'The user approved the change: $now.'
@@ -142,23 +169,41 @@ class AppController extends ChangeNotifier {
   }
 
   /// Settings a running model keeps until it is loaded again.
-  static const _reloadNeeded = {'contextLength', 'threads', 'batchSize', 'gpuOffload'};
+  static const _reloadNeeded = {
+    'contextLength',
+    'threads',
+    'batchSize',
+    'gpuOffload',
+  };
 
-  /// The MCP client for the server the user configured, or null when MCP is off or the URL is not
-  /// an http(s) one. Built per use so a changed setting applies to the next reply.
-  McpClient? _mcpClient() {
-    final s = settings.value;
-    final url = s.mcpUrl.trim();
-    if (!s.mcpEnabled) return null;
-    if (!url.startsWith('http://') && !url.startsWith('https://')) return null;
-    return McpClient(url: url, token: settings.mcpToken);
-  }
+  /// `tools/list` results, kept per server so a chat turn does not ask every server again.
+  final Map<String, List<McpTool>> _mcpCache = {};
 
-  /// The tools of the MCP server, added to the ones the agent already has.
-  Future<List<ToolDefinition>> _mcpDefinitions() => McpTools(_mcpClient()).definitions();
+  /// The enabled servers with an http(s) URL, built per use so a changed setting applies at once.
+  List<McpServerClient> _mcpServerClients() => [
+    for (final server in settings.value.mcpServers)
+      if (server.enabled &&
+          (server.url.trim().startsWith('http://') ||
+              server.url.trim().startsWith('https://')))
+        McpServerClient(
+          server,
+          McpClient(
+            url: server.url.trim(),
+            token: settings.mcpTokenOf(server.id),
+          ),
+        ),
+  ];
 
-  /// Used by the settings screen: asks the server what it offers and says so in a toast.
-  Future<String> probeMcp() => McpTools(_mcpClient()).describe();
+  McpTools get _mcpTools => McpTools(_mcpServerClients(), cache: _mcpCache);
+
+  /// The tools of every MCP server, added to the ones the agent already has.
+  Future<List<ToolDefinition>> _mcpDefinitions() => _mcpTools.definitions();
+
+  /// Whether an MCP tool should wait for the user; a server can turn this off for itself.
+  bool _mcpApprovalRequired(String name) => _mcpTools.approvalRequired(name);
+
+  /// Used by the settings screen: asks one server what it offers and says so in a toast.
+  Future<String> probeMcp(String id) => _mcpTools.describe(id);
 
   Future<void> _start() async {
     settings.addListener(() => chat.setThinking(settings.value.thinking));
@@ -174,8 +219,25 @@ class AppController extends ChangeNotifier {
     } catch (e) {
       debugPrint('could not read the conversation list: $e');
     }
-    unawaited(updates.init().catchError((Object e) => debugPrint('update check setup failed: $e')));
-    unawaited(models.restoreLastModel().catchError((Object e) => debugPrint('could not restore the last model: $e')));
+    unawaited(
+      updates.init().catchError(
+        (Object e) => debugPrint('update check setup failed: $e'),
+      ),
+    );
+    unawaited(
+      models.restoreLastModel().catchError(
+        (Object e) => debugPrint('could not restore the last model: $e'),
+      ),
+    );
+  }
+
+  /// Keeps Android's foreground service in step with whether a reply is being generated.
+  void _syncForeground() {
+    if (chat.state.isGenerating) {
+      unawaited(foreground.start());
+    } else {
+      unawaited(foreground.stop());
+    }
   }
 
   /// Points the router at the chosen provider; the device model when none is usable.
@@ -192,7 +254,8 @@ class AppController extends ChangeNotifier {
   /// What the chat shows under the composer: who will answer, and whether it leaves the device.
   String get engineLabel {
     final config = providers.active;
-    if (config != null) return '${config.label} · ${config.model}（外部送信）';
+    if (config != null)
+      return '${config.label} · ${providers.activeModelId}（外部送信）';
     if (providers.isCloud) return 'プロバイダの設定が未完了です';
     return engine.isLoaded
         ? '${models.loadedName ?? 'モデル'} · ${models.backend ?? ''}'
@@ -225,7 +288,10 @@ class AppController extends ChangeNotifier {
   void showToast(String text) {
     toast.value = text;
     _toastTimer?.cancel();
-    _toastTimer = Timer(const Duration(milliseconds: 2200), () => toast.value = null);
+    _toastTimer = Timer(
+      const Duration(milliseconds: 2200),
+      () => toast.value = null,
+    );
   }
 
   Future<void> refreshConversations() async {
@@ -289,7 +355,9 @@ class AppController extends ChangeNotifier {
     final snapshot = chat.snapshot();
     if (snapshot.messages.isEmpty) return null;
     return snapshot.messages
-        .map((m) => '${m.role == Role.user ? '## User' : '## ARCE.AI'}\n${m.text}')
+        .map(
+          (m) => '${m.role == Role.user ? '## User' : '## ARCE.AI'}\n${m.text}',
+        )
         .join('\n\n');
   }
 
@@ -299,7 +367,7 @@ class AppController extends ChangeNotifier {
   void _persist(ConversationSnapshot snapshot, bool generating) {
     if (snapshot.messages.isEmpty) return;
     final providerId = providers.activeId;
-    final modelId = providers.active?.model ?? '';
+    final modelId = providers.activeModelId;
     _writer = _writer.then((_) async {
       try {
         final id = await history.save(
@@ -323,6 +391,8 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _toastTimer?.cancel();
+    chat.removeListener(_syncForeground);
+    unawaited(foreground.stop());
     providers.removeListener(_applyProvider);
     unawaited(preview.dispose());
     updates.dispose();
@@ -341,6 +411,12 @@ class _NoProvider implements AiProvider {
   String get label => '未設定';
 
   @override
+  String get modelId => '';
+
+  @override
+  ModelConfig? get modelConfig => null;
+
+  @override
   ProviderCapabilities get capabilities => const ProviderCapabilities();
 
   @override
@@ -349,35 +425,91 @@ class _NoProvider implements AiProvider {
   }
 
   @override
-  Future<void> verify() async => throw const AiProviderException('プロバイダが設定されていません');
+  Future<void> verify() async =>
+      throw const AiProviderException('プロバイダが設定されていません');
 }
 
 /// Tools read the settings at call time, so a changed SearXNG address or search switch applies at once.
 class _SettingsToolRuntime implements ToolRuntime {
-  _SettingsToolRuntime(this._settings, this._http);
+  _SettingsToolRuntime(this._settings, this._providers, this._http);
 
   final SettingsStore _settings;
+  final ProviderStore _providers;
   final HttpGet _http;
 
   @override
   Future<ToolOutcome> run(call) {
     if (call is McpCall) {
-      final s = _settings.value;
-      final url = s.mcpUrl.trim();
-      final client = s.mcpEnabled && (url.startsWith('http://') || url.startsWith('https://'))
-          ? McpClient(url: url, token: _settings.mcpToken)
-          : null;
-      return McpTools(client).run(call);
+      final servers = [
+        for (final server in _settings.value.mcpServers)
+          if (server.enabled &&
+              (server.url.trim().startsWith('http://') ||
+                  server.url.trim().startsWith('https://')))
+            McpServerClient(
+              server,
+              McpClient(
+                url: server.url.trim(),
+                token: _settings.mcpTokenOf(server.id),
+              ),
+            ),
+      ];
+      return McpTools(servers).run(call);
     }
     final s = _settings.value;
     final providers = <SearchProvider>[
-      if (s.searxngUrl.trim().isNotEmpty) SearXngProvider(s.searxngUrl.trim(), _http),
+      if (s.searxngUrl.trim().isNotEmpty)
+        SearXngProvider(s.searxngUrl.trim(), _http),
       DuckDuckGoInstantProvider(_http),
     ];
     return DefaultToolRuntime(
-      search: s.searchEnabled ? SearchService(providers, retriesPerProvider: s.retryLimit.clamp(0, 3)) : null,
+      search: s.searchEnabled
+          ? SearchService(
+              providers,
+              retriesPerProvider: s.retryLimit.clamp(0, 3),
+            )
+          : null,
       weather: OpenMeteoWeather(_http),
       settingsValues: () => _settings.value.toJson(),
+      extraSettings: _describeConfiguration,
     ).run(call);
+  }
+
+  /// Providers and MCP servers for `get_settings`: enough to answer questions about them, with
+  /// no key and no token.
+  String _describeConfiguration() {
+    final b = StringBuffer('プロバイダとモデル（設定画面から追加・編集できます）:\n');
+    final providers = _providers.providers;
+    if (providers.isEmpty) {
+      b.write('- （なし。端末のモデルで答えます）\n');
+    } else {
+      b.write('- 端末のモデル = ${_providers.isCloud ? '使用していません' : '使用中'}\n');
+      for (final provider in providers) {
+        b.write(
+          '- ${provider.label.isEmpty ? provider.id : provider.label} (id=${provider.id})'
+          ' = ${provider.baseUrl}、モデル: ${provider.models.map((m) => m.id).join(', ')}'
+          '${provider.models.isEmpty ? '（未追加）' : ''}'
+          '、APIキー: ${_providers.hasKey(provider.id) ? '設定済み' : '未設定'}',
+        );
+        if (_providers.activeId == provider.id)
+          b.write('、使用中（モデル ${_providers.activeModelId}）');
+        b.write('\n');
+      }
+    }
+    b.write('MCP サーバー（設定画面から追加・編集できます）:\n');
+    final servers = _settings.value.mcpServers;
+    if (servers.isEmpty) {
+      b.write('- （なし）\n');
+    } else {
+      for (final server in servers) {
+        b.write(
+          '- ${server.name.isEmpty ? server.id : server.name} (id=${server.id})'
+          ' = ${server.url}、${server.enabled ? '有効' : '無効'}'
+          '、書き込み前の確認: ${server.approveWrites ? 'あり' : 'なし'}'
+          '、トークン: ${_settings.mcpTokenOf(server.id).isEmpty ? '未設定' : '設定済み'}\n',
+        );
+      }
+    }
+    b.write('APIキーとMCPトークンは、このツールでも設定画面でも読み出せません（変更もできません）。');
+    return b.toString();
   }
 }

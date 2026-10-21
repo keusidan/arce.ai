@@ -40,23 +40,34 @@ class CloudEngine implements InferenceEngine {
     }
 
     final adapter = CloudEventAdapter();
+    final model = provider.modelConfig;
+    final extraPrompt = model?.prompt.trim() ?? '';
     final aiRequest = AiRequest(
-      messages: messages,
+      messages: [
+        if (extraPrompt.isNotEmpty) AiMessage(AiRole.system, text: extraPrompt),
+        ...messages,
+      ],
+      model: provider.modelId,
+      maxTokens: model?.intParam('maxTokens') ?? request.maxTokens,
+      temperature: model?.param('temperature') ?? request.sampling.temperature,
+      topP: model?.param('topP') ?? request.sampling.topP,
       // The prompt already teaches the `<tool_call>` form; sending the definitions as function
       // calling as well is what makes cloud models actually call one.
       tools: [
         if (provider.capabilities.tools)
           for (final tool in request.tools)
-            AiToolSpec(name: tool.name, description: tool.description, parameters: tool.parameters),
+            AiToolSpec(
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.parameters,
+            ),
       ],
-      maxTokens: request.maxTokens,
-      temperature: request.sampling.temperature,
-      topP: request.sampling.topP,
     );
 
     try {
       // takeWhile stops reading as soon as cancel() is called; the request is dropped.
-      await for (final delta in provider.stream(aiRequest).takeWhile((_) => !_cancelled)) {
+      await for (final delta
+          in provider.stream(aiRequest).takeWhile((_) => !_cancelled)) {
         for (final event in adapter.convert(delta)) {
           yield event;
         }
@@ -69,7 +80,9 @@ class CloudEngine implements InferenceEngine {
 
     // The chat expects a reason at the end, even when the provider sent none.
     if (_cancelled) {
-      for (final event in adapter.convert(const StopDelta(FinishReason.cancelled))) {
+      for (final event in adapter.convert(
+        const StopDelta(FinishReason.cancelled),
+      )) {
         yield event;
       }
     } else if (!adapter.isFinished) {

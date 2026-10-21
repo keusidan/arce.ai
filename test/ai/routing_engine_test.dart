@@ -1,5 +1,6 @@
 import 'package:arce_ai/ai/cloud_engine.dart';
 import 'package:arce_ai/ai/provider.dart';
+import 'package:arce_ai/ai/provider_config.dart';
 import 'package:arce_ai/ai/routing_engine.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
@@ -15,6 +16,12 @@ class _CountedProvider implements AiProvider {
 
   @override
   String get id => 'counted';
+
+  @override
+  String get modelId => '';
+
+  @override
+  ModelConfig? get modelConfig => null;
 
   @override
   String get label => '数える';
@@ -59,20 +66,25 @@ class _LocalEngine implements InferenceEngine {
 }
 
 GenerateRequest _request() => const GenerateRequest(
-      prompt: '',
-      toolCallSchema: null,
-      thinking: false,
-      maxTokens: 16,
-      sampling: SamplingParams(temperature: 0.5, topP: 1, topK: 0, minP: 0),
-    );
+  prompt: '',
+  toolCallSchema: null,
+  thinking: false,
+  maxTokens: 16,
+  sampling: SamplingParams(temperature: 0.5, topP: 1, topK: 0, minP: 0),
+);
 
 GenerateRequest _chatRequest() => GenerateRequest(
-      prompt: ChatMlPromptBuilder.build(const [UserTurn('やあ')], const [], null, false),
-      toolCallSchema: null,
-      thinking: false,
-      maxTokens: 16,
-      sampling: const SamplingParams(temperature: 0.5, topP: 1, topK: 0, minP: 0),
-    );
+  prompt: ChatMlPromptBuilder.build(
+    const [UserTurn('やあ')],
+    const [],
+    null,
+    false,
+  ),
+  toolCallSchema: null,
+  thinking: false,
+  maxTokens: 16,
+  sampling: const SamplingParams(temperature: 0.5, topP: 1, topK: 0, minP: 0),
+);
 
 Future<String> _reply(RoutingEngine engine, GenerateRequest request) async {
   final text = StringBuffer();
@@ -111,7 +123,10 @@ void main() {
 
   test('選んだ側が失敗しても、黙って端末で答え直さない', () async {
     engine.target = provider;
-    await expectLater(engine.generate(_request()).toList(), throwsA(isA<EngineException>()));
+    await expectLater(
+      engine.generate(_request()).toList(),
+      throwsA(isA<EngineException>()),
+    );
     expect(provider.calls, 0);
     expect(local.calls, 0);
   });

@@ -14,12 +14,16 @@ import '../ai/provider_config.dart';
 /// that can be copied, backed up or exported.
 class ProviderStore extends ChangeNotifier {
   ProviderStore(this._prefs, {FlutterSecureStorage? secure})
-      : _secure = secure ??
-            // the legacy keychain needs no entitlement or provisioning profile, so unsigned builds can use it
-            const FlutterSecureStorage(mOptions: MacOsOptions(usesDataProtectionKeychain: false));
+    : _secure =
+          secure ??
+          // the legacy keychain needs no entitlement or provisioning profile, so unsigned builds can use it
+          const FlutterSecureStorage(
+            mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+          );
 
   static const _listKey = 'providers.v1';
   static const _activeKey = 'providers.active';
+  static const _activeModelKey = 'providers.activeModel';
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secure;
@@ -27,6 +31,7 @@ class ProviderStore extends ChangeNotifier {
   List<ProviderConfig> _providers = const [];
   final Map<String, String> _keys = {};
   String _active = ProviderList.localId;
+  String _activeModel = '';
 
   List<ProviderConfig> get providers => List.unmodifiable(_providers);
 
@@ -38,6 +43,22 @@ class ProviderStore extends ChangeNotifier {
 
   /// The provider in use, or null for the device model.
   ProviderConfig? get active => byId(_active);
+
+  /// The model of [active] in use, or null for the device model (or a provider without models).
+  ModelConfig? get activeModel {
+    final provider = active;
+    if (provider == null) return null;
+    return provider.modelById(_activeModel) ?? provider.defaultModel;
+  }
+
+  /// The model selected for [id]; the first one when nothing was picked yet.
+  ModelConfig? modelOf(String id) {
+    final provider = byId(id);
+    if (provider == null) return null;
+    return provider.modelById(_activeModel) ?? provider.defaultModel;
+  }
+
+  String get activeModelId => activeModel?.id ?? '';
 
   ProviderConfig? byId(String id) {
     for (final provider in _providers) {
@@ -52,14 +73,25 @@ class ProviderStore extends ChangeNotifier {
   bool hasKey(String id) => keyOf(id).trim().isNotEmpty;
 
   static Future<ProviderStore> load({FlutterSecureStorage? secure}) async {
-    final store = ProviderStore(await SharedPreferences.getInstance(), secure: secure);
+    final store = ProviderStore(
+      await SharedPreferences.getInstance(),
+      secure: secure,
+    );
     store._providers = ProviderList.decode(store._prefs.getString(_listKey));
     final saved = store._prefs.getString(_activeKey);
     // a provider that was removed must not stay selected
-    store._active = store.byId(saved ?? '') != null ? saved! : ProviderList.localId;
+    store._active = store.byId(saved ?? '') != null
+        ? saved!
+        : ProviderList.localId;
+    store._activeModel = store._prefs.getString(_activeModelKey) ?? '';
+    final active = store.active;
+    if (active != null && active.modelById(store._activeModel) == null) {
+      store._activeModel = active.model;
+    }
     for (final provider in store._providers) {
       try {
-        store._keys[provider.id] = await store._secure.read(key: provider.keyRef) ?? '';
+        store._keys[provider.id] =
+            await store._secure.read(key: provider.keyRef) ?? '';
       } catch (_) {
         store._keys[provider.id] = '';
       }
@@ -74,19 +106,25 @@ class ProviderStore extends ChangeNotifier {
         if (provider.id != config.id) provider,
       config,
     ];
+    if (config.modelById(_activeModel) == null) _activeModel = config.model;
     notifyListeners();
     await _persistList();
   }
 
   Future<void> remove(String id) async {
-    _providers = [for (final provider in _providers) if (provider.id != id) provider];
+    _providers = [
+      for (final provider in _providers)
+        if (provider.id != id) provider,
+    ];
     _keys.remove(id);
     if (_active == id) _active = ProviderList.localId;
     notifyListeners();
     await _persistList();
     await _persistActive();
     try {
-      await _secure.delete(key: ProviderConfig(id: id, label: '', baseUrl: '', model: '').keyRef);
+      await _secure.delete(
+        key: ProviderConfig(id: id, label: '', baseUrl: '').keyRef,
+      );
     } catch (_) {
       // without a keyring the key was only in memory
     }
@@ -94,7 +132,23 @@ class ProviderStore extends ChangeNotifier {
 
   /// Selects [id], or the device model when it is [ProviderList.localId].
   Future<void> setActive(String id) async {
-    _active = id == ProviderList.localId || byId(id) == null ? ProviderList.localId : id;
+    _active = id == ProviderList.localId || byId(id) == null
+        ? ProviderList.localId
+        : id;
+    final provider = active;
+    if (provider != null && provider.modelById(_activeModel) == null) {
+      _activeModel = provider.model;
+    }
+    notifyListeners();
+    await _persistActive();
+  }
+
+  /// Chooses the model [id] of [providerId], and makes that provider the one in use.
+  Future<void> setActiveModel(String providerId, String id) async {
+    final provider = byId(providerId);
+    if (provider == null || provider.modelById(id) == null) return;
+    _active = providerId;
+    _activeModel = id;
     notifyListeners();
     await _persistActive();
   }
@@ -103,7 +157,7 @@ class ProviderStore extends ChangeNotifier {
     _keys[id] = key.trim();
     notifyListeners();
     try {
-      final ref = ProviderConfig(id: id, label: '', baseUrl: '', model: '').keyRef;
+      final ref = ProviderConfig(id: id, label: '', baseUrl: '').keyRef;
       if (key.trim().isEmpty) {
         await _secure.delete(key: ref);
       } else {
@@ -119,23 +173,35 @@ class ProviderStore extends ChangeNotifier {
   AiProvider? buildActive({http.Client? client}) {
     final config = active;
     if (config == null || !config.isComplete) return null;
-    return build(config, client: client);
+    return build(config, model: activeModel, client: client);
   }
 
   /// A provider built from [config] and its saved key; used by the connection check as well.
-  AiProvider build(ProviderConfig config, {http.Client? client}) => OpenAiCompatibleProvider(
-        id: config.id,
-        label: config.label,
-        baseUrl: config.baseUrl,
-        model: config.model,
-        apiKey: keyOf(config.id),
-        headers: config.headers,
-        body: config.body,
-        supportsTools: config.supportsTools,
-        client: client,
-      );
+  AiProvider build(
+    ProviderConfig config, {
+    ModelConfig? model,
+    http.Client? client,
+  }) {
+    final chosen = model ?? config.defaultModel;
+    return OpenAiCompatibleProvider(
+      id: config.id,
+      label: config.label,
+      baseUrl: config.baseUrl,
+      model: chosen?.id ?? '',
+      modelConfig: chosen,
+      apiKey: keyOf(config.id),
+      headers: config.headers,
+      body: config.body,
+      supportsTools: config.supportsTools,
+      client: client,
+    );
+  }
 
-  Future<void> _persistList() => _prefs.setString(_listKey, ProviderList.encode(_providers));
+  Future<void> _persistList() =>
+      _prefs.setString(_listKey, ProviderList.encode(_providers));
 
-  Future<void> _persistActive() => _prefs.setString(_activeKey, _active);
+  Future<void> _persistActive() async {
+    await _prefs.setString(_activeKey, _active);
+    await _prefs.setString(_activeModelKey, _activeModel);
+  }
 }

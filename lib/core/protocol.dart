@@ -6,7 +6,11 @@ import 'settings_spec.dart';
 /// to the model in the system prompt and compiled to GBNF on the native side, so the two
 /// cannot drift apart.
 class ToolDefinition {
-  const ToolDefinition({required this.name, required this.description, required this.parameters});
+  const ToolDefinition({
+    required this.name,
+    required this.description,
+    required this.parameters,
+  });
 
   final String name;
   final String description;
@@ -29,18 +33,18 @@ class QuestionTile {
   final bool multiSelect;
 
   Map<String, Object?> toJson() => {
-        'title': title,
-        'options': options,
-        'allowFreeInput': allowFreeInput,
-        'multiSelect': multiSelect,
-      };
+    'title': title,
+    'options': options,
+    'allowFreeInput': allowFreeInput,
+    'multiSelect': multiSelect,
+  };
 
   factory QuestionTile.fromJson(Map<String, Object?> json) => QuestionTile(
-        title: json['title'] as String,
-        options: (json['options'] as List).cast<String>(),
-        allowFreeInput: json['allowFreeInput'] as bool? ?? false,
-        multiSelect: json['multiSelect'] as bool? ?? false,
-      );
+    title: json['title'] as String,
+    options: (json['options'] as List).cast<String>(),
+    allowFreeInput: json['allowFreeInput'] as bool? ?? false,
+    multiSelect: json['multiSelect'] as bool? ?? false,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -51,7 +55,8 @@ class QuestionTile {
       other.multiSelect == multiSelect;
 
   @override
-  int get hashCode => Object.hash(title, Object.hashAll(options), allowFreeInput, multiSelect);
+  int get hashCode =>
+      Object.hash(title, Object.hashAll(options), allowFreeInput, multiSelect);
 }
 
 bool _listEquals(List<String> a, List<String> b) {
@@ -124,84 +129,107 @@ class ParseInvalid extends ParseResult {
 abstract final class Protocol {
   /// Bumped whenever a tool schema changes. Stored with each generation so a regeneration
   /// can tell whether it runs under the same protocol as the original.
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
 
   static final askUser = ToolDefinition(
     name: 'ask_user',
-    description: 'Ask the user a question and wait for the answer before continuing.',
-    parameters: _objectSchema(required: ['title', 'options'], properties: {
-      'title': {'type': 'string'},
-      'options': {
-        'type': 'array',
-        'items': {'type': 'string'},
-        'minItems': 1,
-        'maxItems': QuestionTile.maxOptions,
+    description:
+        'Ask the user a question and wait for the answer before continuing.',
+    parameters: _objectSchema(
+      required: ['title', 'options'],
+      properties: {
+        'title': {'type': 'string'},
+        'options': {
+          'type': 'array',
+          'items': {'type': 'string'},
+          'minItems': 1,
+          'maxItems': QuestionTile.maxOptions,
+        },
+        'allow_free_input': {'type': 'boolean'},
+        'multi_select': {'type': 'boolean'},
       },
-      'allow_free_input': {'type': 'boolean'},
-      'multi_select': {'type': 'boolean'},
-    }),
+    ),
   );
 
   static final webSearch = ToolDefinition(
     name: 'web_search',
     description: 'Search the web. Use only when the answer needs current or external information.',
-    parameters: _objectSchema(required: ['query'], properties: {
-      'query': {'type': 'string'},
-    }),
+    parameters: _objectSchema(
+      required: ['query'],
+      properties: {
+        'query': {'type': 'string'},
+      },
+    ),
   );
 
   static final getWeather = ToolDefinition(
     name: 'get_weather',
     description: 'Get the current weather for a city or place name.',
-    parameters: _objectSchema(required: ['location'], properties: {
-      'location': {'type': 'string'},
-    }),
+    parameters: _objectSchema(
+      required: ['location'],
+      properties: {
+        'location': {'type': 'string'},
+      },
+    ),
   );
 
   static final getTime = ToolDefinition(
     name: 'get_time',
-    description: 'Get the current date and time. timezone is an IANA name such as Asia/Tokyo; '
+    description:
+        'Get the current date and time. timezone is an IANA name such as Asia/Tokyo; '
         'omit it for the device time zone.',
-    parameters: _objectSchema(required: [], properties: {
-      'timezone': {'type': 'string'},
-    }),
+    parameters: _objectSchema(
+      required: [],
+      properties: {
+        'timezone': {'type': 'string'},
+      },
+    ),
   );
 
   static final getSettings = ToolDefinition(
     name: 'get_settings',
-    description: 'Read the app settings the model may change, with their current values, labels, '
-        "allowed choices and ranges. Call this when the user asks about the app's settings or "
-        'configuration instead of guessing. API keys and the update source are never returned.',
+    description:
+        'Read the app settings the model may change, with their current values, labels, '
+        "allowed choices and ranges, plus the configured providers, their models and the MCP "
+        'servers (name, URL, whether enabled, which tools). Providers and MCP servers are added and '
+        'edited on the settings screen, and this tool reports them so you can answer questions '
+        'about them instead of guessing. API keys, MCP tokens and the update source are never returned.',
     parameters: _objectSchema(required: [], properties: {}),
   );
 
   static final updateSettings = ToolDefinition(
     name: 'update_settings',
-    description: 'Change the app settings (thinking, search, tone, theme, model options, ...). '
+    description:
+        'Change the app settings (thinking, search, tone, theme, model options, ...). '
         'Each change is shown to the user and applied only if they approve it. '
-        'Use for preferences the user asks for, not for API keys or the update source.',
-    parameters: _objectSchema(required: ['changes'], properties: {
-      'changes': {
-        'type': 'array',
-        'minItems': 1,
-        'maxItems': AgentSettings.maxChanges,
-        'items': {
-          'type': 'object',
-          'properties': {
-            'key': {'type': 'string', 'enum': AgentSettings.keys},
-            'value': {
-              'oneOf': [
-                {'type': 'boolean'},
-                {'type': 'number'},
-                {'type': 'string'},
-              ],
+        'The settings screen (and this pair of tools) is where providers and MCP servers are '
+        'configured; read them with get_settings. There is deliberately no way to read or write '
+        'API keys or MCP tokens, and the update source cannot be changed either.',
+    parameters: _objectSchema(
+      required: ['changes'],
+      properties: {
+        'changes': {
+          'type': 'array',
+          'minItems': 1,
+          'maxItems': AgentSettings.maxChanges,
+          'items': {
+            'type': 'object',
+            'properties': {
+              'key': {'type': 'string', 'enum': AgentSettings.keys},
+              'value': {
+                'oneOf': [
+                  {'type': 'boolean'},
+                  {'type': 'number'},
+                  {'type': 'string'},
+                ],
+              },
             },
+            'required': ['key', 'value'],
+            'additionalProperties': false,
           },
-          'required': ['key', 'value'],
-          'additionalProperties': false,
         },
       },
-    }),
+    ),
   );
 
   /// JSON Schema for the body of one `<tool_call>` block restricted to [tools]:
@@ -230,13 +258,12 @@ abstract final class Protocol {
   static Map<String, Object?> _objectSchema({
     required List<String> required,
     required Map<String, Object?> properties,
-  }) =>
-      {
-        'type': 'object',
-        'properties': properties,
-        'required': required,
-        'additionalProperties': false,
-      };
+  }) => {
+    'type': 'object',
+    'properties': properties,
+    'required': required,
+    'additionalProperties': false,
+  };
 }
 
 /// The card the chat shows for [UpdateSettings]: nothing is written until the user approves.
@@ -245,11 +272,11 @@ abstract final class SettingsApproval {
   static const reject = '拒否';
 
   static QuestionTile tile(List<SettingsChangeOk> changes) => QuestionTile(
-        title: '設定を変更します。${changes.map((c) => c.description).join('、')}。承認しますか？',
-        options: const [approve, reject],
-        allowFreeInput: false,
-        multiSelect: false,
-      );
+    title: '設定を変更します。${changes.map((c) => c.description).join('、')}。承認しますか？',
+    options: const [approve, reject],
+    allowFreeInput: false,
+    multiSelect: false,
+  );
 
   static bool isApproval(List<String> selected) => selected.contains(approve);
 }
@@ -260,12 +287,13 @@ abstract final class ToolApproval {
   static const reject = 'やめる';
 
   static QuestionTile tile(McpCall call) => QuestionTile(
-        title: 'この道具を実行します。${call.name}\n'
-            '${call.arguments.isEmpty ? '' : call.arguments.toString()}',
-        options: const [approve, reject],
-        allowFreeInput: false,
-        multiSelect: false,
-      );
+    title:
+        'この道具を実行します。${call.name}\n'
+        '${call.arguments.isEmpty ? '' : call.arguments.toString()}',
+    options: const [approve, reject],
+    allowFreeInput: false,
+    multiSelect: false,
+  );
 
   static bool isApproval(List<String> selected) => selected.contains(approve);
 
@@ -273,8 +301,24 @@ abstract final class ToolApproval {
   /// reads the verb: `create_or_update_file`, `push_files`, `merge_pull_request` ...
   static bool needsApproval(String name) {
     const verbs = [
-      'create', 'update', 'delete', 'remove', 'push', 'merge', 'commit', 'write', 'edit',
-      'close', 'reopen', 'add', 'set', 'put', 'patch', 'fork', 'transfer', 'review',
+      'create',
+      'update',
+      'delete',
+      'remove',
+      'push',
+      'merge',
+      'commit',
+      'write',
+      'edit',
+      'close',
+      'reopen',
+      'add',
+      'set',
+      'put',
+      'patch',
+      'fork',
+      'transfer',
+      'review',
     ];
     final lowered = name.toLowerCase();
     return verbs.any(lowered.contains);
@@ -296,7 +340,8 @@ abstract final class ToolCallParser {
 
     final name = decoded['name'];
     if (name is! String) return const ParseInvalid('missing tool name');
-    if (allowed.every((t) => t.name != name)) return ParseInvalid("tool '$name' is not allowed here");
+    if (allowed.every((t) => t.name != name))
+      return ParseInvalid("tool '$name' is not allowed here");
     final args = decoded['arguments'];
     if (args is! Map) return const ParseInvalid('missing arguments');
 
@@ -304,17 +349,25 @@ abstract final class ToolCallParser {
       if (name == Protocol.askUser.name) return _parseAskUser(args);
       if (name == Protocol.webSearch.name) {
         final q = _requiredText(args, 'query');
-        return q == null ? const ParseInvalid('search query is blank') : ParseOk(WebSearch(q));
+        return q == null
+            ? const ParseInvalid('search query is blank')
+            : ParseOk(WebSearch(q));
       }
       if (name == Protocol.getWeather.name) {
         final l = _requiredText(args, 'location');
-        return l == null ? const ParseInvalid('weather location is blank') : ParseOk(GetWeather(l));
+        return l == null
+            ? const ParseInvalid('weather location is blank')
+            : ParseOk(GetWeather(l));
       }
-      if (name == Protocol.getTime.name) return ParseOk(GetTime(_requiredText(args, 'timezone')));
-      if (name == Protocol.getSettings.name) return ParseOk(const GetSettings());
-      if (name == Protocol.updateSettings.name) return _parseUpdateSettings(args);
+      if (name == Protocol.getTime.name)
+        return ParseOk(GetTime(_requiredText(args, 'timezone')));
+      if (name == Protocol.getSettings.name)
+        return ParseOk(const GetSettings());
+      if (name == Protocol.updateSettings.name)
+        return _parseUpdateSettings(args);
       // a tool of the MCP server: the engine's schema already limited it to the tools this turn
-      if (name.startsWith('mcp_')) return ParseOk(McpCall(name, args.cast<String, Object?>()));
+      if (name.startsWith('mcp_'))
+        return ParseOk(McpCall(name, args.cast<String, Object?>()));
       return ParseInvalid("tool '$name' has no handler");
     } on _WrongType catch (e) {
       return ParseInvalid('argument has the wrong type: ${e.key}');
@@ -344,19 +397,29 @@ abstract final class ToolCallParser {
     if (raw != null && raw is! List) throw _WrongType('options');
     final options = <String>[
       for (final o in (raw as List?) ?? const [])
-        if (o is Map || o is List) throw _WrongType('options') else (o?.toString().trim() ?? ''),
+        if (o is Map || o is List)
+          throw _WrongType('options')
+        else
+          (o?.toString().trim() ?? ''),
     ];
     if (options.isEmpty) return const ParseInvalid('question has no options');
-    if (options.length > QuestionTile.maxOptions) return const ParseInvalid('too many options');
-    if (options.any((o) => o.isEmpty)) return const ParseInvalid('an option is blank');
-    if (options.toSet().length != options.length) return const ParseInvalid('options are not distinct');
+    if (options.length > QuestionTile.maxOptions)
+      return const ParseInvalid('too many options');
+    if (options.any((o) => o.isEmpty))
+      return const ParseInvalid('an option is blank');
+    if (options.toSet().length != options.length)
+      return const ParseInvalid('options are not distinct');
 
-    return ParseOk(AskUser(QuestionTile(
-      title: title,
-      options: options,
-      allowFreeInput: _flag(args, 'allow_free_input'),
-      multiSelect: _flag(args, 'multi_select'),
-    )));
+    return ParseOk(
+      AskUser(
+        QuestionTile(
+          title: title,
+          options: options,
+          allowFreeInput: _flag(args, 'allow_free_input'),
+          multiSelect: _flag(args, 'multi_select'),
+        ),
+      ),
+    );
   }
 
   static ParseResult _parseUpdateSettings(Map<dynamic, dynamic> args) {
@@ -364,7 +427,9 @@ abstract final class ToolCallParser {
       case SettingsPatchInvalid(:final reason):
         return ParseInvalid(reason);
       case SettingsPatch(:final changes):
-        return changes.isEmpty ? const ParseInvalid('no changes') : ParseOk(UpdateSettings(changes));
+        return changes.isEmpty
+            ? const ParseInvalid('no changes')
+            : ParseOk(UpdateSettings(changes));
     }
   }
 }

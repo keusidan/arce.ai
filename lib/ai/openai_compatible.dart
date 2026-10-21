@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../core/generation.dart';
 import 'provider.dart';
+import 'provider_config.dart';
 
 /// A provider that speaks the OpenAI chat-completions protocol, which is what almost every cloud
 /// API and local server (Ollama, LM Studio, LMDeploy, vLLM, OpenRouter, ...) offers as well.
@@ -20,6 +21,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     required this.label,
     required this.baseUrl,
     required this.model,
+    this.modelConfig,
     this.apiKey = '',
     this.headers = const {},
     this.body = const {},
@@ -34,9 +36,15 @@ class OpenAiCompatibleProvider implements AiProvider {
   @override
   final String label;
 
+  @override
+  String get modelId => model;
+
   /// Everything before `/chat/completions`, e.g. `https://api.openai.com/v1`.
   final String baseUrl;
   final String model;
+
+  /// The settings of [model] (sampling overrides and an extra system prompt), when known.
+  final ModelConfig? modelConfig;
   final String apiKey;
   final Map<String, String> headers;
   final Map<String, Object?> body;
@@ -49,20 +57,18 @@ class OpenAiCompatibleProvider implements AiProvider {
   final http.Client _client;
 
   @override
-  ProviderCapabilities get capabilities => ProviderCapabilities(
-        tools: supportsTools,
-        reasoning: true,
-        usage: true,
-      );
+  ProviderCapabilities get capabilities =>
+      ProviderCapabilities(tools: supportsTools, reasoning: true, usage: true);
 
-  Uri _uri(String path) => Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}/$path');
+  Uri _uri(String path) =>
+      Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}/$path');
 
   Map<String, String> get _requestHeaders => {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-        if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
-        ...headers,
-      };
+    'Content-Type': 'application/json',
+    'Accept': 'text/event-stream',
+    if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
+    ...headers,
+  };
 
   @override
   Stream<Delta> stream(AiRequest request) async* {
@@ -72,7 +78,9 @@ class OpenAiCompatibleProvider implements AiProvider {
 
     final response = await _client.send(message).timeout(timeout);
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw AiProviderException(_failure(response.statusCode, await response.stream.bytesToString()));
+      throw AiProviderException(
+        _failure(response.statusCode, await response.stream.bytesToString()),
+      );
     }
 
     final calls = <int, _PartialCall>{};
@@ -106,18 +114,24 @@ class OpenAiCompatibleProvider implements AiProvider {
           final prompt = _int(usage['prompt_tokens']);
           final completion = _int(usage['completion_tokens']);
           if (prompt != null || completion != null) {
-            yield UsageDelta(promptTokens: prompt, completionTokens: completion);
+            yield UsageDelta(
+              promptTokens: prompt,
+              completionTokens: completion,
+            );
           }
         }
 
         final choices = decoded['choices'];
-        final choice = choices is List && choices.isNotEmpty ? choices.first : null;
+        final choice = choices is List && choices.isNotEmpty
+            ? choices.first
+            : null;
         if (choice is! Map) continue;
 
         final delta = choice['delta'];
         if (delta is Map) {
           final reasoning = delta['reasoning_content'] ?? delta['reasoning'];
-          if (reasoning is String && reasoning.isNotEmpty) yield ReasoningDelta(reasoning);
+          if (reasoning is String && reasoning.isNotEmpty)
+            yield ReasoningDelta(reasoning);
           final text = delta['content'];
           if (text is String && text.isNotEmpty) yield TextDelta(text);
           for (final call in (delta['tool_calls'] as List? ?? const [])) {
@@ -147,46 +161,53 @@ class OpenAiCompatibleProvider implements AiProvider {
       yield ToolCallDelta(
         id: call.id,
         name: call.name,
-        argumentsJson: call.arguments.isEmpty ? '{}' : call.arguments.toString(),
+        argumentsJson: call.arguments.isEmpty
+            ? '{}'
+            : call.arguments.toString(),
       );
     }
     yield StopDelta(finish);
   }
 
   Map<String, Object?> _body(AiRequest request) => {
-        'model': model,
-        'messages': [for (final message in request.messages) _message(message)],
-        'stream': true,
-        'stream_options': {'include_usage': true},
-        'max_tokens': request.maxTokens,
-        'temperature': request.temperature,
-        'top_p': request.topP,
-        if (request.tools.isNotEmpty && supportsTools)
-          'tools': [
-            for (final tool in request.tools)
-              {
-                'type': 'function',
-                'function': {
-                  'name': tool.name,
-                  'description': tool.description,
-                  'parameters': tool.parameters,
-                },
-              },
-          ],
-        // the user's overrides come last, so a provider that needs different field names wins
-        ...body,
-      };
+    'model': request.model.trim().isEmpty ? model : request.model,
+    'messages': [for (final message in request.messages) _message(message)],
+    'stream': true,
+    'stream_options': {'include_usage': true},
+    'max_tokens': request.maxTokens,
+    'temperature': request.temperature,
+    'top_p': request.topP,
+    if (request.tools.isNotEmpty && supportsTools)
+      'tools': [
+        for (final tool in request.tools)
+          {
+            'type': 'function',
+            'function': {
+              'name': tool.name,
+              'description': tool.description,
+              'parameters': tool.parameters,
+            },
+          },
+      ],
+    // the user's overrides come last, so a provider that needs different field names wins
+    ...body,
+  };
 
   static Map<String, Object?> _message(AiMessage message) {
     switch (message.role) {
       case AiRole.tool:
-        return {'role': 'tool', 'content': message.text, 'tool_call_id': message.toolCallId};
+        return {
+          'role': 'tool',
+          'content': message.text,
+          'tool_call_id': message.toolCallId,
+        };
       case AiRole.system:
         return {'role': 'system', 'content': message.text};
       case AiRole.user:
         return {'role': 'user', 'content': message.text};
       case AiRole.assistant:
-        if (message.toolCalls.isEmpty) return {'role': 'assistant', 'content': message.text};
+        if (message.toolCalls.isEmpty)
+          return {'role': 'assistant', 'content': message.text};
         return {
           'role': 'assistant',
           'content': message.text,
@@ -195,17 +216,47 @@ class OpenAiCompatibleProvider implements AiProvider {
               {
                 'id': call.id,
                 'type': 'function',
-                'function': {'name': call.name, 'arguments': call.argumentsJson},
+                'function': {
+                  'name': call.name,
+                  'arguments': call.argumentsJson,
+                },
               },
           ],
         };
     }
   }
 
+  /// The model names the endpoint offers, for the settings screen's "取得" button.
+  Future<List<String>> listModels() async {
+    final response = await _client
+        .get(
+          _uri('models'),
+          headers: {..._requestHeaders, 'Accept': 'application/json'},
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode > 299) {
+      throw AiProviderException(_failure(response.statusCode, response.body));
+    }
+    try {
+      final decoded = jsonDecode(response.body);
+      final data = decoded is Map ? decoded['data'] : decoded;
+      if (data is! List) return const [];
+      return [
+        for (final item in data)
+          if (item is Map && item['id'] is String) item['id'] as String,
+      ]..sort();
+    } catch (_) {
+      throw const AiProviderException('モデル一覧を読み取れませんでした');
+    }
+  }
+
   @override
   Future<void> verify() async {
     final response = await _client
-        .get(_uri('models'), headers: {..._requestHeaders, 'Accept': 'application/json'})
+        .get(
+          _uri('models'),
+          headers: {..._requestHeaders, 'Accept': 'application/json'},
+        )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode > 299) {
       throw AiProviderException(_failure(response.statusCode, response.body));
@@ -229,25 +280,28 @@ class OpenAiCompatibleProvider implements AiProvider {
       final decoded = jsonDecode(body);
       if (decoded is Map) {
         final error = decoded['error'];
-        if (error is Map && error['message'] is String) return error['message'] as String;
+        if (error is Map && error['message'] is String)
+          return error['message'] as String;
         if (error is String) return error;
         if (decoded['message'] is String) return decoded['message'] as String;
       }
     } catch (_) {
       // not JSON: show the start of the body instead
       final text = body.trim();
-      if (text.isNotEmpty) return text.length > 200 ? text.substring(0, 200) : text;
+      if (text.isNotEmpty)
+        return text.length > 200 ? text.substring(0, 200) : text;
     }
     return null;
   }
 
   static FinishReason _finishOf(String reason) => switch (reason) {
-        'length' => FinishReason.length,
-        'content_filter' => FinishReason.error,
-        _ => FinishReason.eog,
-      };
+    'length' => FinishReason.length,
+    'content_filter' => FinishReason.error,
+    _ => FinishReason.eog,
+  };
 
-  static int? _int(Object? value) => value is int ? value : (value is num ? value.toInt() : null);
+  static int? _int(Object? value) =>
+      value is int ? value : (value is num ? value.toInt() : null);
 }
 
 /// One tool call while its name and arguments are still arriving.

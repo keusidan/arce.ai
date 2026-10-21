@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/chat_controller.dart';
 import '../core/engine.dart';
 import '../core/settings_spec.dart';
+import '../mcp/mcp_server.dart';
 
 enum GpuOffload { auto, cpuOnly, gpuPriority, maxGpu }
 
@@ -40,8 +41,7 @@ class AppSettings {
     this.updateRepo = defaultRepo,
     this.autoUpdateCheck = true,
     this.autoInstallUpdate = true,
-    this.mcpEnabled = false,
-    this.mcpUrl = '',
+    this.mcpServers = const [],
     this.updateIntervalHours = 12,
   });
 
@@ -75,9 +75,8 @@ class AppSettings {
   final bool autoInstallUpdate;
   final int updateIntervalHours;
 
-  /// The MCP server the chat may use (Streamable HTTP). The token lives in secure storage.
-  final bool mcpEnabled;
-  final String mcpUrl;
+  /// The MCP servers the chat may use (Streamable HTTP). Tokens live in secure storage.
+  final List<McpServerConfig> mcpServers;
 
   AppSettings copyWith({
     bool? thinking,
@@ -105,76 +104,75 @@ class AppSettings {
     bool? autoUpdateCheck,
     bool? autoInstallUpdate,
     int? updateIntervalHours,
-    bool? mcpEnabled,
-    String? mcpUrl,
-  }) =>
-      AppSettings(
-        thinking: thinking ?? this.thinking,
-        searchEnabled: searchEnabled ?? this.searchEnabled,
-        searxngUrl: searxngUrl ?? this.searxngUrl,
-        tone: tone ?? this.tone,
-        maxChars: maxChars ?? this.maxChars,
-        speedAccuracy: speedAccuracy ?? this.speedAccuracy,
-        hyperLoad: hyperLoad ?? this.hyperLoad,
-        theme: theme ?? this.theme,
-        thinkingStyle: thinkingStyle ?? this.thinkingStyle,
-        agentOverride: agentOverride ?? this.agentOverride,
-        aiAgentSelection: aiAgentSelection ?? this.aiAgentSelection,
-        lastModelPath: lastModelPath ?? this.lastModelPath,
-        contextLength: contextLength ?? this.contextLength,
-        threads: threads ?? this.threads,
-        batchSize: batchSize ?? this.batchSize,
-        gpuOffload: gpuOffload ?? this.gpuOffload,
-        kvCache: kvCache ?? this.kvCache,
-        maxTokens: maxTokens ?? this.maxTokens,
-        retryLimit: retryLimit ?? this.retryLimit,
-        maxToolRounds: maxToolRounds ?? this.maxToolRounds,
-        forceExecution: forceExecution ?? this.forceExecution,
-        updateRepo: updateRepo ?? this.updateRepo,
-        autoUpdateCheck: autoUpdateCheck ?? this.autoUpdateCheck,
-        autoInstallUpdate: autoInstallUpdate ?? this.autoInstallUpdate,
-        updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
-        mcpEnabled: mcpEnabled ?? this.mcpEnabled,
-        mcpUrl: mcpUrl ?? this.mcpUrl,
-      );
+    List<McpServerConfig>? mcpServers,
+  }) => AppSettings(
+    thinking: thinking ?? this.thinking,
+    searchEnabled: searchEnabled ?? this.searchEnabled,
+    searxngUrl: searxngUrl ?? this.searxngUrl,
+    tone: tone ?? this.tone,
+    maxChars: maxChars ?? this.maxChars,
+    speedAccuracy: speedAccuracy ?? this.speedAccuracy,
+    hyperLoad: hyperLoad ?? this.hyperLoad,
+    theme: theme ?? this.theme,
+    thinkingStyle: thinkingStyle ?? this.thinkingStyle,
+    agentOverride: agentOverride ?? this.agentOverride,
+    aiAgentSelection: aiAgentSelection ?? this.aiAgentSelection,
+    lastModelPath: lastModelPath ?? this.lastModelPath,
+    contextLength: contextLength ?? this.contextLength,
+    threads: threads ?? this.threads,
+    batchSize: batchSize ?? this.batchSize,
+    gpuOffload: gpuOffload ?? this.gpuOffload,
+    kvCache: kvCache ?? this.kvCache,
+    maxTokens: maxTokens ?? this.maxTokens,
+    retryLimit: retryLimit ?? this.retryLimit,
+    maxToolRounds: maxToolRounds ?? this.maxToolRounds,
+    forceExecution: forceExecution ?? this.forceExecution,
+    updateRepo: updateRepo ?? this.updateRepo,
+    autoUpdateCheck: autoUpdateCheck ?? this.autoUpdateCheck,
+    autoInstallUpdate: autoInstallUpdate ?? this.autoInstallUpdate,
+    updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
+    mcpServers: mcpServers ?? this.mcpServers,
+  );
 
   Map<String, Object?> toJson() => {
-        'thinking': thinking,
-        'searchEnabled': searchEnabled,
-        'searxngUrl': searxngUrl,
-        'tone': tone,
-        'maxChars': maxChars,
-        'speedAccuracy': speedAccuracy,
-        'hyperLoad': hyperLoad,
-        'theme': theme.name,
-        'thinkingStyle': thinkingStyle.name,
-        'agentOverride': agentOverride,
-        'aiAgentSelection': aiAgentSelection,
-        'lastModelPath': lastModelPath,
-        'contextLength': contextLength,
-        'threads': threads,
-        'batchSize': batchSize,
-        'gpuOffload': gpuOffload.name,
-        'kvCache': kvCache.name,
-        'maxTokens': maxTokens,
-        'retryLimit': retryLimit,
-        'maxToolRounds': maxToolRounds,
-        'forceExecution': forceExecution,
-        'updateRepo': updateRepo,
-        'autoUpdateCheck': autoUpdateCheck,
-        'autoInstallUpdate': autoInstallUpdate,
-        'updateIntervalHours': updateIntervalHours,
-        'mcpEnabled': mcpEnabled,
-        'mcpUrl': mcpUrl,
-      };
+    'thinking': thinking,
+    'searchEnabled': searchEnabled,
+    'searxngUrl': searxngUrl,
+    'tone': tone,
+    'maxChars': maxChars,
+    'speedAccuracy': speedAccuracy,
+    'hyperLoad': hyperLoad,
+    'theme': theme.name,
+    'thinkingStyle': thinkingStyle.name,
+    'agentOverride': agentOverride,
+    'aiAgentSelection': aiAgentSelection,
+    'lastModelPath': lastModelPath,
+    'contextLength': contextLength,
+    'threads': threads,
+    'batchSize': batchSize,
+    'gpuOffload': gpuOffload.name,
+    'kvCache': kvCache.name,
+    'maxTokens': maxTokens,
+    'retryLimit': retryLimit,
+    'maxToolRounds': maxToolRounds,
+    'forceExecution': forceExecution,
+    'updateRepo': updateRepo,
+    'autoUpdateCheck': autoUpdateCheck,
+    'autoInstallUpdate': autoInstallUpdate,
+    'updateIntervalHours': updateIntervalHours,
+    'mcpServers': [for (final server in mcpServers) server.toJson()],
+  };
 
   /// Unknown, missing or wrongly typed values fall back to the defaults, so older or damaged
   /// saves keep loading (one bad value must not reset everything else).
   factory AppSettings.fromJson(Map<String, Object?> json) {
     const d = AppSettings();
-    bool flag(String key, bool fallback) => json[key] is bool ? json[key]! as bool : fallback;
-    int whole(String key, int fallback) => json[key] is num ? (json[key]! as num).toInt() : fallback;
-    String text(String key, String fallback) => json[key] is String ? json[key]! as String : fallback;
+    bool flag(String key, bool fallback) =>
+        json[key] is bool ? json[key]! as bool : fallback;
+    int whole(String key, int fallback) =>
+        json[key] is num ? (json[key]! as num).toInt() : fallback;
+    String text(String key, String fallback) =>
+        json[key] is String ? json[key]! as String : fallback;
     T option<T extends Enum>(List<T> values, String key, T fallback) {
       for (final v in values) {
         if (v.name == json[key]) return v;
@@ -188,10 +186,16 @@ class AppSettings {
       searxngUrl: text('searxngUrl', d.searxngUrl),
       tone: text('tone', d.tone),
       maxChars: whole('maxChars', d.maxChars),
-      speedAccuracy: json['speedAccuracy'] is num ? (json['speedAccuracy']! as num).toDouble() : d.speedAccuracy,
+      speedAccuracy: json['speedAccuracy'] is num
+          ? (json['speedAccuracy']! as num).toDouble()
+          : d.speedAccuracy,
       hyperLoad: flag('hyperLoad', d.hyperLoad),
       theme: option(ThemeMode.values, 'theme', d.theme),
-      thinkingStyle: option(ThinkingStyle.values, 'thinkingStyle', d.thinkingStyle),
+      thinkingStyle: option(
+        ThinkingStyle.values,
+        'thinkingStyle',
+        d.thinkingStyle,
+      ),
       agentOverride: text('agentOverride', d.agentOverride),
       aiAgentSelection: flag('aiAgentSelection', d.aiAgentSelection),
       lastModelPath: text('lastModelPath', d.lastModelPath),
@@ -208,23 +212,36 @@ class AppSettings {
       autoUpdateCheck: flag('autoUpdateCheck', d.autoUpdateCheck),
       autoInstallUpdate: flag('autoInstallUpdate', d.autoInstallUpdate),
       updateIntervalHours: whole('updateIntervalHours', d.updateIntervalHours),
-      mcpEnabled: flag('mcpEnabled', d.mcpEnabled),
-      mcpUrl: text('mcpUrl', d.mcpUrl),
+      // a save from before multiple servers keeps its one endpoint
+      mcpServers: (() {
+        final parsed = McpServers.decode(json['mcpServers']);
+        if (parsed.isNotEmpty) return parsed;
+        final url = text('mcpUrl', '');
+        if (url.trim().isEmpty) return const <McpServerConfig>[];
+        return [
+          McpServerConfig(
+            id: 'default',
+            name: 'MCP',
+            url: url.trim(),
+            enabled: flag('mcpEnabled', false),
+          ),
+        ];
+      })(),
     );
   }
 
   GenerationSettings toGeneration(double? modelParamsB) => GenerationSettings(
-        tone: tone.trim().isEmpty ? null : tone,
-        maxChars: maxChars,
-        maxTokens: maxTokens,
-        searchEnabled: searchEnabled,
-        retryLimit: retryLimit,
-        maxToolRounds: maxToolRounds,
-        speedAccuracy: speedAccuracy,
-        modelParamsB: modelParamsB,
-        agentOverride: agentOverride.isEmpty ? null : agentOverride,
-        aiAgentSelection: aiAgentSelection,
-      );
+    tone: tone.trim().isEmpty ? null : tone,
+    maxChars: maxChars,
+    maxTokens: maxTokens,
+    searchEnabled: searchEnabled,
+    retryLimit: retryLimit,
+    maxToolRounds: maxToolRounds,
+    speedAccuracy: speedAccuracy,
+    modelParamsB: modelParamsB,
+    agentOverride: agentOverride.isEmpty ? null : agentOverride,
+    aiAgentSelection: aiAgentSelection,
+  );
 
   /// Threads: explicit value, else all cores under HyperLoad, else half (spec §4 HyperLoad).
   int effectiveThreads(int cores) {
@@ -234,11 +251,11 @@ class AppSettings {
   }
 
   int gpuLayers({required bool gpuAvailable}) => switch (gpuOffload) {
-        GpuOffload.cpuOnly => 0,
-        GpuOffload.gpuPriority => gpuAvailable ? 999 : 0,
-        GpuOffload.maxGpu => 999,
-        GpuOffload.auto => gpuAvailable ? (hyperLoad ? 999 : 20) : 0,
-      };
+    GpuOffload.cpuOnly => 0,
+    GpuOffload.gpuPriority => gpuAvailable ? 999 : 0,
+    GpuOffload.maxGpu => 999,
+    GpuOffload.auto => gpuAvailable ? (hyperLoad ? 999 : 20) : 0,
+  };
 }
 
 /// One approved patch, written into the settings document.
@@ -256,13 +273,18 @@ AppSettings withSettings(AppSettings current, List<SettingsChangeOk> changes) {
 /// Settings are one JSON document in shared preferences; the GitHub token lives in the
 /// platform's secure storage instead, because it can read a private repository.
 class SettingsStore extends ChangeNotifier {
-  SettingsStore(this._prefs, {FlutterSecureStorage? secure}) : _secure = secure ??
-            // the legacy keychain needs no entitlement or provisioning profile, so unsigned builds can use it
-            const FlutterSecureStorage(mOptions: MacOsOptions(usesDataProtectionKeychain: false));
+  SettingsStore(this._prefs, {FlutterSecureStorage? secure})
+    : _secure =
+          secure ??
+          // the legacy keychain needs no entitlement or provisioning profile, so unsigned builds can use it
+          const FlutterSecureStorage(
+            mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+          );
 
   static const _key = 'settings.v1';
   static const _tokenKey = 'github_token';
-  static const _mcpTokenKey = 'mcp_token';
+  static const _mcpTokenKey =
+      'mcp_token'; // one server, before the list existed
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secure;
@@ -275,13 +297,19 @@ class SettingsStore extends ChangeNotifier {
   /// Empty when none is set (or secure storage is unavailable on this system).
   String get githubToken => _token;
 
-  String _mcpToken = '';
+  final Map<String, String> _mcpTokens = {};
 
-  /// The bearer token of the MCP server; empty when none is set.
-  String get mcpToken => _mcpToken;
+  /// The bearer token of [id]; empty when none is set.
+  String mcpTokenOf(String id) => _mcpTokens[id] ?? '';
+
+  /// Kept for a save from before multiple servers.
+  String get mcpToken => mcpTokenOf('default');
 
   static Future<SettingsStore> load({FlutterSecureStorage? secure}) async {
-    final store = SettingsStore(await SharedPreferences.getInstance(), secure: secure);
+    final store = SettingsStore(
+      await SharedPreferences.getInstance(),
+      secure: secure,
+    );
     final raw = store._prefs.getString(_key);
     if (raw != null) {
       try {
@@ -292,10 +320,25 @@ class SettingsStore extends ChangeNotifier {
     }
     try {
       store._token = await store._secure.read(key: _tokenKey) ?? '';
-      store._mcpToken = await store._secure.read(key: _mcpTokenKey) ?? '';
+      final legacy = await store._secure.read(key: _mcpTokenKey) ?? '';
+      for (final server in store._value.mcpServers) {
+        store._mcpTokens[server.id] =
+            await store._secure.read(key: server.tokenRef) ?? '';
+      }
+      if (legacy.isNotEmpty &&
+          store.mcpTokenOf('default').isEmpty &&
+          store._value.mcpServers.any((s) => s.id == 'default')) {
+        store._mcpTokens['default'] = legacy;
+        await store._secure.write(
+          key: store._value.mcpServers
+              .firstWhere((s) => s.id == 'default')
+              .tokenRef,
+          value: legacy,
+        );
+      }
     } catch (_) {
       store._token = '';
-      store._mcpToken = '';
+      store._mcpTokens.clear();
     }
     return store;
   }
@@ -306,17 +349,31 @@ class SettingsStore extends ChangeNotifier {
     await _prefs.setString(_key, jsonEncode(_value.toJson()));
   }
 
-  Future<void> setMcpToken(String token) async {
-    _mcpToken = token.trim();
+  Future<void> setMcpToken(String id, String token) async {
+    _mcpTokens[id] = token.trim();
     notifyListeners();
     try {
-      if (_mcpToken.isEmpty) {
-        await _secure.delete(key: _mcpTokenKey);
+      final ref = McpServerConfig(id: id, name: '', url: '').tokenRef;
+      if (token.trim().isEmpty) {
+        await _secure.delete(key: ref);
       } else {
-        await _secure.write(key: _mcpTokenKey, value: _mcpToken);
+        await _secure.write(key: ref, value: token.trim());
       }
     } catch (_) {
       // keep the token for this run only when the system keyring is missing
+    }
+  }
+
+  /// Removes the token of a server that was deleted.
+  Future<void> forgetMcpToken(String id) async {
+    _mcpTokens.remove(id);
+    notifyListeners();
+    try {
+      await _secure.delete(
+        key: McpServerConfig(id: id, name: '', url: '').tokenRef,
+      );
+    } catch (_) {
+      // nothing was stored
     }
   }
 

@@ -56,62 +56,76 @@ class UiMessage {
     McpCall? tool,
     FinishReason? finish,
     List<ToolActivity>? activities,
-  }) =>
-      UiMessage(
-        id: id,
-        role: role,
-        text: text ?? this.text,
-        thinking: thinking ?? this.thinking,
-        question: question ?? this.question,
-        settings: settings ?? this.settings,
-        tool: tool ?? this.tool,
-        finish: finish ?? this.finish,
-        activities: activities ?? this.activities,
-        agent: agent,
-        attachments: attachments,
-        time: time,
-      );
+  }) => UiMessage(
+    id: id,
+    role: role,
+    text: text ?? this.text,
+    thinking: thinking ?? this.thinking,
+    question: question ?? this.question,
+    settings: settings ?? this.settings,
+    tool: tool ?? this.tool,
+    finish: finish ?? this.finish,
+    activities: activities ?? this.activities,
+    agent: agent,
+    attachments: attachments,
+    time: time,
+  );
 
   Map<String, Object?> toJson() => {
-        'id': id,
-        'role': role.name,
-        'text': text,
-        'thinking': thinking,
-        'question': question?.toJson(),
-        'tool': tool == null ? null : {'name': tool!.name, 'arguments': tool!.arguments},
-        'settings': settings == null
-            ? null
-            : [for (final change in settings!) {'key': change.key, 'value': change.value}],
-        'finish': finish?.name,
-        'activities': [for (final a in activities) a.toJson()],
-        'agent': agent,
-        'attachments': attachments,
-        'time': time?.millisecondsSinceEpoch,
-      };
+    'id': id,
+    'role': role.name,
+    'text': text,
+    'thinking': thinking,
+    'question': question?.toJson(),
+    'tool': tool == null
+        ? null
+        : {'name': tool!.name, 'arguments': tool!.arguments},
+    'settings': settings == null
+        ? null
+        : [
+            for (final change in settings!)
+              {'key': change.key, 'value': change.value},
+          ],
+    'finish': finish?.name,
+    'activities': [for (final a in activities) a.toJson()],
+    'agent': agent,
+    'attachments': attachments,
+    'time': time?.millisecondsSinceEpoch,
+  };
 
   factory UiMessage.fromJson(Map<String, Object?> json) => UiMessage(
-        id: json['id'] as int,
-        role: Role.values.byName(json['role'] as String),
-        text: json['text'] as String,
-        thinking: json['thinking'] as String? ?? '',
-        question: json['question'] == null ? null : QuestionTile.fromJson((json['question'] as Map).cast()),
-        settings: json['settings'] is List ? _settingsFromJson(json['settings'] as List) : null,
-        tool: json['tool'] is Map && (json['tool'] as Map)['name'] is String
-            ? McpCall(
-                (json['tool'] as Map)['name'] as String,
-                (json['tool'] as Map)['arguments'] is Map
-                    ? ((json['tool'] as Map)['arguments'] as Map).cast<String, Object?>()
-                    : const {},
-              )
-            : null,
-        finish: json['finish'] == null ? null : FinishReason.values.byName(json['finish'] as String),
-        activities: [
-          for (final a in (json['activities'] as List? ?? const [])) ToolActivity.fromJson((a as Map).cast()),
-        ],
-        agent: json['agent'] as String?,
-        attachments: (json['attachments'] as List? ?? const []).cast<String>(),
-        time: json['time'] == null ? null : DateTime.fromMillisecondsSinceEpoch(json['time'] as int),
-      );
+    id: json['id'] as int,
+    role: Role.values.byName(json['role'] as String),
+    text: json['text'] as String,
+    thinking: json['thinking'] as String? ?? '',
+    question: json['question'] == null
+        ? null
+        : QuestionTile.fromJson((json['question'] as Map).cast()),
+    settings: json['settings'] is List
+        ? _settingsFromJson(json['settings'] as List)
+        : null,
+    tool: json['tool'] is Map && (json['tool'] as Map)['name'] is String
+        ? McpCall(
+            (json['tool'] as Map)['name'] as String,
+            (json['tool'] as Map)['arguments'] is Map
+                ? ((json['tool'] as Map)['arguments'] as Map)
+                      .cast<String, Object?>()
+                : const {},
+          )
+        : null,
+    finish: json['finish'] == null
+        ? null
+        : FinishReason.values.byName(json['finish'] as String),
+    activities: [
+      for (final a in (json['activities'] as List? ?? const []))
+        ToolActivity.fromJson((a as Map).cast()),
+    ],
+    agent: json['agent'] as String?,
+    attachments: (json['attachments'] as List? ?? const []).cast<String>(),
+    time: json['time'] == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(json['time'] as int),
+  );
 }
 
 const _unset = Object();
@@ -134,18 +148,25 @@ class ChatState {
   final String? notice;
 
   bool get isGenerating =>
-      task == TaskState.thinking || task == TaskState.generation || task == TaskState.search;
+      task == TaskState.thinking ||
+      task == TaskState.generation ||
+      task == TaskState.search;
 
   QuestionTile? get pendingQuestion =>
-      task == TaskState.userWait && messages.isNotEmpty ? messages.last.question : null;
+      task == TaskState.userWait && messages.isNotEmpty
+      ? messages.last.question
+      : null;
 
   /// The changes waiting for the user's approval, when [pendingQuestion] is an approval card.
   List<SettingsChangeOk>? get pendingSettings =>
-      task == TaskState.userWait && messages.isNotEmpty ? messages.last.settings : null;
+      task == TaskState.userWait && messages.isNotEmpty
+      ? messages.last.settings
+      : null;
 
   /// The MCP tool call waiting for the user's approval.
-  McpCall? get pendingTool =>
-      task == TaskState.userWait && messages.isNotEmpty ? messages.last.tool : null;
+  McpCall? get pendingTool => task == TaskState.userWait && messages.isNotEmpty
+      ? messages.last.tool
+      : null;
 
   /// The last reply stopped before it was finished and can be continued (spec: 続行).
   bool get canContinue {
@@ -153,7 +174,8 @@ class ChatState {
     final last = messages.last;
     return last.role == Role.assistant &&
         last.question == null &&
-        (last.finish == FinishReason.length || last.finish == FinishReason.cancelled);
+        (last.finish == FinishReason.length ||
+            last.finish == FinishReason.cancelled);
   }
 
   ChatState copyWith({
@@ -162,14 +184,13 @@ class ChatState {
     bool? thinkingEnabled,
     Object? error = _unset,
     Object? notice = _unset,
-  }) =>
-      ChatState(
-        messages: messages ?? this.messages,
-        task: task ?? this.task,
-        thinkingEnabled: thinkingEnabled ?? this.thinkingEnabled,
-        error: identical(error, _unset) ? this.error : error as String?,
-        notice: identical(notice, _unset) ? this.notice : notice as String?,
-      );
+  }) => ChatState(
+    messages: messages ?? this.messages,
+    task: task ?? this.task,
+    thinkingEnabled: thinkingEnabled ?? this.thinkingEnabled,
+    error: identical(error, _unset) ? this.error : error as String?,
+    notice: identical(notice, _unset) ? this.notice : notice as String?,
+  );
 }
 
 /// The settings that shape one generation; read afresh for every request.
@@ -214,7 +235,8 @@ class GenerationSettings {
 
   /// The fast end of the slider skips reasoning and shortens replies; the accurate end keeps
   /// reasoning and allows longer replies. The user's own Thinking switch still wins when off.
-  bool effectiveThinking(bool userSwitch) => userSwitch && speedAccuracy >= 0.25;
+  bool effectiveThinking(bool userSwitch) =>
+      userSwitch && speedAccuracy >= 0.25;
 
   int effectiveMaxTokens() {
     final n = (maxTokens * (0.5 + speedAccuracy)).toInt();
@@ -224,27 +246,40 @@ class GenerationSettings {
 
 /// Everything needed to restore a conversation, persisted by the app (spec §33/§34).
 class ConversationSnapshot {
-  const ConversationSnapshot({required this.messages, required this.history, required this.nextId});
+  const ConversationSnapshot({
+    required this.messages,
+    required this.history,
+    required this.nextId,
+  });
 
   final List<UiMessage> messages;
   final List<ChatMessage> history;
   final int nextId;
 
   Map<String, Object?> toJson() => {
-        'messages': [for (final m in messages) m.toJson()],
-        'history': [for (final h in history) h.toJson()],
-        'nextId': nextId,
-      };
+    'messages': [for (final m in messages) m.toJson()],
+    'history': [for (final h in history) h.toJson()],
+    'nextId': nextId,
+  };
 
-  factory ConversationSnapshot.fromJson(Map<String, Object?> json) => ConversationSnapshot(
-        messages: [for (final m in (json['messages'] as List)) UiMessage.fromJson((m as Map).cast())],
-        history: [for (final h in (json['history'] as List)) ChatMessage.fromJson((h as Map).cast())],
+  factory ConversationSnapshot.fromJson(Map<String, Object?> json) =>
+      ConversationSnapshot(
+        messages: [
+          for (final m in (json['messages'] as List))
+            UiMessage.fromJson((m as Map).cast()),
+        ],
+        history: [
+          for (final h in (json['history'] as List))
+            ChatMessage.fromJson((h as Map).cast()),
+        ],
         nextId: json['nextId'] as int,
       );
 }
 
 /// Applies one approved settings patch and returns the text the model is given back.
-typedef SettingsApplier = Future<String> Function(List<SettingsChangeOk> changes);
+typedef SettingsApplier = Future<String> Function(
+  List<SettingsChangeOk> changes,
+);
 
 /// Rebuilds the pending changes of a saved conversation; a key that is no longer settable is dropped.
 List<SettingsChangeOk>? _settingsFromJson(List<dynamic> raw) {
@@ -260,10 +295,19 @@ List<SettingsChangeOk>? _settingsFromJson(List<dynamic> raw) {
 }
 
 /// Called at the points where a crash would lose work; [generating] marks an unfinished task.
-typedef ConversationStore = void Function(ConversationSnapshot snapshot, {required bool generating});
+typedef ConversationStore = void Function(
+  ConversationSnapshot snapshot, {
+  required bool generating,
+});
 
 class _Attempt {
-  _Attempt(this.reason, this.thinking, this.answer, this.toolCallJson, this.cutInsideToolCall);
+  _Attempt(
+    this.reason,
+    this.thinking,
+    this.answer,
+    this.toolCallJson,
+    this.cutInsideToolCall,
+  );
   final FinishReason reason;
   final String thinking;
   final String answer;
@@ -282,19 +326,28 @@ class ChatController extends ChangeNotifier {
     ConversationStore? store,
     this._extraTools,
     this._applySettings,
-  })  : _settings = settings ?? (() => const GenerationSettings()),
-        _store = store ?? ((_, {required generating}) {}) {
+    this._mcpApproval,
+  }) : _settings = settings ?? (() => const GenerationSettings()),
+       _store = store ?? ((_, {required generating}) {}) {
     _router = AgentRouter((prompt, schema) async {
       final out = StringBuffer();
       final stream = _engine
-          .generate(GenerateRequest(
-            prompt: prompt,
-            toolCallSchema: null,
-            thinking: false,
-            maxTokens: 32,
-            sampling: const SamplingParams(temperature: 0.1, topP: 1, topK: 1, minP: 0, dryMultiplier: 0),
-            strictJsonSchema: schema,
-          ))
+          .generate(
+            GenerateRequest(
+              prompt: prompt,
+              toolCallSchema: null,
+              thinking: false,
+              maxTokens: 32,
+              sampling: const SamplingParams(
+                temperature: 0.1,
+                topP: 1,
+                topK: 1,
+                minP: 0,
+                dryMultiplier: 0,
+              ),
+              strictJsonSchema: schema,
+            ),
+          )
           .where((e) => e is Piece)
           .cast<Piece>();
       final text = stream.fold<void>(null, (_, piece) => out.write(piece.text));
@@ -308,11 +361,18 @@ class ChatController extends ChangeNotifier {
     });
   }
 
+  /// How many identical tool calls in a row count as a loop.
+  static const repeatToolLimit = 3;
+
   final InferenceEngine _engine;
   final ToolRuntime _toolRuntime;
   final GenerationSettings Function() _settings;
   final ConversationStore _store;
   final SettingsApplier? _applySettings;
+
+  /// Whether a tool call coming from an MCP server waits for the user. Null keeps the default
+  /// (tools that write outside the device ask every time).
+  final bool Function(String name)? _mcpApproval;
 
   /// Tools from outside the app (an MCP server). Read for every generation, so adding or removing
   /// one applies to the next reply.
@@ -335,10 +395,14 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setThinking(bool enabled) => _update((s) => s.copyWith(thinkingEnabled: enabled));
+  void setThinking(bool enabled) =>
+      _update((s) => s.copyWith(thinkingEnabled: enabled));
 
-  ConversationSnapshot snapshot() =>
-      ConversationSnapshot(messages: _state.messages, history: List.of(_history), nextId: _nextId);
+  ConversationSnapshot snapshot() => ConversationSnapshot(
+    messages: _state.messages,
+    history: List.of(_history),
+    nextId: _nextId,
+  );
 
   void restore(ConversationSnapshot snapshot) {
     _history
@@ -352,27 +416,36 @@ class ChatController extends ChangeNotifier {
       orElse: () => const UiMessage(id: -1, role: Role.user, text: ''),
     );
     _agentRequest = (lastUser.text, false);
-    final waiting = snapshot.messages.isNotEmpty && snapshot.messages.last.question != null;
-    _update((s) => ChatState(
-          messages: snapshot.messages,
-          task: waiting ? TaskState.userWait : TaskState.waiting,
-          thinkingEnabled: s.thinkingEnabled,
-        ));
+    final waiting =
+        snapshot.messages.isNotEmpty && snapshot.messages.last.question != null;
+    _update(
+      (s) => ChatState(
+        messages: snapshot.messages,
+        task: waiting ? TaskState.userWait : TaskState.waiting,
+        thinkingEnabled: s.thinkingEnabled,
+      ),
+    );
   }
 
-  void clear() => restore(const ConversationSnapshot(messages: [], history: [], nextId: 0));
+  void clear() =>
+      restore(const ConversationSnapshot(messages: [], history: [], nextId: 0));
 
   /// Returns when the reply has finished (or stopped for a question); callers may ignore it.
   Future<void> send(String text, {List<Attachment> attachments = const []}) {
-    if ((text.trim().isEmpty && attachments.isEmpty) || _state.isGenerating || _busy) return Future.value();
+    if ((text.trim().isEmpty && attachments.isEmpty) ||
+        _state.isGenerating ||
+        _busy)
+      return Future.value();
     _history.add(UserTurn(AttachmentPolicy.compose(text, attachments)));
-    _append(UiMessage(
-      id: _nextId++,
-      role: Role.user,
-      text: text,
-      attachments: [for (final a in attachments) a.name],
-      time: DateTime.now(),
-    ));
+    _append(
+      UiMessage(
+        id: _nextId++,
+        role: Role.user,
+        text: text,
+        attachments: [for (final a in attachments) a.name],
+        time: DateTime.now(),
+      ),
+    );
     _agent = null;
     _agentRequest = (text, attachments.isNotEmpty);
     return _start('');
@@ -381,7 +454,9 @@ class ChatController extends ChangeNotifier {
   /// Answers the pending question tile (or approves a settings change) and resumes generation.
   Future<void> answer(List<String> selected, String? freeText) async {
     if (_state.pendingQuestion == null || _busy) return Future.value();
-    final free = freeText != null && freeText.trim().isNotEmpty ? [freeText] : const <String>[];
+    final free = freeText != null && freeText.trim().isNotEmpty
+        ? [freeText]
+        : const <String>[];
     final answer = [...selected, ...free].join(', ');
     final changes = _state.pendingSettings;
     final pending = _state.pendingTool;
@@ -392,12 +467,21 @@ class ChatController extends ChangeNotifier {
         if (ToolApproval.isApproval(selected)) {
           final outcome = await _toolRuntime.run(pending);
           toolResponse = outcome.response;
-          _update((s) => s.copyWith(messages: [
+          _update(
+            (s) => s.copyWith(
+              messages: [
                 for (final m in s.messages)
-                  m.id == s.messages.last.id ? m.copyWith(activities: [...m.activities, outcome.activity]) : m,
-              ]));
+                  m.id == s.messages.last.id
+                      ? m.copyWith(
+                          activities: [...m.activities, outcome.activity],
+                        )
+                      : m,
+              ],
+            ),
+          );
         } else {
-          toolResponse = 'The user declined to run ${pending.name}. Nothing was done. '
+          toolResponse =
+              'The user declined to run ${pending.name}. Nothing was done. '
               'Do not call it again unless they ask for it.';
         }
       } finally {
@@ -415,14 +499,22 @@ class ChatController extends ChangeNotifier {
       }
     }
     _history.add(ToolResponseTurn(toolResponse));
-    _append(UiMessage(id: _nextId++, role: Role.user, text: answer, time: DateTime.now()));
+    _append(
+      UiMessage(
+        id: _nextId++,
+        role: Role.user,
+        text: answer,
+        time: DateTime.now(),
+      ),
+    );
     return _start('');
   }
 
   /// Writes the approved changes through the app and reports the result to the model.
   Future<String> _approve(List<SettingsChangeOk> changes) async {
     final applier = _applySettings;
-    if (applier == null) return 'The user approved it, but this build cannot change its settings.';
+    if (applier == null)
+      return 'The user approved it, but this build cannot change its settings.';
     try {
       return await applier(changes);
     } catch (e) {
@@ -434,11 +526,16 @@ class ChatController extends ChangeNotifier {
 
   /// Replaces the last reply with a fresh one generated from the same context.
   Future<void> regenerate() {
-    if (_state.isGenerating || _busy || _state.messages.isEmpty || _state.messages.last.role != Role.assistant) {
+    if (_state.isGenerating ||
+        _busy ||
+        _state.messages.isEmpty ||
+        _state.messages.last.role != Role.assistant) {
       return Future.value();
     }
     _dropLastReplyFromHistory();
-    _update((s) => s.copyWith(messages: s.messages.sublist(0, s.messages.length - 1)));
+    _update(
+      (s) => s.copyWith(messages: s.messages.sublist(0, s.messages.length - 1)),
+    );
     return _start('');
   }
 
@@ -446,8 +543,11 @@ class ChatController extends ChangeNotifier {
     if (!_state.canContinue || _busy) return Future.value();
     final partial = _state.messages.last;
     // The partial reply is regenerated from its own text, so drop it from the context first.
-    if (_history.isNotEmpty && _history.last is AssistantTurn) _history.removeLast();
-    _update((s) => s.copyWith(messages: s.messages.sublist(0, s.messages.length - 1)));
+    if (_history.isNotEmpty && _history.last is AssistantTurn)
+      _history.removeLast();
+    _update(
+      (s) => s.copyWith(messages: s.messages.sublist(0, s.messages.length - 1)),
+    );
     return _start(partial.text);
   }
 
@@ -455,9 +555,13 @@ class ChatController extends ChangeNotifier {
   void _dropLastReplyFromHistory() {
     while (_history.isNotEmpty) {
       final last = _history.last;
-      final before = _history.length >= 2 ? _history[_history.length - 2] : null;
+      final before = _history.length >= 2
+          ? _history[_history.length - 2]
+          : null;
       final isToolResult =
-          last is ToolResponseTurn && before is AssistantTurn && before.toolCallJson != null;
+          last is ToolResponseTurn &&
+          before is AssistantTurn &&
+          before.toolCallJson != null;
       if (last is AssistantTurn || isToolResult) {
         _history.removeLast();
       } else {
@@ -486,17 +590,22 @@ class ChatController extends ChangeNotifier {
       config.agentOverride,
       useModel: config.aiAgentSelection && _engine.isLoaded,
     );
-    final extra = _extraTools == null ? const <ToolDefinition>[] : await _extraTools();
+    final extra = _extraTools == null
+        ? const <ToolDefinition>[]
+        : await _extraTools();
     final tools = [
       for (final t in agent.tools)
         if (config.searchEnabled || t != Protocol.webSearch) t,
       ...extra,
     ];
-    final schema = tools.isEmpty ? null : jsonEncodeSchema(Protocol.toolCallSchema(tools));
+    final schema = tools.isEmpty
+        ? null
+        : jsonEncodeSchema(Protocol.toolCallSchema(tools));
     final retry = RetryPolicy(config.retryLimit);
     final instructions = [
       'Current role: ${agent.displayName}. ${agent.instructions}',
-      if (config.maxChars > 0) 'Keep each reply under ${config.maxChars} characters.',
+      if (config.maxChars > 0)
+        'Keep each reply under ${config.maxChars} characters.',
     ];
     final modelB = config.modelParamsB;
     final sizeNotice = modelB != null && modelB < agent.minModelParamsB
@@ -504,13 +613,15 @@ class ChatController extends ChangeNotifier {
         : null;
 
     final id = _nextId++;
-    _append(UiMessage(
-      id: id,
-      role: Role.assistant,
-      text: prefill,
-      agent: agent.displayName,
-      time: DateTime.now(),
-    ));
+    _append(
+      UiMessage(
+        id: id,
+        role: Role.assistant,
+        text: prefill,
+        agent: agent.displayName,
+        time: DateTime.now(),
+      ),
+    );
     _update((s) => s.copyWith(error: null, notice: sizeNotice));
     _store(snapshot(), generating: true);
 
@@ -518,9 +629,15 @@ class ChatController extends ChangeNotifier {
     final activities = <ToolActivity>[];
     var rounds = 0;
     var roundPrefill = prefill;
+    // A model that keeps asking for the same tool with the same arguments never finishes; the
+    // round limit alone would let it burn every round. Three identical calls in a row is a loop.
+    var lastToolKey = '';
+    var repeated = 0;
 
     while (true) {
-      final thinking = config.effectiveThinking(_state.thinkingEnabled) && roundPrefill.isEmpty;
+      final thinking =
+          config.effectiveThinking(_state.thinkingEnabled) &&
+          roundPrefill.isEmpty;
       final prompt = ChatMlPromptBuilder.build(
         _history,
         tools,
@@ -535,7 +652,9 @@ class ChatController extends ChangeNotifier {
         tools: tools,
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
-        sampling: thinking ? SamplingParams.qwen3Thinking : SamplingParams.qwen3NonThinking,
+        sampling: thinking
+            ? SamplingParams.qwen3Thinking
+            : SamplingParams.qwen3NonThinking,
       );
 
       var attempts = 0;
@@ -547,7 +666,9 @@ class ChatController extends ChangeNotifier {
           _fail(id, e.message);
           return;
         }
-        final parsed = result.toolCallJson == null ? null : ToolCallParser.parse(result.toolCallJson!, tools);
+        final parsed = result.toolCallJson == null
+            ? null
+            : ToolCallParser.parse(result.toolCallJson!, tools);
         final semanticError = parsed is ParseInvalid ? parsed.reason : null;
         final step = retry.decide(
           result.reason,
@@ -565,21 +686,46 @@ class ChatController extends ChangeNotifier {
         }
       }
 
-      final parsed = result.toolCallJson == null ? null : ToolCallParser.parse(result.toolCallJson!, tools);
+      final parsed = result.toolCallJson == null
+          ? null
+          : ToolCallParser.parse(result.toolCallJson!, tools);
       final call = parsed is ParseOk ? parsed.call : null;
-      _history.add(AssistantTurn(result.answer, call == null ? null : result.toolCallJson));
+      _history.add(
+        AssistantTurn(result.answer, call == null ? null : result.toolCallJson),
+      );
       final shown = _join(earlierText, result.answer);
 
       switch (call) {
         case null:
-          _replace(id, (m) => m.copyWith(text: shown, finish: result.reason, activities: List.of(activities)));
-          _finishWith(result.reason == FinishReason.cancelled ? TaskState.cancelled : TaskState.completed);
+          _replace(
+            id,
+            (m) => m.copyWith(
+              text: shown,
+              finish: result.reason,
+              activities: List.of(activities),
+            ),
+          );
+          _finishWith(
+            result.reason == FinishReason.cancelled
+                ? TaskState.cancelled
+                : TaskState.completed,
+          );
           return;
         case AskUser(:final tile):
-          _replace(id, (m) => m.copyWith(text: shown, question: tile, finish: result.reason, activities: List.of(activities)));
+          _replace(
+            id,
+            (m) => m.copyWith(
+              text: shown,
+              question: tile,
+              finish: result.reason,
+              activities: List.of(activities),
+            ),
+          );
           _finishWith(TaskState.userWait);
           return;
-        case final McpCall mcp when ToolApproval.needsApproval(mcp.name):
+        case final McpCall mcp
+            when (_mcpApproval?.call(mcp.name) ??
+                ToolApproval.needsApproval(mcp.name)):
           // a tool that writes outside the device: one card, and nothing runs until 実行する
           _replace(
             id,
@@ -607,24 +753,44 @@ class ChatController extends ChangeNotifier {
           _finishWith(TaskState.userWait);
           return;
         default:
+          final key = _toolKey(call);
+          repeated = key == lastToolKey ? repeated + 1 : 1;
+          lastToolKey = key;
+          if (repeated >= repeatToolLimit) {
+            _fail(id, '同じ道具を繰り返し呼んでいます（$key）');
+            return;
+          }
           rounds++;
           if (rounds > config.maxToolRounds) {
             _fail(id, 'tool calls exceeded ${config.maxToolRounds} rounds');
             return;
           }
-          _update((s) => s.copyWith(task: call is WebSearch ? TaskState.search : TaskState.generation));
+          _update(
+            (s) => s.copyWith(
+              task: call is WebSearch ? TaskState.search : TaskState.generation,
+            ),
+          );
           final outcome = await _toolRuntime.run(call);
           activities.add(outcome.activity);
           _history.add(ToolResponseTurn(outcome.response));
           earlierText = shown;
           roundPrefill = '';
-          _replace(id, (m) => m.copyWith(text: earlierText, activities: List.of(activities)));
+          _replace(
+            id,
+            (m) =>
+                m.copyWith(text: earlierText, activities: List.of(activities)),
+          );
       }
     }
   }
 
   /// One pass through the engine; streams text and thinking into message [id].
-  Future<_Attempt> _attempt(int id, GenerateRequest request, String earlierText, String prefill) async {
+  Future<_Attempt> _attempt(
+    int id,
+    GenerateRequest request,
+    String earlierText,
+    String prefill,
+  ) async {
     final task = GenerationTask();
     final segmenter = StreamSegmenter();
     var reason = FinishReason.error;
@@ -647,11 +813,21 @@ class ChatController extends ChangeNotifier {
             task.moveTo(TaskState.generation);
         }
       }
-      _replace(id, (m) => m.copyWith(text: _join(earlierText, answer), thinking: thinkingText));
+      _replace(
+        id,
+        (m) => m.copyWith(
+          text: _join(earlierText, answer),
+          thinking: thinkingText,
+        ),
+      );
       _update((s) => s.copyWith(task: task.state));
     }
 
-    _update((s) => s.copyWith(task: request.thinking ? TaskState.thinking : TaskState.generation));
+    _update(
+      (s) => s.copyWith(
+        task: request.thinking ? TaskState.thinking : TaskState.generation,
+      ),
+    );
     await for (final event in _engine.generate(request)) {
       switch (event) {
         case Piece(:final text):
@@ -661,8 +837,26 @@ class ChatController extends ChangeNotifier {
       }
     }
     consume(segmenter.finish());
-    return _Attempt(reason, thinkingText, answer, toolCallJson, segmenter.isInsideToolCall);
+    return _Attempt(
+      reason,
+      thinkingText,
+      answer,
+      toolCallJson,
+      segmenter.isInsideToolCall,
+    );
   }
+
+  /// The name and arguments of [call], so two identical requests look identical.
+  static String _toolKey(ToolCall call) => switch (call) {
+    WebSearch() => 'web_search:${call.query}',
+    GetWeather() => 'get_weather:${call.location}',
+    GetTime() => 'get_time:${call.timezone ?? ''}',
+    GetSettings() => 'get_settings',
+    AskUser() => 'ask_user',
+    UpdateSettings() =>
+      'update_settings:${call.changes.map((c) => '${c.key}=${c.value}').join(',')}',
+    McpCall() => '${call.name}:${jsonEncode(call.arguments)}',
+  };
 
   String _join(String earlier, String current) {
     if (earlier.trim().isEmpty) return current;
@@ -681,11 +875,14 @@ class ChatController extends ChangeNotifier {
     _store(snapshot(), generating: false);
   }
 
-  void _append(UiMessage message) => _update((s) => s.copyWith(messages: [...s.messages, message]));
+  void _append(UiMessage message) =>
+      _update((s) => s.copyWith(messages: [...s.messages, message]));
 
   void _replace(int id, UiMessage Function(UiMessage) change) => _update(
-        (s) => s.copyWith(messages: [for (final m in s.messages) m.id == id ? change(m) : m]),
-      );
+    (s) => s.copyWith(
+      messages: [for (final m in s.messages) m.id == id ? change(m) : m],
+    ),
+  );
 }
 
 String jsonEncodeSchema(Map<String, Object?> schema) => jsonEncode(schema);

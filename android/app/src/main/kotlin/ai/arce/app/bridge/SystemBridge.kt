@@ -1,8 +1,10 @@
 package ai.arce.app.bridge
 
+import ai.arce.app.service.GenerationService
 import ai.arce.app.update.ApkInstaller
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.StatFs
 import io.flutter.plugin.common.BinaryMessenger
@@ -41,6 +43,20 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                 }
                 "install" -> {
                     installer.install(File(call.argument<String>("path")!!))
+                    result.success(null)
+                }
+                "startForeground" -> {
+                    val intent = Intent(context, GenerationService::class.java)
+                        .setAction(GenerationService.ACTION_START)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(intent)
+                    } else {
+                        context.startService(intent)
+                    }
+                    result.success(null)
+                }
+                "stopForeground" -> {
+                    context.stopService(Intent(context, GenerationService::class.java))
                     result.success(null)
                 }
                 else -> result.notImplemented()

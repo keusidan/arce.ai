@@ -1,4 +1,5 @@
 import '../core/generation.dart';
+import 'provider_config.dart';
 
 /// One piece of what a model sends back while it writes.
 ///
@@ -22,7 +23,11 @@ class ReasoningDelta extends Delta {
 /// A tool call the model wants to make. Adapters send it only once it is complete, with the
 /// arguments as JSON text, so the existing tool-call parser reads it exactly like a local call.
 class ToolCallDelta extends Delta {
-  const ToolCallDelta({required this.name, required this.argumentsJson, this.id = ''});
+  const ToolCallDelta({
+    required this.name,
+    required this.argumentsJson,
+    this.id = '',
+  });
   final String id;
   final String name;
   final String argumentsJson;
@@ -45,7 +50,12 @@ enum AiRole { system, user, assistant, tool }
 
 /// One message of the conversation as the provider expects it.
 class AiMessage {
-  const AiMessage(this.role, {this.text = '', this.toolCalls = const [], this.toolCallId = ''});
+  const AiMessage(
+    this.role, {
+    this.text = '',
+    this.toolCalls = const [],
+    this.toolCallId = '',
+  });
 
   final AiRole role;
   final String text;
@@ -59,7 +69,11 @@ class AiMessage {
 
 /// A tool the model may call, in provider-neutral form.
 class AiToolSpec {
-  const AiToolSpec({required this.name, required this.description, required this.parameters});
+  const AiToolSpec({
+    required this.name,
+    required this.description,
+    required this.parameters,
+  });
 
   final String name;
   final String description;
@@ -71,6 +85,7 @@ class AiToolSpec {
 class AiRequest {
   const AiRequest({
     required this.messages,
+    this.model = '',
     this.tools = const [],
     this.maxTokens = 2048,
     this.temperature = 0.7,
@@ -78,6 +93,9 @@ class AiRequest {
   });
 
   final List<AiMessage> messages;
+
+  /// The model to ask for; empty keeps the one the provider was built with.
+  final String model;
   final List<AiToolSpec> tools;
   final int maxTokens;
   final double temperature;
@@ -109,6 +127,12 @@ abstract interface class AiProvider {
 
   /// What the settings screen shows.
   String get label;
+
+  /// The model this provider was built for; empty when none was chosen.
+  String get modelId;
+
+  /// The per-model settings (sampling overrides, extra prompt), when known.
+  ModelConfig? get modelConfig;
 
   ProviderCapabilities get capabilities;
 
