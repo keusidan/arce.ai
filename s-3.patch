@@ -1,0 +1,22 @@
+diff --git a/lib/ui/settings_page.dart b/lib/ui/settings_page.dart
+index 1769bd5..434fffa 100644
+--- a/lib/ui/settings_page.dart
++++ b/lib/ui/settings_page.dart
+@@ -185,10 +185,13 @@ class _SettingsDetailPageState extends State<SettingsDetailPage> {
+           padding: const EdgeInsets.fromLTRB(14, 16, 14, 24),
+           child: PageColumn(
+             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+-              Row(children: [
+-                BackButton(color: context.c.ink),
+-                Text('設定に戻る', style: ts(context, 12, color: context.c.muted)),
+-              ]),
++              GestureDetector(
++                onTap: () => Navigator.of(context).maybePop(),
++                child: Padding(
++                  padding: const EdgeInsets.symmetric(vertical: 6),
++                  child: Text('← 設定に戻る', style: ts(context, 12, color: context.c.muted)),
++                ),
++              ),
+               const PageHeading('詳細設定', '基本設定はチャットからすばやく変更できます。'),
+               KeyedSubtree(
+                 key: _keys[SettingsSection.providers],
