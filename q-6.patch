@@ -1,0 +1,29 @@
+diff --git a/lib/core/engine.dart b/lib/core/engine.dart
+index 3aa97b8..f768035 100644
+--- a/lib/core/engine.dart
++++ b/lib/core/engine.dart
+@@ -1,4 +1,5 @@
+ import 'generation.dart';
++import 'protocol.dart';
+ 
+ enum KvCacheType {
+   f16(2.0),
+@@ -56,6 +57,7 @@ class GenerateRequest {
+     required this.maxTokens,
+     required this.sampling,
+     this.strictJsonSchema,
++    this.tools = const [],
+   });
+ 
+   final String prompt;
+@@ -68,6 +70,10 @@ class GenerateRequest {
+ 
+   /// JSON Schema the whole output must match (no lazy trigger); used for short classifications.
+   final String? strictJsonSchema;
++
++  /// The same tools [toolCallSchema] describes, in a form a cloud provider can take as function
++  /// calling. The device engine ignores it: there the schema alone constrains the output.
++  final List<ToolDefinition> tools;
+ }
+ 
+ sealed class GenerationEvent {

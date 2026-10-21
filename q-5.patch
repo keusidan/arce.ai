@@ -1,0 +1,12 @@
+diff --git a/lib/core/chat_controller.dart b/lib/core/chat_controller.dart
+index 90d2132..f38fdba 100644
+--- a/lib/core/chat_controller.dart
++++ b/lib/core/chat_controller.dart
+@@ -485,6 +485,7 @@ class ChatController extends ChangeNotifier {
+       final request = GenerateRequest(
+         prompt: prompt,
+         toolCallSchema: schema,
++        tools: tools,
+         thinking: thinking,
+         maxTokens: config.effectiveMaxTokens(),
+         sampling: thinking ? SamplingParams.qwen3Thinking : SamplingParams.qwen3NonThinking,

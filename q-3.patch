@@ -1,0 +1,17 @@
+diff --git a/lib/ui/settings_page.dart b/lib/ui/settings_page.dart
+index 3e67b3d..f514a3c 100644
+--- a/lib/ui/settings_page.dart
++++ b/lib/ui/settings_page.dart
+@@ -283,6 +283,12 @@ class _SettingsPageState extends State<SettingsPage> {
+                     subtitle: '起動時と、起動中は一定時間ごとに確認します',
+                     trailing: ArceSwitch(value: s.autoUpdateCheck, onChanged: (v) => set((x) => x.copyWith(autoUpdateCheck: v))),
+                   ),
++                  SettingRow(
++                    icon: ArceSvg.bolt,
++                    title: '自動で更新する',
++                    subtitle: '見つけたらダウンロードとインストールまで自動で進めます',
++                    trailing: ArceSwitch(value: s.autoInstallUpdate, onChanged: (v) => set((x) => x.copyWith(autoInstallUpdate: v))),
++                  ),
+                   SettingRow(
+                     icon: ArceSvg.clock,
+                     title: '確認の間隔',

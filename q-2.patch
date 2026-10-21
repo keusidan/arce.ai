@@ -1,0 +1,44 @@
+diff --git a/lib/services/update_service.dart b/lib/services/update_service.dart
+index 2e4d77b..7acc393 100644
+--- a/lib/services/update_service.dart
++++ b/lib/services/update_service.dart
+@@ -128,6 +128,10 @@ class UpdateService extends ChangeNotifier {
+       if (isNewer(release)) {
+         _release = release;
+         _set(UpdateAvailable(release));
++        // 自動更新: 見つけたらこちらから取りに行く（利用者の操作を待たない）
++        if (_settings.value.autoInstallUpdate && target != UpdateTarget.ios) {
++          unawaited(_downloadAndInstall());
++        }
+       } else if (!silent) {
+         _set(const UpdateUpToDate());
+       }
+@@ -136,6 +140,15 @@ class UpdateService extends ChangeNotifier {
+     }
+   }
+ 
++  /// Downloads the release found by [check] and opens the installer as soon as the file is
++  /// verified. Nothing is forced: the same states the screen shows drive both steps, so a failure
++  /// stops here and the user still sees what happened.
++  Future<void> _downloadAndInstall() async {
++    if (_state is! UpdateAvailable) return;
++    await download();
++    if (_state is UpdateReady) await install();
++  }
++
+   /// The newest release made for this platform. Every platform has its own releases, so the list is read
+   /// instead of "latest" (which is whichever platform was published last).
+   Future<Release> latest() async {
+@@ -364,6 +377,12 @@ class UpdateService extends ChangeNotifier {
+     if (current is! UpdateReady) return;
+     try {
+       if (Platform.isAndroid) {
++        // 初回だけは利用者がシステムの画面で許可する必要がある。許可待ちのあいだも、
++        // 検証済みのファイルは残るので、許可後に「インストール」を押せばそのまま入る。
++        if (!await canInstall()) {
++          await requestInstallPermission();
++          return;
++        }
+         await _system.invokeMethod<void>('install', {'path': current.file.path});
+       } else {
+         await DesktopInstaller.apply(current.file);
