@@ -234,6 +234,41 @@ abstract final class AgentSettings {
     if (raw is String) return double.tryParse(raw.trim());
     return null;
   }
+
+  /// The text `get_settings` returns: every setting the model may change, with its current value,
+  /// its label and what the app accepts for it, so the model can answer questions about the app
+  /// without guessing and can pick a legal value for a change.
+  static String describe(Map<String, Object?> values) {
+    final b = StringBuffer();
+    for (final key in keys) {
+      final spec = specs[key]!;
+      final value = values[key];
+      b
+        ..write('- $key = ')
+        ..write(_formatValue(value))
+        ..write('  # ${spec.label}');
+      if (spec.kind == SettingKind.choice) {
+        final labels = [for (final c in spec.choices) '$c（${spec.choiceLabels[c] ?? c}）'];
+        b.write('、選択肢: ${labels.join(' / ')}');
+      }
+      if (spec.min != null || spec.max != null) {
+        b.write('、範囲: ${spec.min ?? ''}〜${spec.max ?? ''}');
+      }
+      if (spec.maxLength != null) b.write('、${spec.maxLength}文字まで');
+      b.write('\n');
+    }
+    b.write('次はチャットからは読むことも変えることもできません：APIキーとGitHubトークンは端末の'
+        '安全な領域にあり、${blocked.join('、')} はアプリの状態かアップデートの取得元だからです。');
+    return b.toString();
+  }
+
+  /// The stored value as the model sees it (a choice by its name, not its label).
+  static String _formatValue(Object? value) {
+    if (value == null) return '（未設定）';
+    if (value is bool) return value ? 'true' : 'false';
+    if (value is String) return value.isEmpty ? '（空）' : value;
+    return '$value';
+  }
 }
 
 enum SettingKind { flag, whole, decimal, choice, text, url }

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/chat_controller.dart';
 import '../core/engine.dart';
+import '../core/settings_spec.dart';
 
 enum GpuOffload { auto, cpuOnly, gpuPriority, maxGpu }
 
@@ -216,6 +217,18 @@ class AppSettings {
         GpuOffload.maxGpu => 999,
         GpuOffload.auto => gpuAvailable ? (hyperLoad ? 999 : 20) : 0,
       };
+}
+
+/// One approved patch, written into the settings document.
+///
+/// [AgentSettings.normalize] has already checked every value, so writing it and letting
+/// [AppSettings.fromJson] type it keeps this free of per-key code.
+AppSettings withSettings(AppSettings current, List<SettingsChangeOk> changes) {
+  final json = current.toJson();
+  for (final change in changes) {
+    json[change.key] = change.value;
+  }
+  return AppSettings.fromJson(json);
 }
 
 /// Settings are one JSON document in shared preferences; the GitHub token lives in the

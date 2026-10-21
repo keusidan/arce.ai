@@ -9,6 +9,7 @@ import '../ai/routing_engine.dart';
 import '../core/chat_controller.dart';
 import '../core/http_get.dart';
 import '../core/search.dart';
+import '../core/settings_spec.dart';
 import '../core/tool_runtime.dart';
 import '../core/weather.dart';
 import '../engine/demo_engine.dart';
@@ -53,6 +54,7 @@ class AppController extends ChangeNotifier {
       toolRuntime: _toolRuntime,
       settings: () => settings.value.toGeneration(models.loadedParamsB),
       store: (snapshot, {required generating}) => _persist(snapshot, generating),
+      applySettings: _applySettings,
     )..setThinking(settings.value.thinking);
     _applyProvider();
   }
@@ -121,6 +123,22 @@ class AppController extends ChangeNotifier {
 
   /// Built per call so a changed SearXNG address or search switch applies immediately.
   late final ToolRuntime _toolRuntime = _SettingsToolRuntime(settings, _http);
+
+  /// Applies the settings the user approved in the chat (protocol `update_settings`). The reply
+  /// says what the settings are now, so the model can confirm instead of assuming.
+  Future<String> _applySettings(List<SettingsChangeOk> changes) async {
+    await settings.update((current) => withSettings(current, changes));
+    final values = settings.value.toJson();
+    final now = [
+      for (final change in changes) '${change.key}=${change.spec.format(values[change.key])}',
+    ].join(', ');
+    final reload = changes.any((c) => _reloadNeeded.contains(c.key));
+    return 'The user approved the change: $now.'
+        '${reload ? ' It takes effect the next time the model is loaded.' : ''}';
+  }
+
+  /// Settings a running model keeps until it is loaded again.
+  static const _reloadNeeded = {'contextLength', 'threads', 'batchSize', 'gpuOffload'};
 
   Future<void> _start() async {
     settings.addListener(() => chat.setThinking(settings.value.thinking));
@@ -331,6 +349,7 @@ class _SettingsToolRuntime implements ToolRuntime {
     return DefaultToolRuntime(
       search: s.searchEnabled ? SearchService(providers, retriesPerProvider: s.retryLimit.clamp(0, 3)) : null,
       weather: OpenMeteoWeather(_http),
+      settingsValues: () => _settings.value.toJson(),
     ).run(call);
   }
 }

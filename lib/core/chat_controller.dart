@@ -9,6 +9,7 @@ import 'engine.dart';
 import 'generation.dart';
 import 'prompt.dart';
 import 'protocol.dart';
+import 'settings_spec.dart';
 import 'stream_segmenter.dart';
 import 'tool_runtime.dart';
 
@@ -21,6 +22,7 @@ class UiMessage {
     required this.text,
     this.thinking = '',
     this.question,
+    this.settings,
     this.finish,
     this.activities = const [],
     this.agent,
@@ -33,6 +35,9 @@ class UiMessage {
   final String text;
   final String thinking;
   final QuestionTile? question;
+
+  /// Set with [question] when the card asks the user to approve a settings change.
+  final List<SettingsChangeOk>? settings;
   final FinishReason? finish;
   final List<ToolActivity> activities;
   final String? agent;
@@ -43,6 +48,7 @@ class UiMessage {
     String? text,
     String? thinking,
     QuestionTile? question,
+    List<SettingsChangeOk>? settings,
     FinishReason? finish,
     List<ToolActivity>? activities,
   }) =>
@@ -52,6 +58,7 @@ class UiMessage {
         text: text ?? this.text,
         thinking: thinking ?? this.thinking,
         question: question ?? this.question,
+        settings: settings ?? this.settings,
         finish: finish ?? this.finish,
         activities: activities ?? this.activities,
         agent: agent,
@@ -65,6 +72,9 @@ class UiMessage {
         'text': text,
         'thinking': thinking,
         'question': question?.toJson(),
+        'settings': settings == null
+            ? null
+            : [for (final change in settings!) {'key': change.key, 'value': change.value}],
         'finish': finish?.name,
         'activities': [for (final a in activities) a.toJson()],
         'agent': agent,
@@ -78,6 +88,7 @@ class UiMessage {
         text: json['text'] as String,
         thinking: json['thinking'] as String? ?? '',
         question: json['question'] == null ? null : QuestionTile.fromJson((json['question'] as Map).cast()),
+        settings: json['settings'] is List ? _settingsFromJson(json['settings'] as List) : null,
         finish: json['finish'] == null ? null : FinishReason.values.byName(json['finish'] as String),
         activities: [
           for (final a in (json['activities'] as List? ?? const [])) ToolActivity.fromJson((a as Map).cast()),
@@ -112,6 +123,10 @@ class ChatState {
 
   QuestionTile? get pendingQuestion =>
       task == TaskState.userWait && messages.isNotEmpty ? messages.last.question : null;
+
+  /// The changes waiting for the user's approval, when [pendingQuestion] is an approval card.
+  List<SettingsChangeOk>? get pendingSettings =>
+      task == TaskState.userWait && messages.isNotEmpty ? messages.last.settings : null;
 
   /// The last reply stopped before it was finished and can be continued (spec: 続行).
   bool get canContinue {
@@ -209,6 +224,22 @@ class ConversationSnapshot {
       );
 }
 
+/// Applies one approved settings patch and returns the text the model is given back.
+typedef SettingsApplier = Future<String> Function(List<SettingsChangeOk> changes);
+
+/// Rebuilds the pending changes of a saved conversation; a key that is no longer settable is dropped.
+List<SettingsChangeOk>? _settingsFromJson(List<dynamic> raw) {
+  final changes = <SettingsChangeOk>[];
+  for (final item in raw) {
+    if (item is! Map) continue;
+    final key = item['key'];
+    if (key is! String) continue;
+    final result = AgentSettings.normalize(key, item['value']);
+    if (result is SettingsChangeOk) changes.add(result);
+  }
+  return changes.isEmpty ? null : changes;
+}
+
 /// Called at the points where a crash would lose work; [generating] marks an unfinished task.
 typedef ConversationStore = void Function(ConversationSnapshot snapshot, {required bool generating});
 
@@ -230,6 +261,7 @@ class ChatController extends ChangeNotifier {
     this._toolRuntime = const NoToolRuntime(),
     GenerationSettings Function()? settings,
     ConversationStore? store,
+    this._applySettings,
   })  : _settings = settings ?? (() => const GenerationSettings()),
         _store = store ?? ((_, {required generating}) {}) {
     _router = AgentRouter((prompt, schema) async {
@@ -260,6 +292,7 @@ class ChatController extends ChangeNotifier {
   final ToolRuntime _toolRuntime;
   final GenerationSettings Function() _settings;
   final ConversationStore _store;
+  final SettingsApplier? _applySettings;
   late final AgentRouter _router;
 
   ChatState _state = const ChatState();
@@ -321,14 +354,38 @@ class ChatController extends ChangeNotifier {
     return _start('');
   }
 
-  /// Answers the pending question tile and resumes generation.
-  Future<void> answer(List<String> selected, String? freeText) {
+  /// Answers the pending question tile (or approves a settings change) and resumes generation.
+  Future<void> answer(List<String> selected, String? freeText) async {
     if (_state.pendingQuestion == null || _busy) return Future.value();
     final free = freeText != null && freeText.trim().isNotEmpty ? [freeText] : const <String>[];
     final answer = [...selected, ...free].join(', ');
-    _history.add(ToolResponseTurn(answer));
+    final changes = _state.pendingSettings;
+    var toolResponse = answer;
+    if (changes != null) {
+      // the card is the approval: nothing is written unless the user picked 承認
+      _busy = true;
+      try {
+        toolResponse = SettingsApproval.isApproval(selected)
+            ? await _approve(changes)
+            : 'The user rejected the change. Nothing was changed.';
+      } finally {
+        _busy = false;
+      }
+    }
+    _history.add(ToolResponseTurn(toolResponse));
     _append(UiMessage(id: _nextId++, role: Role.user, text: answer, time: DateTime.now()));
     return _start('');
+  }
+
+  /// Writes the approved changes through the app and reports the result to the model.
+  Future<String> _approve(List<SettingsChangeOk> changes) async {
+    final applier = _applySettings;
+    if (applier == null) return 'The user approved it, but this build cannot change its settings.';
+    try {
+      return await applier(changes);
+    } catch (e) {
+      return 'The user approved it, but the change failed: $e';
+    }
   }
 
   void stop() => _engine.cancel();
@@ -472,6 +529,19 @@ class ChatController extends ChangeNotifier {
           return;
         case AskUser(:final tile):
           _replace(id, (m) => m.copyWith(text: shown, question: tile, finish: result.reason, activities: List.of(activities)));
+          _finishWith(TaskState.userWait);
+          return;
+        case UpdateSettings(:final changes):
+          _replace(
+            id,
+            (m) => m.copyWith(
+              text: shown,
+              question: SettingsApproval.tile(changes),
+              settings: changes,
+              finish: result.reason,
+              activities: List.of(activities),
+            ),
+          );
           _finishWith(TaskState.userWait);
           return;
         default:
