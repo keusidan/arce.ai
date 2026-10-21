@@ -58,6 +58,6 @@ index 2e4d77b..ec94891 100644
 +          await requestInstallPermission();
 +          return;
 +        }
-         await _system.invokeMethod<void>('install', {'path': current.path});
+         await _system.invokeMethod<void>('install', {'path': current.file.path});
        } else {
          await DesktopInstaller.apply(current.file);
