@@ -1,0 +1,46 @@
+diff --git a/lib/ui/settings_page.dart b/lib/ui/settings_page.dart
+index f514a3c..f5e2071 100644
+--- a/lib/ui/settings_page.dart
++++ b/lib/ui/settings_page.dart
+@@ -271,6 +271,41 @@ class _SettingsPageState extends State<SettingsPage> {
+                   ),
+                 ]),
+               ),
++              const SectionTitle('MCP（外部ツール）'),
++              ArceCard(
++                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++                  SettingRow(
++                    icon: ArceSvg.cube,
++                    title: 'MCP を使う',
++                    subtitle: '外部の MCP サーバーの道具を、チャットから呼べるようにします',
++                    trailing: ArceSwitch(value: s.mcpEnabled, onChanged: (v) => set((x) => x.copyWith(mcpEnabled: v))),
++                  ),
++                  _TextRow(
++                    icon: ArceSvg.globe,
++                    title: 'サーバーの URL',
++                    subtitle: 'Streamable HTTP の入口（例：https://api.githubcopilot.com/mcp/）',
++                    value: s.mcpUrl,
++                    hint: 'https://...',
++                    onChanged: (v) => set((x) => x.copyWith(mcpUrl: v.trim())),
++                  ),
++                  _TextRow(
++                    icon: ArceSvg.shield,
++                    title: 'トークン',
++                    subtitle: 'Authorization: Bearer で送ります（端末の安全な領域に保存）',
++                    value: app.settings.mcpToken,
++                    hint: 'ghp_...',
++                    obscure: true,
++                    onChanged: app.settings.setMcpToken,
++                  ),
++                  SettingRow(
++                    icon: ArceSvg.search,
++                    title: '接続を確かめる',
++                    subtitle: 'サーバーが公開しているツールを読みます',
++                    trailing: SoftButton(label: '確認', onTap: () async => app.showToast(await app.probeMcp())),
++                    last: true,
++                  ),
++                ]),
++              ),
+               KeyedSubtree(key: _keys[SettingsSection.update], child: const SectionTitle('アップデート')),
+               ArceCard(
+                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
