@@ -1,0 +1,55 @@
+name: zz apply6
+
+# Temporary: apply the settings patches on main, check them, and only then move main there.
+on:
+  push:
+    branches: ["zz-apply6"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.6"
+          channel: stable
+          cache: true
+      - name: apply the patches
+        run: |
+          mkdir -p /tmp/t
+          cp t-*.patch /tmp/t/
+          git checkout -B work origin/main
+          for f in $(ls /tmp/t/*.patch | sort); do
+            echo "applying $f"
+            git apply "$f"
+          done
+          git add -A
+          git -c user.name=keusidan -c user.email=87552495+keusidan@users.noreply.github.com \
+            commit -m "設定を一覧と詳細に分ける"
+      - run: flutter pub get
+      - name: analyze
+        run: |
+          set +e
+          flutter analyze > an.txt 2>&1
+          if grep -q "No issues found" an.txt; then echo clean; exit 0; fi
+          grep -E " • " an.txt | head -20 > i.txt
+          while IFS= read -r l; do echo "::error::$l"; done < i.txt
+          exit 1
+      - name: test
+        run: |
+          set +e
+          flutter test > t.txt 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then echo pass; exit 0; fi
+          grep -nE "\[E\]|Some tests failed|Expected:|Actual:|Which:" t.txt | head -25 > tf.txt
+          while IFS= read -r l; do echo "::error::$l"; done < tf.txt
+          exit 1
+      - name: push main
+        run: git push origin work:refs/heads/main
