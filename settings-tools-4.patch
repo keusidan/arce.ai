@@ -1,0 +1,100 @@
+diff --git a/lib/core/settings_spec.dart b/lib/core/settings_spec.dart
+index d7b773e..35e769e 100644
+--- a/lib/core/settings_spec.dart
++++ b/lib/core/settings_spec.dart
+@@ -234,6 +234,41 @@ abstract final class AgentSettings {
+     if (raw is String) return double.tryParse(raw.trim());
+     return null;
+   }
++
++  /// The text `get_settings` returns: every setting the model may change, with its current value,
++  /// its label and what the app accepts for it, so the model can answer questions about the app
++  /// without guessing and can pick a legal value for a change.
++  static String describe(Map<String, Object?> values) {
++    final b = StringBuffer();
++    for (final key in keys) {
++      final spec = specs[key]!;
++      final value = values[key];
++      b
++        ..write('- $key = ')
++        ..write(_formatValue(value))
++        ..write('  # ${spec.label}');
++      if (spec.kind == SettingKind.choice) {
++        final labels = [for (final c in spec.choices) '$c（${spec.choiceLabels[c] ?? c}）'];
++        b.write('、選択肢: ${labels.join(' / ')}');
++      }
++      if (spec.min != null || spec.max != null) {
++        b.write('、範囲: ${spec.min ?? ''}〜${spec.max ?? ''}');
++      }
++      if (spec.maxLength != null) b.write('、${spec.maxLength}文字まで');
++      b.write('\n');
++    }
++    b.write('次はチャットからは読むことも変えることもできません：APIキーとGitHubトークンは端末の'
++        '安全な領域にあり、${blocked.join('、')} はアプリの状態かアップデートの取得元だからです。');
++    return b.toString();
++  }
++
++  /// The stored value as the model sees it (a choice by its name, not its label).
++  static String _formatValue(Object? value) {
++    if (value == null) return '（未設定）';
++    if (value is bool) return value ? 'true' : 'false';
++    if (value is String) return value.isEmpty ? '（空）' : value;
++    return '$value';
++  }
+ }
+ 
+ enum SettingKind { flag, whole, decimal, choice, text, url }
+diff --git a/lib/core/tool_runtime.dart b/lib/core/tool_runtime.dart
+index a19cb51..a7d8602 100644
+--- a/lib/core/tool_runtime.dart
++++ b/lib/core/tool_runtime.dart
+@@ -2,6 +2,7 @@ import 'package:timezone/data/latest.dart' as tzdata;
+ import 'package:timezone/timezone.dart' as tz;
+ 
+ import 'protocol.dart';
++import 'settings_spec.dart';
+ import 'search.dart';
+ import 'weather.dart';
+ 
+@@ -63,10 +64,15 @@ class NoToolRuntime implements ToolRuntime {
+ typedef Clock = DateTime Function();
+ 
+ class DefaultToolRuntime implements ToolRuntime {
+-  DefaultToolRuntime({this.search, this.weather, Clock? clock}) : _clock = clock ?? DateTime.now;
++  DefaultToolRuntime({this.search, this.weather, this.settingsValues, Clock? clock})
++      : _clock = clock ?? DateTime.now;
+ 
+   final SearchService? search;
+   final OpenMeteoWeather? weather;
++
++  /// Current values of the app settings (`AppSettings.toJson`), read for get_settings. Null where
++  /// there is no settings store, which makes the tool answer that it is not available.
++  final Map<String, Object?> Function()? settingsValues;
+   final Clock _clock;
+ 
+   static bool _zonesReady = false;
+@@ -77,9 +83,24 @@ class DefaultToolRuntime implements ToolRuntime {
+         GetWeather() => _weather(call.location),
+         GetTime() => _time(call.timezone),
+         AskUser() => throw StateError('ask_user is answered by the user, not run as a tool'),
++        GetSettings() => _settings(),
+         UpdateSettings() => throw StateError('update_settings is answered by the user, not run as a tool'),
+       };
+ 
++  ToolOutcome _settings() {
++    final values = settingsValues?.call();
++    if (values == null) {
++      return const ToolOutcome(
++        'The app settings are not available here.',
++        ToolActivity('Settings', '設定を読み取れません', failed: true),
++      );
++    }
++    return ToolOutcome(
++      'Current settings of this app (key = value # label):\n${AgentSettings.describe(values)}',
++      ToolActivity('Settings', '設定 ${AgentSettings.specs.length} 項目を読み取り'),
++    );
++  }
++
+   Future<ToolOutcome> _search(String query) async {
+     final service = search;
+     if (service == null) {
