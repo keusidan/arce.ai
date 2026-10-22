@@ -544,7 +544,7 @@ class _SettingsPageState extends State<SettingsPage> {
       icon: icon,
       title: title,
       subtitle: subtitle,
-      trailing: _Dropdown<String>(value: value, items: choices, width: 168, onChanged: onPick),
+      trailing: _PickerField(value: value, items: choices, width: 168, title: title, onChanged: onPick),
     );
     return ArceCard(
       child: Column(
@@ -1086,19 +1086,15 @@ class _Dropdown<T> extends StatelessWidget {
     required this.value,
     required this.items,
     required this.onChanged,
-    this.width,
   });
   final T value;
   final Map<T, String> items;
   final ValueChanged<T> onChanged;
 
-  /// A fixed width, for long labels: the text is then cut with an ellipsis instead of overflowing.
-  final double? width;
-
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final field = Container(
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: c.surface2,
@@ -1109,16 +1105,11 @@ class _Dropdown<T> extends StatelessWidget {
         child: DropdownButton<T>(
           value: items.containsKey(value) ? value : items.keys.first,
           isDense: true,
-          isExpanded: width != null,
           dropdownColor: c.surface,
           icon: ArceIcon(ArceSvg.chevronDown, size: 14, color: c.muted),
           style: ts(context, 10, weight: FontWeight.w600),
           items: [
-            for (final e in items.entries)
-              DropdownMenuItem(
-                value: e.key,
-                child: Text(e.value, overflow: width == null ? null : TextOverflow.ellipsis),
-              ),
+            for (final e in items.entries) DropdownMenuItem(value: e.key, child: Text(e.value)),
           ],
           onChanged: (v) {
             if (v != null) onChanged(v);
@@ -1126,7 +1117,92 @@ class _Dropdown<T> extends StatelessWidget {
         ),
       ),
     );
-    return width == null ? field : SizedBox(width: width, child: field);
+  }
+}
+
+/// A choice among long names (a provider and its model): the field shows the choice on up to two
+/// lines, and a tap opens a list of the full width in which every name is written out in full — a
+/// drop-down menu is only as wide as its field and would cut each name with an ellipsis.
+class _PickerField extends StatelessWidget {
+  const _PickerField({
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    required this.title,
+    required this.width,
+  });
+  final String value;
+  final Map<String, String> items;
+  final ValueChanged<String> onChanged;
+  final String title;
+  final double width;
+
+  Future<void> _open(BuildContext context) async {
+    final c = context.c;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
+            child: Text(title, style: ts(context, 14, weight: FontWeight.w700)),
+          ),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: EdgeInsets.only(bottom: sheetBottomPadding(context)),
+              children: [
+                for (final e in items.entries)
+                  ListTile(
+                    dense: true,
+                    selected: e.key == value,
+                    title: Text(e.value, style: ts(context, 11.5, weight: e.key == value ? FontWeight.w700 : FontWeight.w500)),
+                    trailing: e.key == value ? ArceIcon(ArceSvg.check, size: 16, color: c.accent) : null,
+                    onTap: () => Navigator.of(context).pop(e.key),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (picked != null) onChanged(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final label = items[value] ?? items.values.first;
+    return SizedBox(
+      width: width,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => _open(context),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: c.surface2,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: c.line),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(context, 10, weight: FontWeight.w600)),
+              ),
+              const SizedBox(width: 4),
+              ArceIcon(ArceSvg.chevronDown, size: 14, color: c.muted),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

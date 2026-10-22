@@ -347,6 +347,33 @@ void main() {
     expect(app.settings.value.attachMaxFiles, 10);
   });
 
+  testWidgets('settings page: the coding model is picked from a list that writes every name out in full', (tester) async {
+    setSize(tester, const Size(411, 1200));
+    final app = await makeApp(tester);
+    await app.providers.save(
+      const ProviderConfig(
+        id: 'long',
+        label: 'Some Very Long Provider Name',
+        baseUrl: 'https://example.com/v1',
+        models: [ModelConfig(id: 'vendor/an-extremely-long-model-name-that-no-narrow-field-can-show-v2', name: 'vendor/an-extremely-long-model-name-that-no-narrow-field-can-show-v2')],
+      ),
+    );
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.coding);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('未選択').first);
+    await tester.pumpAndSettle();
+
+    const full = 'Some Very Long Provider Name · vendor/an-extremely-long-model-name-that-no-narrow-field-can-show-v2';
+    expect(find.text(full), findsOneWidget, reason: 'the list shows the whole name, not an ellipsis');
+    await tester.tap(find.text(full));
+    await tester.pumpAndSettle();
+    expect(app.settings.value.plannerModel, contains('long'));
+    expect(find.text(full), findsWidgets, reason: 'the field now shows the choice');
+  });
+
   testWidgets('settings page: the search group has the server, the result count and the search APIs', (tester) async {
     setSize(tester, const Size(411, 1200));
     final app = await makeApp(tester);
