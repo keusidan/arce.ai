@@ -43,6 +43,59 @@ class SearXngProvider implements SearchProvider {
   }
 }
 
+/// Brave Search's web search API: a real result list, with an API key (sent as a header, never kept
+/// in the settings JSON). https://api.search.brave.com/res/v1/web/search?q=…&count=…
+class BraveSearchProvider implements SearchProvider {
+  BraveSearchProvider(this.apiKey, this._get);
+
+  static const endpoint = 'https://api.search.brave.com/res/v1/web/search';
+
+  final String apiKey;
+  final HttpGet _get;
+
+  @override
+  String get name => 'Brave Search';
+
+  @override
+  Future<List<SearchHit>> search(String query, int limit) async {
+    final count = limit.clamp(1, 20);
+    final body = await _get(
+      '$endpoint?q=${Uri.encodeQueryComponent(query)}&count=$count',
+      {'Accept': 'application/json', 'X-Subscription-Token': apiKey},
+    );
+    final root = jsonDecode(body);
+    final web = root is Map ? root['web'] : null;
+    final results = web is Map ? web['results'] : null;
+    final hits = <SearchHit>[];
+    for (final element in (results is List ? results : const [])) {
+      if (element is! Map) continue;
+      final url = _string(element['url']);
+      if (url == null) continue;
+      hits.add(SearchHit(
+        _plain(_string(element['title'])) ?? url,
+        url,
+        _plain(_string(element['description'])) ?? '',
+      ));
+    }
+    return hits.take(limit).toList();
+  }
+
+  /// The snippets mark the matched words with tags and entities; the model needs only the text.
+  static String? _plain(String? html) {
+    if (html == null) return null;
+    final text = html
+        .replaceAll(RegExp(r'<[^>]*>'), '')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#x27;', "'")
+        .replaceAll('&#39;', "'")
+        .trim();
+    return text.isEmpty ? null : text;
+  }
+}
+
 /// DuckDuckGo's Instant Answer API: no key, but only abstracts and related topics, not a
 /// full result list. Used as a fallback when the SearXNG server cannot be reached.
 class DuckDuckGoInstantProvider implements SearchProvider {

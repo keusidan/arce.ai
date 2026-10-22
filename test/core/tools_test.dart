@@ -37,6 +37,46 @@ void main() {
     expect(failed.errors, hasLength(2), reason: 'one try plus one retry');
   });
 
+  test('brave search sends the key as a header and reads web.results', () async {
+    const brave = '''{"web":{"results":[
+      {"title":"Gemini <strong>API</strong> models","url":"https://ai.google.dev/models","description":"Latest &amp; stable <strong>models</strong>"},
+      {"title":"No url"}]}}''';
+    Map<String, String>? sent;
+    String? asked;
+    final provider = BraveSearchProvider('KEY', (url, headers) async {
+      asked = url;
+      sent = headers;
+      return brave;
+    });
+
+    final hits = await provider.search('gemini api 最新', 5);
+    expect(asked, startsWith('https://api.search.brave.com/res/v1/web/search?q='));
+    expect(asked, isNot(contains('KEY')), reason: 'the key never goes into the URL');
+    expect(sent!['X-Subscription-Token'], 'KEY');
+    expect(hits, hasLength(1));
+    expect(hits.single.title, 'Gemini API models');
+    expect(hits.single.snippet, 'Latest & stable models');
+  });
+
+  test('brave comes before the instant answer when both are configured', () async {
+    final service = SearchService([
+      BraveSearchProvider('KEY', http({'api.search.brave.com': '{"web":{"results":[{"title":"T","url":"https://e.com/","description":"d"}]}}'})),
+      DuckDuckGoInstantProvider(http({})),
+    ]);
+    expect((await service.search('q') as SearchFound).provider, 'Brave Search');
+  });
+
+  test('a failed search carries the hint about what to set', () async {
+    final runtime = DefaultToolRuntime(
+      search: SearchService([DuckDuckGoInstantProvider(http({'duckduckgo': '{}'}))]),
+      searchHint: 'Brave のキーを入れてください',
+    );
+    final out = await runtime.run(const WebSearch('x'));
+    expect(out.activity.failed, isTrue);
+    expect(out.activity.summary, contains('Brave のキーを入れてください'));
+    expect(out.response, contains('Brave のキーを入れてください'));
+  });
+
   test('weather combines geocoding and forecast', () async {
     final weather = OpenMeteoWeather(http({
       'geocoding-api':

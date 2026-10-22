@@ -600,6 +600,7 @@ class SettingsStore extends ChangeNotifier {
 
   static const _key = 'settings.v1';
   static const _tokenKey = 'github_token';
+  static const _braveKey = 'brave_api_key';
   static const _mcpTokenKey =
       'mcp_token'; // one server, before the list existed
 
@@ -613,6 +614,11 @@ class SettingsStore extends ChangeNotifier {
 
   /// Empty when none is set (or secure storage is unavailable on this system).
   String get githubToken => _token;
+
+  String _braveApiKey = '';
+
+  /// The key of the Brave Search API; empty when none is set. Kept in the secure storage only.
+  String get braveApiKey => _braveApiKey;
 
   final Map<String, String> _mcpTokens = {};
 
@@ -637,6 +643,7 @@ class SettingsStore extends ChangeNotifier {
     }
     try {
       store._token = await store._secure.read(key: _tokenKey) ?? '';
+      store._braveApiKey = await store._secure.read(key: _braveKey) ?? '';
       final legacy = await store._secure.read(key: _mcpTokenKey) ?? '';
       for (final server in store._value.mcpServers) {
         store._mcpTokens[server.id] =
@@ -655,6 +662,7 @@ class SettingsStore extends ChangeNotifier {
       }
     } catch (_) {
       store._token = '';
+      store._braveApiKey = '';
       store._mcpTokens.clear();
     }
     return store;
@@ -691,6 +699,20 @@ class SettingsStore extends ChangeNotifier {
       );
     } catch (_) {
       // nothing was stored
+    }
+  }
+
+  Future<void> setBraveApiKey(String key) async {
+    _braveApiKey = key.trim();
+    notifyListeners();
+    try {
+      if (_braveApiKey.isEmpty) {
+        await _secure.delete(key: _braveKey);
+      } else {
+        await _secure.write(key: _braveKey, value: _braveApiKey);
+      }
+    } catch (_) {
+      // keep the key for this run only when the system keyring is missing
     }
   }
 

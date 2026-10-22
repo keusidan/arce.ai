@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/mcp/mcp_server.dart';
 import 'package:arce_ai/services/settings.dart';
@@ -194,6 +196,21 @@ void main() {
     final again = await SettingsStore.load();
     expect(again.value.searxngUrl, 'http://pi:8080');
     expect(again.value.maxChars, 800);
+  });
+
+  test('the Brave key is never written to the settings JSON', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await SettingsStore.load();
+    await store.setBraveApiKey('  BSA-secret  ');
+    await store.update((s) => s.copyWith(searchEnabled: true));
+
+    expect(store.braveApiKey, 'BSA-secret');
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('settings.v1'), isNot(contains('BSA-secret')));
+    expect(jsonEncode(store.value.toJson()), isNot(contains('BSA-secret')));
+
+    await store.setBraveApiKey('');
+    expect(store.braveApiKey, isEmpty);
   });
 
   test('a damaged save does not stop the app from starting', () async {

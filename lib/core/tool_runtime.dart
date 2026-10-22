@@ -78,6 +78,7 @@ class DefaultToolRuntime implements ToolRuntime {
     this.weather,
     this.settingsValues,
     this.extraSettings,
+    this.searchHint,
     Clock? clock,
   }) : _clock = clock ?? DateTime.now;
 
@@ -90,6 +91,9 @@ class DefaultToolRuntime implements ToolRuntime {
 
   /// Providers and MCP servers, appended to `get_settings`; never contains a key or a token.
   final String Function()? extraSettings;
+
+  /// Added to the failure of a search, when something the user can set would have made it work.
+  final String? searchHint;
   final Clock _clock;
 
   static bool _zonesReady = false;
@@ -162,10 +166,12 @@ class DefaultToolRuntime implements ToolRuntime {
       // spec §10.1: every provider failed -> continue with the local model only
       case SearchFailed(:final errors):
         return ToolOutcome(
-          'Web search failed. Answer from your own knowledge and tell the user the answer was not checked online.',
+          'Web search failed. Answer from your own knowledge and tell the user the answer was not checked online.'
+          '${searchHint == null ? '' : ' Also tell the user: $searchHint'}',
           ToolActivity(
             'Search',
-            '検索に失敗（ローカルAIのみで回答）: ${errors.isEmpty ? '' : errors.last}',
+            '検索に失敗（ローカルAIのみで回答）: ${errors.isEmpty ? '' : errors.last}'
+            '${searchHint == null ? '' : '\n$searchHint'}',
             failed: true,
           ),
         );

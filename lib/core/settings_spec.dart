@@ -492,7 +492,7 @@ abstract final class AgentSettings {
       if (spec.maxLength != null) b.write('、${spec.maxLength}文字まで');
       b.write('\n');
     }
-    b.write('次はチャットからは読むことも変えることもできません：APIキーとGitHubトークンは端末の'
+    b.write('次はチャットからは読むことも変えることもできません：APIキー（検索のキーも）とGitHubトークンは端末の'
         '安全な領域にあり、${blocked.join('、')} はアプリの状態かアップデートの取得元だからです。');
     return b.toString();
   }

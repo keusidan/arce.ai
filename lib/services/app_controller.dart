@@ -677,9 +677,15 @@ class _SettingsToolRuntime implements ToolRuntime {
     final providers = <SearchProvider>[
       if (s.searxngUrl.trim().isNotEmpty)
         SearXngProvider(s.searxngUrl.trim(), _http),
+      if (_settings.braveApiKey.isNotEmpty) BraveSearchProvider(_settings.braveApiKey, _http),
       DuckDuckGoInstantProvider(_http),
     ];
+    // without a search server or a key, only DuckDuckGo's summaries are left, which answer few questions
+    final onlySummaries = s.searxngUrl.trim().isEmpty && _settings.braveApiKey.isEmpty;
     return DefaultToolRuntime(
+      searchHint: onlySummaries
+          ? '検索の設定がありません。設定の「Brave Search API キー」か「SearXNG のアドレス」を入れると、普通の検索ができます'
+          : null,
       search: s.searchEnabled
           ? SearchService(
               providers,
