@@ -465,8 +465,10 @@ class _SettingsPageState extends State<SettingsPage> {
               (x, v) => x.copyWith(toolRepeatLimit: v)),
           cycle(ArceSvg.retry, '更新ダウンロードの試行回数', '通信が切れたとき、続きから取り直す回数', s.updateRetryAttempts, const [1, 3, 5, 10],
               (x, v) => x.copyWith(updateRetryAttempts: v)),
-          cycle(ArceSvg.clock, '更新ダウンロードの無通信の判定', 'この秒数なにも届かなければ、切れたとみなします', s.updateStallSeconds, const [15, 30, 60, 120],
-              (x, v) => x.copyWith(updateStallSeconds: v), unit: ' 秒', last: true),
+          cycle(ArceSvg.clock, 'ダウンロードの無通信の判定', 'この秒数なにも届かなければ、切れたとみなします', s.updateStallSeconds, const [15, 30, 60, 120],
+              (x, v) => x.copyWith(updateStallSeconds: v), unit: ' 秒'),
+          cycle(ArceSvg.bolt, 'ダウンロードの同時接続数', '大きなファイルを分けて同時に取ります。遅いときに増やします（1で分けない）', s.downloadConnections, const [1, 2, 4, 8, 16],
+              (x, v) => x.copyWith(downloadConnections: v), last: true),
         ],
       ),
     );

@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/releases.dart';
 import 'desktop_installer.dart';
 import 'foreground_service.dart';
+import 'segmented_download.dart';
 import 'settings.dart';
 
 sealed class UpdateState {
@@ -269,9 +270,10 @@ class UpdateService extends ChangeNotifier {
       // half-finished file of another version.
       final wanted = {asset.name, '${asset.name}.part'};
       await for (final entity in dir.list()) {
-        if (entity is File && !wanted.contains(entity.path.split(Platform.pathSeparator).last)) {
-          await entity.delete();
-        }
+        if (entity is! File) continue;
+        final name = entity.path.split(Platform.pathSeparator).last;
+        // the parts of a download over several connections are kept so it can continue
+        if (!wanted.contains(name) && !name.startsWith('${asset.name}.part.seg')) await entity.delete();
       }
       final file = File('${dir.path}${Platform.pathSeparator}${asset.name}');
       final part = File('${file.path}.part');
@@ -299,8 +301,8 @@ class UpdateService extends ChangeNotifier {
   ///
   /// [from] asks for the rest of a download that stopped earlier; the storage honours it with
   /// `206 Partial Content`, and the range is repeated on the redirected request.
-  Future<http.StreamedResponse> _openAsset(ReleaseAsset asset, {int? from}) async {
-    final range = from == null ? null : {'Range': 'bytes=$from-'};
+  Future<http.StreamedResponse> _openAsset(ReleaseAsset asset, {int? from, int? to}) async {
+    final range = from == null ? null : {'Range': to == null ? 'bytes=$from-' : 'bytes=$from-$to'};
     final repo = _settings.value.updateRepo;
     final api = http.Request('GET', Uri.parse('https://api.github.com/repos/$repo/releases/assets/${asset.id}'))
       ..followRedirects = false
@@ -351,6 +353,33 @@ class UpdateService extends ChangeNotifier {
     if (have > asset.sizeBytes) {
       await part.delete();
       have = 0;
+    }
+
+    // A fresh download uses several connections (a setting); a partial file is finished as it was started.
+    final connections = _settings.value.downloadConnections.clamp(1, 16);
+    if (have == 0 && SegmentedDownload.parts(asset.sizeBytes, connections) >= 2) {
+      var lastReport = DateTime.fromMillisecondsSinceEpoch(0);
+      final joined = await SegmentedDownload.run(
+        part: part,
+        total: asset.sizeBytes,
+        connections: connections,
+        open: (from, to) => _openAsset(asset, from: from, to: to),
+        onProgress: (done) {
+          final now = DateTime.now();
+          if (now.difference(lastReport) > const Duration(milliseconds: 200)) {
+            lastReport = now;
+            onProgress(done);
+          }
+        },
+        stall: stallTimeout,
+      );
+      if (joined) {
+        final digest = await sha256.bind(part.openRead()).first;
+        if (await file.exists()) await file.delete();
+        await part.rename(file.path);
+        onProgress(asset.sizeBytes);
+        return digest.toString();
+      }
     }
 
     var response = await _openAsset(asset, from: have > 0 ? have : null);

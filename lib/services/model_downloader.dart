@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/model_catalog.dart';
+import 'segmented_download.dart';
 
 class RemoteFile {
   const RemoteFile({required this.sizeBytes, this.sha256});
@@ -28,13 +29,32 @@ class DownloadCancelled implements Exception {
 /// - resumes a `.part` file with an HTTP Range request, but only when the user presses Resume
 /// - verifies the SHA-256 that Hugging Face publishes for LFS files before installing
 class ModelDownloader {
-  ModelDownloader(this.directory, {http.Client? client}) : _client = client ?? http.Client();
+  ModelDownloader(
+    this.directory, {
+    http.Client? client,
+    int Function()? connections,
+    this.stall,
+  })  : _client = client ?? http.Client(),
+        _connections = connections ?? (() => 1);
 
   final Directory directory;
   final http.Client _client;
 
+  /// Asked on every download, so a changed setting applies at once.
+  final int Function() _connections;
+
+  /// How long a connection may stay silent, asked on every download; null waits for ever.
+  final Duration Function()? stall;
+
   File target(ModelSpec spec) => File('${directory.path}${Platform.pathSeparator}${spec.fileName}');
   File partial(ModelSpec spec) => File('${target(spec).path}.part');
+
+  /// Bytes of [spec] already on disk: the partial file, or the parts of a download over several connections.
+  Future<int> downloadedBytes(ModelSpec spec) async {
+    final part = partial(spec);
+    final single = await part.exists() ? await part.length() : 0;
+    return single > 0 ? single : await SegmentedDownload.storedBytes(part);
+  }
 
   /// Size and checksum from the Hugging Face tree API.
   Future<RemoteFile> remote(ModelSpec spec) async {
@@ -65,10 +85,26 @@ class ModelDownloader {
     await directory.create(recursive: true);
     final part = partial(spec);
     final start = await part.exists() ? await part.length() : 0;
-    final request = http.Request(
-      'GET',
-      Uri.parse('https://huggingface.co/${spec.hfRepo}/resolve/main/${spec.fileName}'),
-    )..headers.addAll(_headers);
+    final url = Uri.parse('https://huggingface.co/${spec.hfRepo}/resolve/main/${spec.fileName}');
+
+    // A fresh (or segmented) download uses several connections; a partial file from one connection
+    // is finished the way it was started.
+    if (start == 0 && SegmentedDownload.parts(remote.sizeBytes, _connections()) >= 2) {
+      final joined = await SegmentedDownload.run(
+        part: part,
+        total: remote.sizeBytes,
+        connections: _connections(),
+        open: (from, to) => _client
+            .send(http.Request('GET', url)..headers.addAll({..._headers, 'Range': 'bytes=$from-$to'}))
+            .timeout(const Duration(seconds: 30)),
+        onProgress: (done) => onProgress(done, remote.sizeBytes),
+        cancelled: () => cancel.isCancelled,
+        stall: stall?.call(),
+      );
+      if (joined) return part;
+    }
+
+    final request = http.Request('GET', url)..headers.addAll(_headers);
     if (start > 0) request.headers['Range'] = 'bytes=$start-';
     final response = await _client.send(request).timeout(const Duration(seconds: 30));
     if (response.statusCode != 200 && response.statusCode != 206) {

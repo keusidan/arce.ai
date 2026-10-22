@@ -308,10 +308,17 @@ abstract final class AgentSettings {
     ),
     'updateStallSeconds': SettingSpec(
       key: 'updateStallSeconds',
-      label: '更新ダウンロードの無通信の判定（秒）',
+      label: 'ダウンロードの無通信の判定（秒）',
       kind: SettingKind.whole,
       min: 5,
       max: 600,
+    ),
+    'downloadConnections': SettingSpec(
+      key: 'downloadConnections',
+      label: 'ダウンロードの同時接続数（1で分けない）',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 16,
     ),
     'localDryMultiplier': SettingSpec(
       key: 'localDryMultiplier',

@@ -77,6 +77,7 @@ class AppSettings {
     this.toolRepeatLimit = 3,
     this.updateRetryAttempts = 5,
     this.updateStallSeconds = 30,
+    this.downloadConnections = 4,
     this.localDryMultiplier = -1,
     this.kvSnapshotEnabled = false,
     this.kvSnapshotMaxMb = 1024,
@@ -182,6 +183,9 @@ class AppSettings {
   /// How many times an update download is tried, and how many silent seconds end a try.
   final int updateRetryAttempts;
   final int updateStallSeconds;
+
+  /// How many connections a download uses at once (1 = one connection, as before).
+  final int downloadConnections;
 
   /// DRY, the repetition penalty of the device model; -1 keeps the app's own value.
   final double localDryMultiplier;
@@ -293,6 +297,7 @@ class AppSettings {
     int? toolRepeatLimit,
     int? updateRetryAttempts,
     int? updateStallSeconds,
+    int? downloadConnections,
     double? localDryMultiplier,
     bool? kvSnapshotEnabled,
     int? kvSnapshotMaxMb,
@@ -356,6 +361,7 @@ class AppSettings {
     toolRepeatLimit: toolRepeatLimit ?? this.toolRepeatLimit,
     updateRetryAttempts: updateRetryAttempts ?? this.updateRetryAttempts,
     updateStallSeconds: updateStallSeconds ?? this.updateStallSeconds,
+    downloadConnections: downloadConnections ?? this.downloadConnections,
     localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
     kvSnapshotEnabled: kvSnapshotEnabled ?? this.kvSnapshotEnabled,
     kvSnapshotMaxMb: kvSnapshotMaxMb ?? this.kvSnapshotMaxMb,
@@ -421,6 +427,7 @@ class AppSettings {
     'toolRepeatLimit': toolRepeatLimit,
     'updateRetryAttempts': updateRetryAttempts,
     'updateStallSeconds': updateStallSeconds,
+    'downloadConnections': downloadConnections,
     'localDryMultiplier': localDryMultiplier,
     'kvSnapshotEnabled': kvSnapshotEnabled,
     'kvSnapshotMaxMb': kvSnapshotMaxMb,
@@ -515,6 +522,7 @@ class AppSettings {
       toolRepeatLimit: whole('toolRepeatLimit', d.toolRepeatLimit),
       updateRetryAttempts: whole('updateRetryAttempts', d.updateRetryAttempts),
       updateStallSeconds: whole('updateStallSeconds', d.updateStallSeconds),
+      downloadConnections: whole('downloadConnections', d.downloadConnections),
       localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),
       kvSnapshotEnabled: flag('kvSnapshotEnabled', d.kvSnapshotEnabled),
       kvSnapshotMaxMb: whole('kvSnapshotMaxMb', d.kvSnapshotMaxMb),

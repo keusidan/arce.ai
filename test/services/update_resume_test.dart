@@ -86,7 +86,7 @@ class FakeGitHub {
           } else {
             bytes = Stream.value(payload.sublist(from));
           }
-          return reply(from > 0 ? 206 : 200, bytes);
+          return reply(from > 0 || (range != null && honourRange) ? 206 : 200, bytes);
         }
         return reply(404, const Stream.empty());
       });
@@ -169,6 +169,21 @@ void main() {
     final ready = service.state as UpdateReady;
     expect(await ready.file.readAsBytes(), payload);
     expect(github.ranges, [null, 'bytes=20000-']);
+  }, skip: canDownload ? false : 'this platform has no update files');
+
+  test('大きなファイルは、複数の接続に分けて取り、同じ中身になる', () async {
+    final big = List<int>.generate(9 * 1024 * 1024, (i) => (i * 7 + i ~/ 1000) & 0xff);
+    final github = FakeGitHub(payload: big, checksum: sha256.convert(big).toString());
+    final (service, dir) = await serviceFor(github.client());
+
+    await service.check();
+    await service.download();
+
+    final ready = service.state as UpdateReady;
+    expect(await ready.file.readAsBytes(), big);
+    expect(github.ranges, hasLength(2), reason: '9 MB is cut into two parts of at least 4 MB');
+    expect(github.ranges.every((r) => r != null), isTrue);
+    expect(await partFile(dir).exists(), isFalse);
   }, skip: canDownload ? false : 'this platform has no update files');
 
   test('切れ続けるときは、決めた回数で諦めて理由を出す', () async {

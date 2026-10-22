@@ -9,6 +9,7 @@ import '../core/model_catalog.dart';
 import '../engine/native_engine.dart';
 import 'device_info.dart';
 import 'model_downloader.dart';
+import 'segmented_download.dart';
 import 'settings.dart';
 
 /// Shown instead of loading when the estimate exceeds free RAM (spec §27, §34).
@@ -61,7 +62,11 @@ String formatGb(int bytes) => '${(bytes / 1e9).toStringAsFixed(2)} GB';
 /// catalog but cannot download or load.
 class ModelManager extends ChangeNotifier {
   ModelManager._(this.directory, this._engine, this._settings, this._device) {
-    _downloader = ModelDownloader(directory);
+    _downloader = ModelDownloader(
+      directory,
+      connections: () => _settings.value.downloadConnections.clamp(1, 16),
+      stall: () => Duration(seconds: _settings.value.updateStallSeconds.clamp(5, 600)),
+    );
   }
 
   static Future<ModelManager> create({
@@ -252,6 +257,7 @@ class ModelManager extends ChangeNotifier {
     await file.delete();
     final part = File('${file.path}.part');
     if (await part.exists()) await part.delete();
+    await SegmentedDownload.deleteSegments(part);
     await refresh();
   }
 
@@ -273,8 +279,7 @@ class ModelManager extends ChangeNotifier {
     final cancel = _cancels[spec.id] = CancelToken();
     try {
       final remote = await _downloader.remote(spec);
-      final part = _downloader.partial(spec);
-      final already = await part.exists() ? await part.length() : 0;
+      final already = await _downloader.downloadedBytes(spec);
       final free = await _device.freeStorageBytes(directory.path);
       if (free != null && remote.sizeBytes - already > free) {
         _setDownload(spec, DownloadFailed(
@@ -298,14 +303,10 @@ class ModelManager extends ChangeNotifier {
       // Load right away when asked to, or when nothing is loaded yet.
       if (loadWhenDone || loadedPath == null) await load(installedFile);
     } on DownloadCancelled {
-      final part = _downloader.partial(spec);
-      _setDownload(spec, DownloadPaused(await part.exists() ? await part.length() : 0, spec.fileBytes));
+      _setDownload(spec, DownloadPaused(await _downloader.downloadedBytes(spec), spec.fileBytes));
     } catch (e) {
-      final part = _downloader.partial(spec);
-      _setDownload(
-        spec,
-        await part.exists() ? DownloadPaused(await part.length(), spec.fileBytes, '$e') : DownloadFailed('$e'),
-      );
+      final kept = await _downloader.downloadedBytes(spec);
+      _setDownload(spec, kept > 0 ? DownloadPaused(kept, spec.fileBytes, '$e') : DownloadFailed('$e'));
     } finally {
       _cancels.remove(spec.id);
     }
@@ -318,6 +319,7 @@ class ModelManager extends ChangeNotifier {
   Future<void> discardPartial(ModelSpec spec) async {
     final part = _downloader.partial(spec);
     if (await part.exists()) await part.delete();
+    await SegmentedDownload.deleteSegments(part);
     downloads.remove(spec.id);
     notifyListeners();
   }
