@@ -43,34 +43,45 @@ class SearXngProvider implements SearchProvider {
   }
 }
 
-/// A search service the user set up: a GET address with `{query}` (and `{count}`, `{key}`) in it,
-/// extra headers, and where in the JSON answer the results are.
+/// A search service the user set up: an address with `{query}` (and `{count}`, `{key}`) in it, the
+/// method (GET, or POST with a JSON body), extra headers, and where in the JSON answer the results are.
 ///
 /// The API key is not here. It lives in the platform's secure storage under [keyRef] and is put
-/// in wherever `{key}` stands (the address or a header value), so a settings file or a backup
-/// never carries it.
+/// in wherever `{key}` stands (the address, a header value or the body), so a settings file or a
+/// backup never carries it.
 class SearchApiConfig {
   const SearchApiConfig({
     required this.id,
     required this.name,
     required this.url,
+    this.method = 'GET',
+    this.body = '',
     this.headers = const {},
     this.resultsPath = '',
     this.titleField = 'title',
     this.urlField = 'url',
     this.snippetField = 'description',
+    this.maxCount = 50,
     this.enabled = true,
   });
 
   static const queryMark = '{query}';
   static const countMark = '{count}';
   static const keyMark = '{key}';
+  static const methods = ['GET', 'POST'];
 
   final String id;
   final String name;
 
   /// e.g. `https://api.example.com/search?q={query}&count={count}`.
   final String url;
+
+  /// `GET` or `POST`.
+  final String method;
+
+  /// The JSON sent with a POST; `{query}` and `{key}` are put in as JSON strings (without their quotes
+  /// in the template: `{"query": "{query}"}`), `{count}` as a number (`{"max_results": {count}}`).
+  final String body;
 
   /// Values may contain `{key}`.
   final Map<String, String> headers;
@@ -82,34 +93,70 @@ class SearchApiConfig {
   final String titleField;
   final String urlField;
   final String snippetField;
+
+  /// The most results the service accepts in one request (some answer an error above it).
+  final int maxCount;
   final bool enabled;
+
+  bool get isPost => method.toUpperCase() == 'POST';
 
   String get keyRef => 'search_key_$id';
 
   /// True when a key has to be set for the service to work.
-  bool get needsKey => url.contains(keyMark) || headers.values.any((v) => v.contains(keyMark));
+  bool get needsKey =>
+      url.contains(keyMark) || body.contains(keyMark) || headers.values.any((v) => v.contains(keyMark));
 
-  bool get isComplete =>
-      id.trim().isNotEmpty && url.contains(queryMark) && (Uri.tryParse(url.replaceAll(RegExp(r'\{\w+\}'), 'x'))?.hasScheme ?? false);
+  /// The reason this configuration cannot be used, or null.
+  String? get problem {
+    if (id.trim().isEmpty) return '名前がありません';
+    final uri = Uri.tryParse(url.replaceAll(RegExp(r'\{\w+\}'), 'x'));
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https')) || uri.host.isEmpty) {
+      return 'URL は http(s) で入れてください';
+    }
+    if (isPost) {
+      if (!url.contains(queryMark) && !body.contains(queryMark)) return 'URL か本文に {query} を入れてください';
+      return checkBody(body);
+    }
+    return url.contains(queryMark) ? null : 'URL に {query} を入れてください';
+  }
+
+  bool get isComplete => problem == null;
+
+  /// `null` when [template] is JSON once its marks are filled in, else what is wrong with it.
+  static String? checkBody(String template) {
+    if (template.trim().isEmpty) return null;
+    try {
+      jsonDecode(template.replaceAll(queryMark, 'q').replaceAll(keyMark, 'k').replaceAll(countMark, '1'));
+      return null;
+    } on FormatException {
+      return '本文が JSON になっていません（{query} と {key} は "" の中、{count} は数字として書きます）';
+    }
+  }
 
   SearchApiConfig copyWith({
     String? name,
     String? url,
+    String? method,
+    String? body,
     Map<String, String>? headers,
     String? resultsPath,
     String? titleField,
     String? urlField,
     String? snippetField,
+    int? maxCount,
     bool? enabled,
   }) => SearchApiConfig(
     id: id,
     name: name ?? this.name,
     url: url ?? this.url,
+    method: method ?? this.method,
+    body: body ?? this.body,
     headers: headers ?? this.headers,
     resultsPath: resultsPath ?? this.resultsPath,
     titleField: titleField ?? this.titleField,
     urlField: urlField ?? this.urlField,
     snippetField: snippetField ?? this.snippetField,
+    maxCount: maxCount ?? this.maxCount,
     enabled: enabled ?? this.enabled,
   );
 
@@ -117,21 +164,27 @@ class SearchApiConfig {
     'id': id,
     'name': name,
     'url': url,
+    if (isPost) 'method': 'POST',
+    if (body.isNotEmpty) 'body': body,
     if (headers.isNotEmpty) 'headers': headers,
     'resultsPath': resultsPath,
     'titleField': titleField,
     'urlField': urlField,
     'snippetField': snippetField,
+    'maxCount': maxCount,
     'enabled': enabled,
   };
 
   factory SearchApiConfig.fromJson(Map<String, Object?> json) {
     String text(String key, [String fallback = '']) => json[key] is String ? json[key]! as String : fallback;
     final rawHeaders = json['headers'];
+    final count = json['maxCount'];
     return SearchApiConfig(
       id: text('id'),
       name: text('name'),
       url: text('url'),
+      method: text('method', 'GET').toUpperCase() == 'POST' ? 'POST' : 'GET',
+      body: text('body'),
       headers: {
         if (rawHeaders is Map)
           for (final entry in rawHeaders.entries)
@@ -141,12 +194,15 @@ class SearchApiConfig {
       titleField: text('titleField', 'title'),
       urlField: text('urlField', 'url'),
       snippetField: text('snippetField', 'description'),
+      maxCount: count is int && count > 0 ? count : 50,
       enabled: json['enabled'] is bool ? json['enabled']! as bool : true,
     );
   }
 
-  /// Ready-made entries the editor offers. The field names come from each service's own documentation
-  /// (see docs); every one of them can be changed afterwards.
+  /// Ready-made entries the editor offers. The request and answer formats are the ones the services'
+  /// documentation (and the integrations that use them) describe; the ones marked 要確認 could not be
+  /// checked against the service's own page, so run 「試す」 with a key before relying on them. Every
+  /// field can be changed afterwards.
   static const presets = <String, SearchApiConfig>{
     'Brave Search': SearchApiConfig(
       id: '',
@@ -154,6 +210,7 @@ class SearchApiConfig {
       url: 'https://api.search.brave.com/res/v1/web/search?q={query}&count={count}',
       headers: {'Accept': 'application/json', 'X-Subscription-Token': '{key}'},
       resultsPath: 'web.results',
+      maxCount: 20,
     ),
     'Google カスタム検索': SearchApiConfig(
       id: '',
@@ -162,6 +219,132 @@ class SearchApiConfig {
       resultsPath: 'items',
       urlField: 'link',
       snippetField: 'snippet',
+      maxCount: 10,
+    ),
+    'Tavily': SearchApiConfig(
+      id: '',
+      name: 'Tavily',
+      url: 'https://api.tavily.com/search',
+      method: 'POST',
+      body: '{"query": "{query}", "max_results": {count}, "search_depth": "basic"}',
+      headers: {'Authorization': 'Bearer {key}'},
+      resultsPath: 'results',
+      snippetField: 'content',
+      maxCount: 20,
+    ),
+    'Exa': SearchApiConfig(
+      id: '',
+      name: 'Exa',
+      url: 'https://api.exa.ai/search',
+      method: 'POST',
+      body: '{"query": "{query}", "numResults": {count}, "contents": {"text": {"maxCharacters": 500}}}',
+      headers: {'x-api-key': '{key}'},
+      resultsPath: 'results',
+      snippetField: 'text',
+      maxCount: 100,
+    ),
+    'Serper': SearchApiConfig(
+      id: '',
+      name: 'Serper',
+      url: 'https://google.serper.dev/search',
+      method: 'POST',
+      body: '{"q": "{query}", "num": {count}}',
+      headers: {'X-API-KEY': '{key}'},
+      resultsPath: 'organic',
+      urlField: 'link',
+      snippetField: 'snippet',
+      maxCount: 100,
+    ),
+    'Perplexity 検索': SearchApiConfig(
+      id: '',
+      name: 'Perplexity 検索',
+      url: 'https://api.perplexity.ai/search',
+      method: 'POST',
+      body: '{"query": "{query}", "max_results": {count}}',
+      headers: {'Authorization': 'Bearer {key}'},
+      resultsPath: 'results',
+      snippetField: 'snippet',
+      maxCount: 20,
+    ),
+    'Ollama 検索': SearchApiConfig(
+      id: '',
+      name: 'Ollama 検索',
+      url: 'https://ollama.com/api/web_search',
+      method: 'POST',
+      body: '{"query": "{query}", "max_results": {count}}',
+      headers: {'Authorization': 'Bearer {key}'},
+      resultsPath: 'results',
+      snippetField: 'content',
+      maxCount: 10,
+    ),
+    '智谱（Zhipu）': SearchApiConfig(
+      id: '',
+      name: '智谱（Zhipu）',
+      url: 'https://open.bigmodel.cn/api/paas/v4/web_search',
+      method: 'POST',
+      body: '{"search_query": "{query}", "search_engine": "search_std", "search_intent": false, "count": {count}}',
+      headers: {'Authorization': 'Bearer {key}'},
+      resultsPath: 'search_result',
+      urlField: 'link',
+      snippetField: 'content',
+      maxCount: 50,
+    ),
+    'Firecrawl（要確認）': SearchApiConfig(
+      id: '',
+      name: 'Firecrawl',
+      url: 'https://api.firecrawl.dev/v2/search',
+      method: 'POST',
+      body: '{"query": "{query}", "limit": {count}}',
+      headers: {'Authorization': 'Bearer {key}'},
+      resultsPath: 'data.web',
+      maxCount: 100,
+    ),
+    'LinkUp（要確認）': SearchApiConfig(
+      id: '',
+      name: 'LinkUp',
+      url: 'https://api.linkup.so/v1/search',
+      method: 'POST',
+      body: '{"q": "{query}", "depth": "standard", "outputType": "searchResults", "maxResults": {count}}',
+      headers: {'Authorization': 'Bearer {key}'},
+      resultsPath: 'results',
+      titleField: 'name',
+      snippetField: 'content',
+      maxCount: 50,
+    ),
+    '博查 Bocha（要確認）': SearchApiConfig(
+      id: '',
+      name: '博查 Bocha',
+      url: 'https://api.bochaai.com/v1/web-search',
+      method: 'POST',
+      body: '{"query": "{query}", "count": {count}, "summary": true}',
+      headers: {'Authorization': 'Bearer {key}'},
+      resultsPath: 'data.webPages.value',
+      titleField: 'name',
+      snippetField: 'summary',
+      maxCount: 50,
+    ),
+    'Jina（要確認）': SearchApiConfig(
+      id: '',
+      name: 'Jina',
+      url: 'https://s.jina.ai/',
+      method: 'POST',
+      body: '{"q": "{query}"}',
+      headers: {'Authorization': 'Bearer {key}', 'Accept': 'application/json'},
+      resultsPath: 'data',
+      snippetField: 'description',
+      maxCount: 50,
+    ),
+    '秘塔 Metaso（要確認）': SearchApiConfig(
+      id: '',
+      name: '秘塔 Metaso',
+      url: 'https://metaso.cn/api/v1/search',
+      method: 'POST',
+      body: '{"q": "{query}", "scope": "webpage", "size": {count}}',
+      headers: {'Authorization': 'Bearer {key}', 'Accept': 'application/json'},
+      resultsPath: 'webpages',
+      urlField: 'link',
+      snippetField: 'snippet',
+      maxCount: 50,
     ),
   };
 
@@ -193,22 +376,31 @@ class SearchApiConfig {
   }
 }
 
-/// Searches with a [SearchApiConfig]: fills in the address and headers, reads the answer's JSON.
+/// Searches with a [SearchApiConfig]: fills in the address, headers and body, reads the answer's JSON.
 class ConfiguredSearchProvider implements SearchProvider {
-  ConfiguredSearchProvider(this.config, this.apiKey, this._get);
+  ConfiguredSearchProvider(this.config, this.apiKey, this._get, {this.post});
 
   final SearchApiConfig config;
   final String apiKey;
   final HttpGet _get;
 
+  /// Sends the POST of a service that takes one; without it such a service reports an error.
+  final HttpPost? post;
+
   @override
   String get name => config.name;
+
+  /// [text] as the inside of a JSON string.
+  static String _jsonText(String text) {
+    final quoted = jsonEncode(text);
+    return quoted.substring(1, quoted.length - 1);
+  }
 
   @override
   Future<List<SearchHit>> search(String query, int limit) async {
     if (config.needsKey && apiKey.trim().isEmpty) throw StateError('APIキーが未設定です');
     final key = apiKey.trim();
-    final count = limit.clamp(1, 50);
+    final count = limit.clamp(1, config.maxCount < 1 ? 1 : config.maxCount);
     final url = config.url
         .replaceAll(SearchApiConfig.queryMark, Uri.encodeQueryComponent(query))
         .replaceAll(SearchApiConfig.countMark, '$count')
@@ -216,7 +408,25 @@ class ConfiguredSearchProvider implements SearchProvider {
     final headers = {
       for (final entry in config.headers.entries) entry.key: entry.value.replaceAll(SearchApiConfig.keyMark, key),
     };
-    final root = jsonDecode(await _get(url, headers));
+
+    final String answer;
+    if (config.isPost) {
+      final send = post;
+      if (send == null) throw StateError('この環境では POST を送れません');
+      final body = config.body
+          .replaceAll(SearchApiConfig.queryMark, _jsonText(query))
+          .replaceAll(SearchApiConfig.countMark, '$count')
+          .replaceAll(SearchApiConfig.keyMark, _jsonText(key));
+      final withType = {
+        if (!headers.keys.any((k) => k.toLowerCase() == 'content-type')) 'Content-Type': 'application/json',
+        ...headers,
+      };
+      answer = await send(url, withType, body);
+    } else {
+      answer = await _get(url, headers);
+    }
+
+    final root = jsonDecode(answer);
     final results = _at(root, config.resultsPath);
     final hits = <SearchHit>[];
     for (final element in (results is List ? results : const [])) {

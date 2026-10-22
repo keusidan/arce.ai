@@ -161,12 +161,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     subtitle: '生成中の状態と思考プロセスを表示します',
                     trailing: ArceSwitch(value: s.thinking, onChanged: (v) => set((x) => x.copyWith(thinking: v))),
                   ),
-                  SettingRow(
-                    icon: ArceSvg.searchClock,
-                    title: 'Search',
-                    subtitle: 'AIが必要と判断したときにWeb検索を使います',
-                    trailing: ArceSwitch(value: s.searchEnabled, onChanged: (v) => set((x) => x.copyWith(searchEnabled: v))),
-                  ),
                   _TextRow(
                     icon: ArceSvg.globe,
                     title: 'SearXNG のアドレス',

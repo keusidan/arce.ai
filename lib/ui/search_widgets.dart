@@ -33,7 +33,7 @@ class SearchApiSection extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
-                    'まだありません。「追加」から、好きな検索サービスの URL と API キーを登録できます（Brave などはひな形があります）。',
+                    'まだありません。「追加」から、好きな検索サービスを登録できます（Brave・Tavily・Exa・Serper などはひな形があります）。',
                     style: ts(context, 9.5, color: context.c.muted, height: 1.5),
                   ),
                 ),
@@ -45,7 +45,7 @@ class SearchApiSection extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  'GET で JSON を返すサービスに対応します。URL の {query} が検索語、{count} が件数、{key} が API キーに入れ替わります（キーは端末の安全な領域に保存）。',
+                  'JSON を返すサービスに対応します（GET と POST）。{query} が検索語、{count} が件数、{key} が API キーに入れ替わります（URL・ヘッダー・本文のどこでも。キーは端末の安全な領域に保存）。',
                   style: ts(context, 9, color: context.c.muted, height: 1.5),
                 ),
               ),
@@ -165,6 +165,9 @@ class _ApiEditorState extends State<_ApiEditor> {
   late final TextEditingController _title = TextEditingController(text: widget.existing?.titleField ?? 'title');
   late final TextEditingController _link = TextEditingController(text: widget.existing?.urlField ?? 'url');
   late final TextEditingController _snippet = TextEditingController(text: widget.existing?.snippetField ?? 'description');
+  late final TextEditingController _body = TextEditingController(text: widget.existing?.body ?? '');
+  late final TextEditingController _maxCount = TextEditingController(text: '${widget.existing?.maxCount ?? 50}');
+  late String _method = widget.existing?.method ?? 'GET';
   late bool _enabled = widget.existing?.enabled ?? true;
 
   static String _showHeaders(Map<String, String> headers) =>
@@ -172,7 +175,7 @@ class _ApiEditorState extends State<_ApiEditor> {
 
   @override
   void dispose() {
-    for (final controller in [_name, _url, _headers, _key, _results, _title, _link, _snippet]) {
+    for (final controller in [_name, _url, _headers, _key, _results, _title, _link, _snippet, _body, _maxCount]) {
       controller.dispose();
     }
     super.dispose();
@@ -186,6 +189,9 @@ class _ApiEditorState extends State<_ApiEditor> {
         _title.text = preset.titleField;
         _link.text = preset.urlField;
         _snippet.text = preset.snippetField;
+        _method = preset.method;
+        _body.text = preset.body;
+        _maxCount.text = '${preset.maxCount}';
       });
 
   /// The config the fields describe, or null (with the reason shown) when the headers are wrong.
@@ -208,6 +214,9 @@ class _ApiEditorState extends State<_ApiEditor> {
       titleField: _title.text.trim().isEmpty ? 'title' : _title.text.trim(),
       urlField: _link.text.trim().isEmpty ? 'url' : _link.text.trim(),
       snippetField: _snippet.text.trim(),
+      method: _method,
+      body: _method == 'POST' ? _body.text.trim() : '',
+      maxCount: int.tryParse(_maxCount.text.trim())?.clamp(1, 1000) ?? 50,
       enabled: _enabled,
     );
   }
@@ -215,8 +224,9 @@ class _ApiEditorState extends State<_ApiEditor> {
   Future<void> _save() async {
     final api = _config();
     if (api == null) return;
-    if (!api.isComplete) {
-      widget.app.showToast('URL は http(s) で、{query} を入れてください');
+    final problem = api.problem;
+    if (problem != null) {
+      widget.app.showToast(problem);
       return;
     }
     await widget.app.settings.update(
@@ -252,16 +262,26 @@ class _ApiEditorState extends State<_ApiEditor> {
                 spacing: 8,
                 children: [
                   for (final entry in SearchApiConfig.presets.entries)
-                    ActionChip(label: Text('${entry.key} のひな形'), onPressed: () => _usePreset(entry.value)),
+                    ActionChip(label: Text(entry.key), onPressed: () => _usePreset(entry.value)),
                 ],
               ),
             ],
             const SizedBox(height: 12),
             _field('名前', _name, 'Brave Search'),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: SegmentedButton<String>(
+                segments: [for (final m in SearchApiConfig.methods) ButtonSegment(value: m, label: Text(m))],
+                selected: {_method},
+                onSelectionChanged: (v) => setState(() => _method = v.first),
+              ),
+            ),
             _field('URL', _url, 'https://…?q={query}&count={count}', keyboard: TextInputType.url),
+            if (_method == 'POST') _field('本文（JSON）', _body, '{"query": "{query}", "max_results": {count}}', lines: 3),
             _field('ヘッダー（JSON）', _headers, '{"X-Subscription-Token": "{key}"}', lines: 2),
             _field('API キー', _key, '{key} に入ります（端末の安全な領域に保存）', obscure: true),
             _field('結果の場所', _results, 'web.results（答えそのものが一覧なら空）'),
+            _field('1回に頼める件数の上限', _maxCount, '50', keyboard: TextInputType.number),
             Row(
               children: [
                 Expanded(child: _field('題名', _title, 'title')),

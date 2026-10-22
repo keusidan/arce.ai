@@ -438,7 +438,6 @@ class _MenuDrawer extends StatelessWidget {
               child: Column(children: [
                 _NavItem(label: 'モデル管理', svg: ArceSvg.cube, active: app.page == AppPage.models, onTap: () => go(AppPage.models)),
                 _NavItem(label: '生成されたアーティファクト', svg: ArceSvg.gridNav, active: app.page == AppPage.artifacts, onTap: () => go(AppPage.artifacts)),
-                _NavItem(label: '詳細設定', svg: ArceSvg.settings, active: app.page == AppPage.settings, onTap: () => go(AppPage.settings)),
               ]),
             ),
           ]),

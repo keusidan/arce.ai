@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:arce_ai/core/http_get.dart';
 import 'package:arce_ai/core/protocol.dart';
 import 'package:arce_ai/core/search.dart';
@@ -119,6 +121,104 @@ void main() {
     expect(back.toJson().keys, isNot(contains('key')));
     expect(SearchApis.idFor('Brave Search', const []), 'brave-search');
     expect(SearchApis.idFor('日本語', const []), 'search');
+  });
+
+  group('POST の検索 API', () {
+    SearchApiConfig preset(String name) => SearchApiConfig.presets.entries.firstWhere((e) => e.key.startsWith(name)).value.copyWith(name: name);
+
+    test('本文の {query} と {key} は JSON の文字列として入り、{count} は数字で入る', () async {
+      String? sentUrl, sentBody;
+      Map<String, String>? sentHeaders;
+      final provider = ConfiguredSearchProvider(
+        preset('Tavily'),
+        'tvly-"key"',
+        (url, headers) async => throw StateError('GET is not used'),
+        post: (url, headers, body) async {
+          sentUrl = url;
+          sentHeaders = headers;
+          sentBody = body;
+          return '{"results":[{"title":"T","url":"https://t.example/","content":"c"}]}';
+        },
+      );
+
+      final hits = await provider.search('He said "hi"\nand 日本語', 5);
+      expect(sentUrl, 'https://api.tavily.com/search');
+      expect(sentHeaders!['Authorization'], 'Bearer tvly-"key"');
+      expect(sentHeaders!['Content-Type'], 'application/json');
+      final decoded = jsonDecode(sentBody!) as Map;
+      expect(decoded['query'], 'He said "hi"\nand 日本語', reason: 'quotes and line breaks survive as one string');
+      expect(decoded['max_results'], 5);
+      expect(hits.single.snippet, 'c');
+    });
+
+    test('件数は、サービスの上限を超えて頼まない', () async {
+      Object? sentCount;
+      final provider = ConfiguredSearchProvider(
+        preset('Ollama'),
+        'k',
+        (url, headers) async => '{}',
+        post: (url, headers, body) async {
+          sentCount = (jsonDecode(body) as Map)['max_results'];
+          return '{"results":[]}';
+        },
+      );
+      await provider.search('q', 30);
+      expect(sentCount, 10);
+    });
+
+    test('POST を送れない環境では、理由を出して失敗する', () async {
+      final provider = ConfiguredSearchProvider(preset('Tavily'), 'k', (url, headers) async => '{}');
+      await expectLater(provider.search('q', 3), throwsA(isA<StateError>()));
+    });
+
+    test('ひな形はどれも、そのまま使える形になっている', () {
+      for (final entry in SearchApiConfig.presets.entries) {
+        final config = entry.value.copyWith(name: entry.key);
+        expect(SearchApiConfig.fromJson({...config.toJson(), 'id': 'x'}).problem, isNull, reason: entry.key);
+        expect(config.needsKey, isTrue, reason: '${entry.key} takes a key');
+        expect(SearchApiConfig.parseHeaders(jsonEncode(config.headers)), config.headers, reason: entry.key);
+      }
+      expect(SearchApiConfig.presets.length, greaterThanOrEqualTo(12));
+    });
+
+    test('それぞれのサービスの答えの形を読める', () async {
+      const answers = {
+        'Exa': '{"results":[{"title":"T","url":"https://e.example/","text":"body"}]}',
+        'Serper': '{"organic":[{"title":"T","link":"https://s.example/","snippet":"body"}]}',
+        'Perplexity': '{"results":[{"title":"T","url":"https://p.example/","snippet":"body"}]}',
+        'Ollama': '{"results":[{"title":"T","url":"https://o.example/","content":"body"}]}',
+        '智谱': '{"search_result":[{"title":"T","link":"https://z.example/","content":"body"}]}',
+        'Firecrawl': '{"data":{"web":[{"title":"T","url":"https://f.example/","description":"body"}]}}',
+      };
+      for (final entry in answers.entries) {
+        final provider = ConfiguredSearchProvider(
+          preset(entry.key),
+          'k',
+          (url, headers) async => '{}',
+          post: (url, headers, body) async => entry.value,
+        );
+        final hits = await provider.search('q', 3);
+        expect(hits.single.title, 'T', reason: entry.key);
+        expect(hits.single.snippet, 'body', reason: entry.key);
+        expect(hits.single.url, startsWith('https://'), reason: entry.key);
+      }
+    });
+
+    test('本文のひな形が JSON でなければ、保存の前に分かる', () {
+      expect(SearchApiConfig.checkBody('{"query": "{query}", "n": {count}}'), isNull);
+      expect(SearchApiConfig.checkBody(''), isNull);
+      expect(SearchApiConfig.checkBody('{"query": {query}}'), isNotNull, reason: '{query} must be inside quotes');
+      expect(SearchApiConfig.checkBody('not json'), isNotNull);
+      final bad = preset('Tavily').copyWith(body: '{"query": "{query}"');
+      expect(SearchApiConfig.fromJson({...bad.toJson(), 'id': 'x'}).problem, contains('JSON'));
+    });
+
+    test('POST は {query} が URL か本文のどちらかにあればよい', () {
+      const post = SearchApiConfig(id: 'x', name: 'x', url: 'https://x.example/s', method: 'POST', body: '{"q": "{query}"}');
+      expect(post.problem, isNull);
+      expect(post.copyWith(body: '{"q": "fixed"}').problem, contains('{query}'));
+      expect(const SearchApiConfig(id: 'x', name: 'x', url: 'https://x.example/s').problem, contains('{query}'), reason: 'GET needs it in the URL');
+    });
   });
 
   test('configured providers come before the instant answer', () async {

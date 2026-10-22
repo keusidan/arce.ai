@@ -205,11 +205,16 @@ class AppController extends ChangeNotifier {
     timeoutOf: () => Duration(seconds: settings.value.httpTimeoutSeconds.clamp(3, 300)),
   );
 
+  late final _httpPost = packageHttpPost(
+    timeoutOf: () => Duration(seconds: settings.value.httpTimeoutSeconds.clamp(3, 300)),
+  );
+
   /// Built per call so a changed SearXNG address or search switch applies immediately.
   late final ToolRuntime _toolRuntime = _SettingsToolRuntime(
     settings,
     providers,
     _http,
+    _httpPost,
   );
 
   /// Applies the settings the user approved in the chat (protocol `update_settings`). The reply
@@ -284,9 +289,10 @@ class AppController extends ChangeNotifier {
 
   /// Runs one search with the values of the editor (saved or not) and says what came back.
   Future<String> testSearchApi(SearchApiConfig config, String key) async {
-    if (!config.isComplete) return 'URL に {query} を入れてください';
+    final problem = config.problem;
+    if (problem != null) return problem;
     try {
-      final hits = await ConfiguredSearchProvider(config, key, _http).search('test', 3);
+      final hits = await ConfiguredSearchProvider(config, key, _http, post: _httpPost).search('test', 3);
       return hits.isEmpty
           ? '接続できましたが、結果を読み取れませんでした（結果のパスと項目名を確かめてください）'
           : '${hits.length} 件読み取れました: ${hits.first.title}';
@@ -661,11 +667,12 @@ class _NoProvider implements AiProvider {
 
 /// Tools read the settings at call time, so a changed SearXNG address or search switch applies at once.
 class _SettingsToolRuntime implements ToolRuntime {
-  _SettingsToolRuntime(this._settings, this._providers, this._http);
+  _SettingsToolRuntime(this._settings, this._providers, this._http, this._httpPost);
 
   final SettingsStore _settings;
   final ProviderStore _providers;
   final HttpGet _http;
+  final HttpPost _httpPost;
 
   @override
   Future<ToolOutcome> run(call) {
@@ -691,7 +698,7 @@ class _SettingsToolRuntime implements ToolRuntime {
       if (s.searxngUrl.trim().isNotEmpty)
         SearXngProvider(s.searxngUrl.trim(), _http),
       for (final api in s.searchApis)
-        if (api.enabled) ConfiguredSearchProvider(api, _settings.searchKeyOf(api.id), _http),
+        if (api.enabled) ConfiguredSearchProvider(api, _settings.searchKeyOf(api.id), _http, post: _httpPost),
       DuckDuckGoInstantProvider(_http),
     ];
     // without a search server or a search API, only DuckDuckGo's summaries are left, which answer few questions

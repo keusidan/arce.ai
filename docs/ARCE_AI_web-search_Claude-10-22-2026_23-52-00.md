@@ -1,4 +1,4 @@
-# ARCE.AI オンライン検索（0.8.6〜0.8.7）
+# ARCE.AI オンライン検索（0.8.6〜0.8.10）
 
 ## 1. 起きたこと
 チャットで最新情報を調べさせると、「検索に失敗（ローカルAIのみで回答）: DuckDuckGo Instant Answer: no results」になった。
@@ -24,9 +24,25 @@
 - 確認：URL とヘッダーの埋め込み（キーのエンコード、ヘッダー内のキー）、結果の場所と項目名の読み取り、強調タグの除去、キー未設定のときは呼ばないこと、機密らしいヘッダーの拒否、設定 JSON にキーが入らないこと、順番、案内の表示（テスト 413 件）。
 - **未確認**：Brave と Google の公式 docs をこの環境から開けなかった（`ENOTFOUND`）。ひな形の項目名（Brave：`web.results`・`title`・`url`・`description`、ヘッダー `X-Subscription-Token`。Google：`items`・`link`・`snippet`、`cx`・`num`）は、記憶と検索結果の要約によるもので、公式では確かめていない。実機の「試す」で読み取れなければ、項目名を直せる。
 - 未確認：0.8.6 の Brave キーの移し替えは、実機の安全な領域では試していない（テストでは動かせない）。
+- GET だけに対応（0.8.7 の時点）。0.8.10 で POST に対応した（5 章）。
 - 使わなかった方法：DuckDuckGo の HTML ページの取得（公式の API ではなく、ブロックされやすい）。
+
+## 5. 0.8.10：RikkaHub の検索サービスに合わせて広げる
+RikkaHub（Android の LLM アプリ）の検索サービスの一覧を、リポジトリの `search/src/main/java/me/rerere/search` にあるファイル名で確かめた：Bing、Bocha、Brave、CustomJs、DeepSeek、Doubao、Exa、Firecrawl、Grok、Jina、LinkUp、Metaso、Ollama、Perplexity、RikkaHub（自前）、SearXNG、Serper、Tavily、Tinyfish、Zhipu。（README には Exa・Tavily・Zhipu・LinkUp・Brave・Perplexity と、「etc.」とある。）
+
+- 検索 API の設定を **POST（JSON の本文）**に対応させた。本文の `{query}` と `{key}` は JSON の文字列として、`{count}` は数字として入る（引用符・改行・日本語が入っても壊れない）。サービスごとの 1 回の件数の上限（`maxCount`）も設定にした。本文のひな形が JSON にならないときは、保存の前に分かる。
+- ひな形を 13 件にした：Brave、Google カスタム検索、Tavily、Exa、Serper、Perplexity、Ollama、智谱（Zhipu）、Firecrawl、LinkUp、博查（Bocha）、Jina、秘塔（Metaso）。SearXNG は、これまでの「SearXNG のアドレス」で使える。
+- **まだ対応していないもの（RikkaHub にあって、ここには無い）**：Bing（端末が検索ページを読む方式。公式の API ではなく、ページの形が変わると壊れる）、CustomJs（JavaScript で自作）、DeepSeek・Doubao・Grok（モデルに検索させる方式で、検索結果の一覧を取る API とは別の仕組み）、RikkaHub 自前のサービス、Tinyfish（形式を確かめられなかった）。そのため「同じ広さ」には、まだ届いていない。
+- ひな形の形式の確かさ：Tavily・Exa・Serper・Perplexity・Ollama・智谱は、第三者の資料で本文・ヘッダー・結果の項目名が揃って見つかったもの（公式の docs は開けていない）。Firecrawl・LinkUp・Bocha・Jina・Metaso は、一部の項目名が確かめられなかったので、名前に「要確認」を付けた。「試す」で読み取れるかを確かめてから使う。
+- 画面：設定の「基本設定」の「Search」の切り替え（チャットの入力欄の「検索」ボタンと重なるため）と、チャット画面のハンバーガーメニューの「詳細設定」（下のタブと右上の歯車と重なるため）を消した。検索のオン・オフは、チャットの入力欄のボタンで行う。
 
 ## 出典
 - Brave Search API（公式 docs）：https://api.search.brave.com/app/documentation/web-search/get-started
 - Brave Search API の認証：https://api-docs.search.brave.software/guides/authentication
 - Google Programmable Search（Custom Search JSON API）：https://developers.google.com/custom-search/v1/overview
+- RikkaHub（検索サービスの一覧）：https://github.com/rikkahub/rikkahub/tree/master/search/src/main/java/me/rerere/search
+- Tavily のヘルプ：https://help.tavily.com/articles/4840311948-tavily-search-api
+- Ollama の Web 検索 API（ドキュメントの写し）：https://lzw.me/docs/ollama/zh-CN/capabilities/web-search.html
+- Perplexity Search API：https://docs.perplexity.ai/guides/search-quickstart
+- Exa（公式の curl ガイド）：https://docs.exa.ai/reference/getting-started-with-curl
+- 智谱 BigModel のウェブ検索：https://docs.bigmodel.cn/api-reference/%E5%B7%A5%E5%85%B7-api/%E7%BD%91%E7%BB%9C%E6%90%9C%E7%B4%A2.md
