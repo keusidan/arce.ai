@@ -23,6 +23,7 @@ class UiMessage {
     this.thinking = '',
     this.question,
     this.settings,
+    this.provider,
     this.tool,
     this.finish,
     this.activities = const [],
@@ -40,6 +41,9 @@ class UiMessage {
   /// Set with [question] when the card asks the user to approve a settings change.
   final List<SettingsChangeOk>? settings;
 
+  /// Set with [question] when the card asks the user to approve adding a provider.
+  final ProviderDraft? provider;
+
   /// Set with [question] when the card asks the user to approve one MCP tool call.
   final McpCall? tool;
   final FinishReason? finish;
@@ -53,6 +57,7 @@ class UiMessage {
     String? thinking,
     QuestionTile? question,
     List<SettingsChangeOk>? settings,
+    ProviderDraft? provider,
     McpCall? tool,
     FinishReason? finish,
     List<ToolActivity>? activities,
@@ -63,6 +68,7 @@ class UiMessage {
     thinking: thinking ?? this.thinking,
     question: question ?? this.question,
     settings: settings ?? this.settings,
+    provider: provider ?? this.provider,
     tool: tool ?? this.tool,
     finish: finish ?? this.finish,
     activities: activities ?? this.activities,
@@ -86,6 +92,7 @@ class UiMessage {
             for (final change in settings!)
               {'key': change.key, 'value': change.value},
           ],
+    'provider': provider?.toJson(),
     'finish': finish?.name,
     'activities': [for (final a in activities) a.toJson()],
     'agent': agent,
@@ -104,6 +111,7 @@ class UiMessage {
     settings: json['settings'] is List
         ? _settingsFromJson(json['settings'] as List)
         : null,
+    provider: json['provider'] is Map ? ProviderDraft.parse(json['provider']).$1 : null,
     tool: json['tool'] is Map && (json['tool'] as Map)['name'] is String
         ? McpCall(
             (json['tool'] as Map)['name'] as String,
@@ -161,6 +169,11 @@ class ChatState {
   List<SettingsChangeOk>? get pendingSettings =>
       task == TaskState.userWait && messages.isNotEmpty
       ? messages.last.settings
+      : null;
+
+  /// The provider waiting for the user's approval.
+  ProviderDraft? get pendingProvider => task == TaskState.userWait && messages.isNotEmpty
+      ? messages.last.provider
       : null;
 
   /// The MCP tool call waiting for the user's approval.
@@ -331,6 +344,9 @@ typedef SettingsApplier = Future<String> Function(
   List<SettingsChangeOk> changes,
 );
 
+/// Saves the approved provider and returns the text the model is given back.
+typedef ProviderAdder = Future<String> Function(ProviderDraft draft);
+
 /// Rebuilds the pending changes of a saved conversation; a key that is no longer settable is dropped.
 List<SettingsChangeOk>? _settingsFromJson(List<dynamic> raw) {
   final changes = <SettingsChangeOk>[];
@@ -377,6 +393,7 @@ class ChatController extends ChangeNotifier {
     this._extraTools,
     this._applySettings,
     this._mcpApproval,
+    this._addProvider,
   }) : _settings = settings ?? (() => const GenerationSettings()),
        _store = store ?? ((_, {required generating}) {}) {
     _router = AgentRouter((prompt, schema) async {
@@ -419,6 +436,7 @@ class ChatController extends ChangeNotifier {
   final GenerationSettings Function() _settings;
   final ConversationStore _store;
   final SettingsApplier? _applySettings;
+  final ProviderAdder? _addProvider;
 
   /// Whether a tool call coming from an MCP server waits for the user. Null keeps the default
   /// (tools that write outside the device ask every time).
@@ -522,6 +540,7 @@ class ChatController extends ChangeNotifier {
     final answer = [...selected, ...free].join(', ');
     final changes = _state.pendingSettings;
     final pending = _state.pendingTool;
+    final draft = _state.pendingProvider;
     var toolResponse = answer;
     if (pending != null) {
       _busy = true;
@@ -546,6 +565,17 @@ class ChatController extends ChangeNotifier {
               'The user declined to run ${pending.name}. Nothing was done. '
               'Do not call it again unless they ask for it.';
         }
+      } finally {
+        _busy = false;
+      }
+    } else if (draft != null) {
+      // the card is the approval: nothing is saved unless the user picked 追加する
+      _busy = true;
+      try {
+        toolResponse = ProviderApproval.isApproval(selected)
+            ? await _saveProvider(draft)
+            : 'The user declined to add the provider. Nothing was added. '
+                  'Do not propose it again unless they ask for it.';
       } finally {
         _busy = false;
       }
@@ -582,6 +612,19 @@ class ChatController extends ChangeNotifier {
       return await applier(changes);
     } catch (e) {
       return 'The user approved it, but the change failed: $e';
+    }
+  }
+
+  /// Saves the approved provider through the app and reports the result to the model.
+  Future<String> _saveProvider(ProviderDraft draft) async {
+    final adder = _addProvider;
+    if (adder == null) {
+      return 'The user approved it, but this build cannot add providers.';
+    }
+    try {
+      return await adder(draft);
+    } catch (e) {
+      return 'The user approved it, but adding the provider failed: $e';
     }
   }
 
@@ -827,6 +870,19 @@ class ChatController extends ChangeNotifier {
           );
           _finishWith(TaskState.userWait);
           return;
+        case AddProvider(:final draft):
+          _replace(
+            id,
+            (m) => m.copyWith(
+              text: shown,
+              question: ProviderApproval.tile(draft),
+              provider: draft,
+              finish: result.reason,
+              activities: List.of(activities),
+            ),
+          );
+          _finishWith(TaskState.userWait);
+          return;
         default:
           final key = _toolKey(call);
           repeated = key == lastToolKey ? repeated + 1 : 1;
@@ -930,6 +986,7 @@ class ChatController extends ChangeNotifier {
     AskUser() => 'ask_user',
     UpdateSettings() =>
       'update_settings:${call.changes.map((c) => '${c.key}=${c.value}').join(',')}',
+    AddProvider() => 'add_provider:${call.draft.baseUrl}',
     McpCall() => '${call.name}:${jsonEncode(call.arguments)}',
   };
 

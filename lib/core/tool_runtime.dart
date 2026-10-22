@@ -106,6 +106,9 @@ class DefaultToolRuntime implements ToolRuntime {
     UpdateSettings() => throw StateError(
       'update_settings is answered by the user, not run as a tool',
     ),
+    AddProvider() => throw StateError(
+      'add_provider is answered by the user, not run as a tool',
+    ),
     McpCall() => throw StateError('MCP tools are run by the MCP runtime'),
   };
 

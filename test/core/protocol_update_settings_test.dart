@@ -81,7 +81,7 @@ void main() {
   });
 
   test('プロトコルの版が上がっている', () {
-    expect(Protocol.schemaVersion, 3);
+    expect(Protocol.schemaVersion, 4);
   });
 
   test('既存の道具はそのまま動く', () {

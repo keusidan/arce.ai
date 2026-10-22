@@ -580,3 +580,90 @@ class SettingsPatchInvalid extends SettingsPatchResult {
 
   final String reason;
 }
+
+/// A provider the model proposes to add from the chat (`add_provider`).
+///
+/// Only what is safe to take from a chat message: a name, the address and the model ids. Headers,
+/// extra request fields and the API key are not part of it — the key is typed on the settings
+/// screen, and a provider that already exists cannot be changed from here, so a message cannot
+/// send an existing key to another address.
+class ProviderDraft {
+  const ProviderDraft({
+    required this.name,
+    required this.baseUrl,
+    required this.models,
+    this.supportsTools = true,
+  });
+
+  static const maxModels = 20;
+  static const maxNameLength = 60;
+  static const maxModelIdLength = 200;
+
+  final String name;
+
+  /// Everything before `/chat/completions`.
+  final String baseUrl;
+  final List<String> models;
+  final bool supportsTools;
+
+  /// The arguments of the `add_provider` call, also how the card is saved with a conversation.
+  Map<String, Object?> toJson() => {
+        'name': name,
+        'base_url': baseUrl,
+        'models': models,
+        'tools': supportsTools,
+      };
+
+  /// What the confirmation card shows. The address is spelled out so the user can see where a key
+  /// typed later would be sent.
+  String get description =>
+      'プロバイダー「$name」を追加する（URL: $baseUrl、モデル: ${models.join('、')}、'
+      'ツール呼び出し: ${supportsTools ? 'あり' : 'なし'}）';
+
+  /// Checks the arguments; the result is the draft or the reason it cannot be used.
+  static (ProviderDraft?, String?) parse(Object? arguments) {
+    if (arguments is! Map) return (null, '引数がオブジェクトではありません');
+
+    final rawName = arguments['name'];
+    if (rawName is! String) return (null, 'name がありません');
+    final name = rawName.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (name.isEmpty) return (null, 'プロバイダーの名前が空です');
+    if (name.length > maxNameLength) return (null, 'プロバイダーの名前は$maxNameLength文字までです');
+
+    final rawUrl = arguments['base_url'];
+    if (rawUrl is! String) return (null, 'base_url がありません');
+    final uri = Uri.tryParse(rawUrl.trim());
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https')) || uri.host.isEmpty) {
+      return (null, 'base_url は http(s) のURLで指定してください');
+    }
+    if (uri.userInfo.isNotEmpty || uri.hasQuery || uri.hasFragment) {
+      return (null, 'base_url にユーザー情報・クエリ・フラグメントは入れられません（APIキーは設定画面の「APIキー」の欄に入れます）');
+    }
+    var baseUrl = rawUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    // the app adds this itself; pasting the full endpoint is a common slip
+    baseUrl = baseUrl.replaceFirst(RegExp(r'/chat/completions$'), '');
+
+    final rawModels = arguments['models'];
+    if (rawModels is! List || rawModels.isEmpty) return (null, 'models が空です');
+    final models = <String>[];
+    for (final item in rawModels) {
+      if (item is! String) return (null, 'models の要素が文字列ではありません');
+      final id = item.trim();
+      if (id.isEmpty) return (null, 'models に空のモデル名があります');
+      if (id.length > maxModelIdLength) return (null, 'モデル名は$maxModelIdLength文字までです');
+      if (!models.contains(id)) models.add(id);
+    }
+    if (models.length > maxModels) return (null, '一度に追加できるモデルは$maxModels個までです');
+
+    final tools = arguments['tools'];
+    return (
+      ProviderDraft(
+        name: name,
+        baseUrl: baseUrl,
+        models: models,
+        supportsTools: tools is bool ? tools : true,
+      ),
+      null,
+    );
+  }
+}

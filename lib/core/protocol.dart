@@ -103,6 +103,13 @@ class UpdateSettings extends ToolCall {
   final List<SettingsChangeOk> changes;
 }
 
+/// A proposed new provider. Nothing is saved until the user approves it; the API key is never part
+/// of it (the user types it on the settings screen).
+class AddProvider extends ToolCall {
+  const AddProvider(this.draft);
+  final ProviderDraft draft;
+}
+
 /// A tool that comes from an MCP server. [arguments] is exactly what the server was sent.
 class McpCall extends ToolCall {
   const McpCall(this.name, this.arguments);
@@ -129,7 +136,7 @@ class ParseInvalid extends ParseResult {
 abstract final class Protocol {
   /// Bumped whenever a tool schema changes. Stored with each generation so a regeneration
   /// can tell whether it runs under the same protocol as the original.
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
 
   static final askUser = ToolDefinition(
     name: 'ask_user',
@@ -191,9 +198,10 @@ abstract final class Protocol {
     description:
         'Read the app settings the model may change, with their current values, labels, '
         "allowed choices and ranges, plus the configured providers, their models and the MCP "
-        'servers (name, URL, whether enabled, which tools). Providers and MCP servers are added and '
-        'edited on the settings screen, and this tool reports them so you can answer questions '
-        'about them instead of guessing. API keys, MCP tokens and the update source are never returned.',
+        'servers (name, URL, whether enabled, which tools). A new provider is added with add_provider; '
+        'existing providers and the MCP servers are edited on the settings screen. This tool reports '
+        'them so you can answer questions about them instead of guessing. API keys, MCP tokens and the '
+        'update source are never returned.',
     parameters: _objectSchema(required: [], properties: {}),
   );
 
@@ -202,9 +210,10 @@ abstract final class Protocol {
     description:
         'Change the app settings (thinking, search, tone, theme, model options, ...). '
         'Each change is shown to the user and applied only if they approve it. '
-        'The settings screen (and this pair of tools) is where providers and MCP servers are '
-        'configured; read them with get_settings. There is deliberately no way to read or write '
-        'API keys or MCP tokens, and the update source cannot be changed either.',
+        'Providers and MCP servers are not settings of this kind: add a provider with add_provider, '
+        'and edit existing ones on the settings screen; read them with get_settings. There is '
+        'deliberately no way to read or write API keys or MCP tokens, and the update source cannot '
+        'be changed either.',
     parameters: _objectSchema(
       required: ['changes'],
       properties: {
@@ -228,6 +237,30 @@ abstract final class Protocol {
             'additionalProperties': false,
           },
         },
+      },
+    ),
+  );
+
+  static final addProvider = ToolDefinition(
+    name: 'add_provider',
+    description:
+        'Add a new online provider with an OpenAI-compatible API (base_url is everything before '
+        '/chat/completions, e.g. https://api.example.com/v1). The user is shown the name, address '
+        'and models and the provider is saved only if they approve. It cannot change a provider '
+        'that already exists, and it has no field for an API key: after it is added, tell the user to '
+        'open the settings screen, choose the provider and type the API key there.',
+    parameters: _objectSchema(
+      required: ['name', 'base_url', 'models'],
+      properties: {
+        'name': {'type': 'string'},
+        'base_url': {'type': 'string'},
+        'models': {
+          'type': 'array',
+          'items': {'type': 'string'},
+          'minItems': 1,
+          'maxItems': ProviderDraft.maxModels,
+        },
+        'tools': {'type': 'boolean'},
       },
     ),
   );
@@ -273,6 +306,21 @@ abstract final class SettingsApproval {
 
   static QuestionTile tile(List<SettingsChangeOk> changes) => QuestionTile(
     title: '設定を変更します。${changes.map((c) => c.description).join('、')}。承認しますか？',
+    options: const [approve, reject],
+    allowFreeInput: false,
+    multiSelect: false,
+  );
+
+  static bool isApproval(List<String> selected) => selected.contains(approve);
+}
+
+/// The card the chat shows for [AddProvider]: nothing is saved until the user approves.
+abstract final class ProviderApproval {
+  static const approve = '追加する';
+  static const reject = 'やめる';
+
+  static QuestionTile tile(ProviderDraft draft) => QuestionTile(
+    title: '${draft.description}。追加しますか？（APIキーは追加後に設定画面で入力します）',
     options: const [approve, reject],
     allowFreeInput: false,
     multiSelect: false,
@@ -369,6 +417,9 @@ abstract final class ToolCallParser {
       if (name == Protocol.updateSettings.name) {
         return _parseUpdateSettings(args);
       }
+      if (name == Protocol.addProvider.name) {
+        return _parseAddProvider(args);
+      }
       // a tool of the MCP server: the engine's schema already limited it to the tools this turn
       if (name.startsWith('mcp_')) {
         return ParseOk(McpCall(name, args.cast<String, Object?>()));
@@ -428,6 +479,11 @@ abstract final class ToolCallParser {
         ),
       ),
     );
+  }
+
+  static ParseResult _parseAddProvider(Map<dynamic, dynamic> args) {
+    final (draft, reason) = ProviderDraft.parse(args);
+    return draft == null ? ParseInvalid(reason ?? 'unusable provider') : ParseOk(AddProvider(draft));
   }
 
   static ParseResult _parseUpdateSettings(Map<dynamic, dynamic> args) {

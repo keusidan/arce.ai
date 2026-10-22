@@ -1,5 +1,7 @@
 import 'dart:collection';
+import 'dart:convert';
 
+import 'package:arce_ai/core/agents.dart';
 import 'package:arce_ai/core/chat_controller.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
@@ -150,5 +152,124 @@ void main() {
     );
     other.restore(ConversationSnapshot.fromJson(chat.snapshot().toJson()));
     expect(other.state.pendingSettings?.single.value, 'dark');
+  });
+
+  group('add_provider', () {
+    const addJson = '{"name":"add_provider","arguments":{"name":"OrcaRouter","base_url":"https://api.orcarouter.example/v1/",'
+        '"models":["orca/fast","orca/fast","orca/deep"]}}';
+
+    ParseResult parseAdd(Object arguments) => ToolCallParser.parse(
+          '{"name":"add_provider","arguments":${jsonEncode(arguments)}}',
+          [Protocol.addProvider],
+        );
+
+    test('名前・URL・モデルを読み取り、末尾の / や重複を整える', () {
+      final call = (ToolCallParser.parse(addJson, [Protocol.addProvider]) as ParseOk).call as AddProvider;
+      expect(call.draft.name, 'OrcaRouter');
+      expect(call.draft.baseUrl, 'https://api.orcarouter.example/v1');
+      expect(call.draft.models, ['orca/fast', 'orca/deep']);
+      expect(call.draft.supportsTools, isTrue);
+    });
+
+    test('貼り付けた /chat/completions は落とす', () {
+      final call = (parseAdd({
+        'name': 'X',
+        'base_url': 'https://api.example.com/v1/chat/completions',
+        'models': ['m'],
+      }) as ParseOk).call as AddProvider;
+      expect(call.draft.baseUrl, 'https://api.example.com/v1');
+    });
+
+    test('キーを仕込める形や不正な値は拒否する', () {
+      for (final bad in <Map<String, Object?>>[
+        {'name': 'X', 'base_url': 'https://user:pass@example.com/v1', 'models': ['m']},
+        {'name': 'X', 'base_url': 'https://example.com/v1?api_key=abc', 'models': ['m']},
+        {'name': 'X', 'base_url': 'ftp://example.com', 'models': ['m']},
+        {'name': 'X', 'base_url': 'example.com', 'models': ['m']},
+        {'name': ' ', 'base_url': 'https://example.com', 'models': ['m']},
+        {'name': 'X', 'base_url': 'https://example.com', 'models': <String>[]},
+        {'name': 'X', 'base_url': 'https://example.com', 'models': [' ']},
+        {'name': 'X', 'base_url': 'https://example.com', 'models': [1]},
+        {'name': 'X', 'base_url': 'https://example.com', 'models': [for (var i = 0; i < 21; i++) 'm$i']},
+      ]) {
+        expect(parseAdd(bad), isA<ParseInvalid>(), reason: '$bad');
+      }
+    });
+
+    test('許可されたエージェントだけが呼べる。設定を変えられるエージェントは呼べる', () {
+      expect(ToolCallParser.parse(addJson, [Protocol.askUser]), isA<ParseInvalid>());
+      for (final agent in Agents.all) {
+        expect(agent.tools.contains(Protocol.addProvider), agent.tools.contains(Protocol.updateSettings), reason: agent.id);
+      }
+    });
+
+    test('スキーマに APIキーの欄は無い', () {
+      final props = (Protocol.addProvider.parameters['properties']! as Map).keys;
+      expect(props, unorderedEquals(['name', 'base_url', 'models', 'tools']));
+    });
+
+    test('承認カードになり、承認するまで保存しない', () async {
+      final engine = _Engine(Queue.of([
+        ('<tool_call>\n$addJson\n</tool_call>', FinishReason.eog),
+        ('追加しました。キーは設定画面で入れてください。', FinishReason.eog),
+      ]));
+      final added = <ProviderDraft>[];
+      final chat = ChatController(
+        engine,
+        addProvider: (draft) async {
+          added.add(draft);
+          return 'The user approved it and the provider "OrcaRouter" was added.';
+        },
+      );
+
+      await chat.send('OrcaRouter を追加して');
+      expect(chat.state.pendingProvider?.name, 'OrcaRouter');
+      expect(chat.state.pendingQuestion?.options, [ProviderApproval.approve, ProviderApproval.reject]);
+      expect(chat.state.pendingQuestion?.title, contains('https://api.orcarouter.example/v1'));
+      expect(added, isEmpty, reason: '承認前に保存してはいけない');
+
+      await chat.answer([ProviderApproval.approve], null);
+      expect(added.single.models, ['orca/fast', 'orca/deep']);
+      expect(engine.requests.last.prompt, contains('was added'));
+      expect(chat.state.pendingProvider, isNull);
+    });
+
+    test('やめるを選ぶと何も保存せず、そう伝える', () async {
+      final engine = _Engine(Queue.of([
+        ('<tool_call>\n$addJson\n</tool_call>', FinishReason.eog),
+        ('やめておきます。', FinishReason.eog),
+      ]));
+      final added = <ProviderDraft>[];
+      final chat = ChatController(engine, addProvider: (d) async {
+        added.add(d);
+        return 'added';
+      });
+
+      await chat.send('OrcaRouter を追加して');
+      await chat.answer([ProviderApproval.reject], null);
+      expect(added, isEmpty);
+      expect(engine.requests.last.prompt, contains('declined to add the provider'));
+    });
+
+    test('保存に失敗したときは、失敗をモデルに返す', () async {
+      final engine = _Engine(Queue.of([
+        ('<tool_call>\n$addJson\n</tool_call>', FinishReason.eog),
+        ('失敗しました。', FinishReason.eog),
+      ]));
+      final chat = ChatController(engine, addProvider: (_) async => throw StateError('disk'));
+      await chat.send('OrcaRouter を追加して');
+      await chat.answer([ProviderApproval.approve], null);
+      expect(engine.requests.last.prompt, contains('adding the provider failed'));
+    });
+
+    test('承認待ちは会話の保存から戻る', () async {
+      final engine = _Engine(Queue.of([('<tool_call>\n$addJson\n</tool_call>', FinishReason.eog)]));
+      final chat = ChatController(engine, addProvider: (_) async => 'ok');
+      await chat.send('OrcaRouter を追加して');
+
+      final other = ChatController(_Engine(Queue.of([('ok', FinishReason.eog)])), addProvider: (_) async => 'ok');
+      other.restore(ConversationSnapshot.fromJson(chat.snapshot().toJson()));
+      expect(other.state.pendingProvider?.baseUrl, 'https://api.orcarouter.example/v1');
+    });
   });
 }

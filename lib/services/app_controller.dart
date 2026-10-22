@@ -88,6 +88,7 @@ class AppController extends ChangeNotifier {
           _persist(snapshot, generating),
       extraTools: _mcpDefinitions,
       applySettings: _applySettings,
+      addProvider: _addProvider,
       mcpApproval: _mcpApprovalRequired,
     )..setThinking(settings.value.thinking);
     chat.addListener(_syncForeground);
@@ -223,6 +224,24 @@ class AppController extends ChangeNotifier {
     final reload = changes.any((c) => _reloadNeeded.contains(c.key));
     return 'The user approved the change: $now.'
         '${reload ? ' It takes effect the next time the model is loaded.' : ''}';
+  }
+
+  /// Saves the provider the user approved in the chat (protocol `add_provider`). It is always a new
+  /// entry with a new id, so no existing provider (and no key kept for it) is touched, and it is not
+  /// made the active one. The key is typed on the settings screen.
+  Future<String> _addProvider(ProviderDraft draft) async {
+    final config = ProviderConfig(
+      id: ProviderList.idFor(draft.name, providers.providers),
+      label: draft.name,
+      baseUrl: draft.baseUrl,
+      models: [for (final id in draft.models) ModelConfig(id: id, name: id)],
+      supportsTools: draft.supportsTools,
+    );
+    await providers.save(config);
+    return 'The user approved it and the provider "${config.label}" (id=${config.id}) was added with '
+        'the models ${draft.models.join(', ')}. It has no API key yet and is not in use. Tell the user to '
+        'open the settings screen, choose the provider, type the API key there, and then pick it in '
+        'the model menu.';
   }
 
   /// Settings a running model keeps until it is loaded again.
@@ -677,7 +696,7 @@ class _SettingsToolRuntime implements ToolRuntime {
   /// Providers and MCP servers for `get_settings`: enough to answer questions about them, with
   /// no key and no token.
   String _describeConfiguration() {
-    final b = StringBuffer('プロバイダとモデル（設定画面から追加・編集できます）:\n');
+    final b = StringBuffer('プロバイダとモデル（追加は add_provider、編集は設定画面）:\n');
     final providers = _providers.providers;
     if (providers.isEmpty) {
       b.write('- （なし。端末のモデルで答えます）\n');
