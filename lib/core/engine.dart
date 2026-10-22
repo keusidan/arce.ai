@@ -68,6 +68,20 @@ class SamplingParams {
   final double dryMultiplier;
 }
 
+/// The sampling values the user set in the settings for the model that answers; null where the
+/// user set nothing. [GenerateRequest.sampling] and `maxTokens` already contain the app's defaults,
+/// so the engine needs this to tell "the user chose it" from "nobody chose it" (the maker's
+/// recommendation applies to the second only).
+class UserSampling {
+  const UserSampling({this.temperature, this.topP, this.maxTokens});
+
+  final double? temperature;
+  final double? topP;
+
+  /// The reply length the user set, before "速度と精度" scaled it into [GenerateRequest.maxTokens].
+  final int? maxTokens;
+}
+
 class GenerateRequest {
   const GenerateRequest({
     required this.prompt,
@@ -80,6 +94,7 @@ class GenerateRequest {
     this.images = const {},
     this.agentId,
     this.continuation = false,
+    this.user = const UserSampling(),
   });
 
   final String prompt;
@@ -89,6 +104,9 @@ class GenerateRequest {
 
   /// The reply continues one that was cut off, so it must stay with the engine that began it.
   final bool continuation;
+
+  /// What the user chose in the settings; see [UserSampling].
+  final UserSampling user;
 
   /// The pictures the prompt marks (see `ImageMarker`), by id. Only an engine whose model can see
   /// reads them; the device engine ignores them.

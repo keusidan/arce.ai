@@ -53,7 +53,7 @@ void main() {
   test('範囲外の値は理由つきで拒否する', () {
     final result = parse({
       'changes': [
-        {'key': 'maxTokens', 'value': 999999},
+        {'key': 'maxTokens', 'value': 2000000},
       ],
     });
 

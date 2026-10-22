@@ -1,6 +1,7 @@
 import '../core/engine.dart';
 import '../core/generation.dart';
 import 'chatml_bridge.dart';
+import 'model_hints.dart';
 import 'provider.dart';
 
 /// Answers through a cloud provider (or a local server that speaks the same protocol) while
@@ -46,15 +47,29 @@ class CloudEngine implements InferenceEngine {
     final adapter = CloudEventAdapter();
     final model = provider.modelConfig;
     final extraPrompt = model?.prompt.trim() ?? '';
+    final allMessages = [
+      if (extraPrompt.isNotEmpty) AiMessage(AiRole.system, text: extraPrompt),
+      ...messages,
+    ];
+    // The value that applies, strongest first: the model's own setting, what the user set for
+    // online models, the maker's recommendation (DeepSeek V4, GLM-5), the app's default.
+    final hint = ModelHints.of(provider.modelId);
     final aiRequest = AiRequest(
-      messages: [
-        if (extraPrompt.isNotEmpty) AiMessage(AiRole.system, text: extraPrompt),
-        ...messages,
-      ],
+      messages: allMessages,
       model: provider.modelId,
-      maxTokens: model?.intParam('maxTokens') ?? request.maxTokens,
-      temperature: model?.param('temperature') ?? request.sampling.temperature,
-      topP: model?.param('topP') ?? request.sampling.topP,
+      maxTokens: ModelHints.resolveMaxTokens(
+        modelSetting: model?.intParam('maxTokens'),
+        requestedIsUserSet: request.user.maxTokens != null,
+        requested: request.maxTokens,
+        hint: hint,
+        maxOutput: model?.maxOutputTokens,
+        context: model?.contextTokens,
+        promptTokens: ModelHints.estimateTokens(
+          [for (final m in allMessages) m.text].join('\n') + [for (final t in request.tools) '${t.name}${t.description}${t.parameters}'].join(),
+        ),
+      ),
+      temperature: model?.param('temperature') ?? request.user.temperature ?? hint?.temperature ?? request.sampling.temperature,
+      topP: model?.param('topP') ?? request.user.topP ?? hint?.topP ?? request.sampling.topP,
       // The prompt already teaches the `<tool_call>` form; sending the definitions as function
       // calling as well is what makes cloud models actually call one.
       tools: [

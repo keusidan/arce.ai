@@ -159,6 +159,22 @@ void main() {
     expect(find.text('この端末（OS）では保存できません'), findsOneWidget, reason: 'there is no device engine in a test');
   });
 
+  testWidgets('settings page: the online group has the model lookup switches, and a 256K length can be typed', (tester) async {
+    setSize(tester, const Size(411, 1200));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.online);
+    await tester.pumpAndSettle();
+    expect(find.text('モデルの上限を自動で調べる'), findsOneWidget);
+    expect(find.text('Hugging Face からも調べる'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextField, '2048'), '262144');
+    await tester.pump();
+    expect(app.settings.value.onlineMaxTokens, 262144, reason: 'the old 32768 ceiling is gone');
+  });
+
   testWidgets('settings page: coding mode asks for both models before it can work', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);

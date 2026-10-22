@@ -349,6 +349,40 @@ void main() {
     });
   });
 
+  group('モデル一覧', () {
+    test('上限と画像対応を、提供元の一覧から読む。IDの順に並べる', () async {
+      final provider = providerWith([
+        jsonEncode({
+          'data': [
+            {'id': 'zeta', 'context_length': 8192},
+            {
+              'id': 'alpha',
+              'context_length': 1048576,
+              'architecture': {'input_modalities': ['text', 'image']},
+              'top_provider': {'max_completion_tokens': 262144},
+            },
+          ],
+        }),
+      ]);
+      final infos = await provider.fetchModelInfos();
+      expect([for (final i in infos) i.id], ['alpha', 'zeta']);
+      expect(infos.first.contextTokens, 1048576);
+      expect(infos.first.maxOutputTokens, 262144);
+      expect(infos.first.vision, isTrue);
+      expect(infos.last.maxOutputTokens, isNull);
+    });
+
+    test('名前だけの一覧は、これまでどおり listModels で読める', () async {
+      final provider = providerWith([jsonEncode({'data': [{'id': 'b'}, {'id': 'a'}]})]);
+      expect(await provider.listModels(), ['a', 'b']);
+    });
+
+    test('読めない応答と、エラーの応答は、そのまま見せられる理由で失敗する', () async {
+      await expectLater(providerWith(['<html>']).fetchModelInfos(), throwsA(isA<AiProviderException>()));
+      await expectLater(providerWith(const [], status: 401, errorBody: '{}').fetchModelInfos(), throwsA(isA<AiProviderException>()));
+    });
+  });
+
   group('画像', () {
     test('画像つきのメッセージは、本文と画像の並びとして送る', () async {
       Map<String, Object?>? sent;

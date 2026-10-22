@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
+import '../ai/model_hints.dart';
+import '../ai/model_info.dart';
 import '../ai/openai_compatible.dart';
 import '../ai/provider.dart';
 import '../ai/provider_config.dart';
@@ -511,25 +515,39 @@ class _ModelsSheetState extends State<_ModelsSheet> {
     });
     try {
       final provider = widget.app.providers.build(_config);
-      final names = provider is OpenAiCompatibleProvider
-          ? await provider.listModels()
-          : const <String>[];
+      final infos = provider is OpenAiCompatibleProvider
+          ? await provider.fetchModelInfos()
+          : const <ModelInfo>[];
       if (!mounted) return;
       final existing = {for (final model in _config.models) model.id};
+      // a new model starts with what the provider says about it; one already here only gains
+      // what it did not have (nothing the user typed is replaced)
       final added = [
-        for (final name in names)
-          if (!existing.contains(name)) ModelConfig(id: name, name: name),
+        for (final info in infos)
+          if (!existing.contains(info.id)) ModelConfig(id: info.id, name: info.id).mergeInfo(info),
       ];
-      if (added.isNotEmpty) {
+      final byId = {for (final info in infos) info.id: info};
+      final refreshed = [
+        for (final model in _config.models)
+          byId.containsKey(model.id) ? model.mergeInfo(byId[model.id]!) : model,
+      ];
+      final changed = [
+        for (var i = 0; i < refreshed.length; i++)
+          if (jsonEncode(refreshed[i].toJson()) != jsonEncode(_config.models[i].toJson())) refreshed[i],
+      ];
+      if (added.isNotEmpty || changed.isNotEmpty) {
         await widget.app.providers.save(
-          _config.copyWith(models: [..._config.models, ...added]),
+          _config.copyWith(models: [...refreshed, ...added]),
         );
       }
       if (!mounted) return;
+      final withLimits = infos.where((i) => i.hasLimits).length;
       setState(
-        () => _result = added.isEmpty
-            ? '新しいモデルはありませんでした（${names.length}件）'
-            : '${added.length}件のモデルを追加しました',
+        () => _result = added.isEmpty && changed.isEmpty
+            ? '新しいモデルはありませんでした（${infos.length}件）'
+            : '${added.length}件のモデルを追加しました'
+                '${changed.isEmpty ? '' : '、${changed.length}件の上限を更新しました'}'
+                '${withLimits == 0 ? '（この提供元は上限を返しません。モデルの編集の「取得」で Hugging Face から調べられます）' : ''}',
       );
     } on AiProviderException catch (e) {
       if (mounted) setState(() => _result = e.message);
@@ -785,6 +803,16 @@ class _ModelEditorState extends State<_ModelEditor> {
   late final TextEditingController _prompt = TextEditingController(
     text: widget.model.prompt,
   );
+  late final TextEditingController _context = TextEditingController(
+    text: widget.model.contextTokens?.toString() ?? '',
+  );
+  late final TextEditingController _maxOutput = TextEditingController(
+    text: widget.model.maxOutputTokens?.toString() ?? '',
+  );
+  String? _note;
+  bool _busy = false;
+
+  ModelHint? get _hint => ModelHints.of(widget.model.id);
 
   /// Starts from what the chat would do now (the saved choice, or the guess from the name).
   late bool _vision = widget.model.supportsImages;
@@ -797,6 +825,8 @@ class _ModelEditorState extends State<_ModelEditor> {
       _topP,
       _maxTokens,
       _prompt,
+      _context,
+      _maxOutput,
     ]) {
       controller.dispose();
     }
@@ -813,14 +843,16 @@ class _ModelEditorState extends State<_ModelEditor> {
     }
     if (topP != null) params['topP'] = topP.clamp(0, 1).toDouble();
     if (maxTokens != null) {
-      params['maxTokens'] = maxTokens.clamp(1, 131072).toDouble();
+      params['maxTokens'] = maxTokens.clamp(1, 1048576).toDouble();
     }
-    final model = widget.model.copyWith(
-      name: _name.text.trim().isEmpty ? widget.model.id : _name.text.trim(),
-      params: params,
-      prompt: _prompt.text.trim(),
-      vision: _vision,
-    );
+    final model = widget.model
+        .copyWith(
+          name: _name.text.trim().isEmpty ? widget.model.id : _name.text.trim(),
+          params: params,
+          prompt: _prompt.text.trim(),
+          vision: _vision,
+        )
+        .withLimits(contextTokens: _positive(_context.text), maxOutputTokens: _positive(_maxOutput.text));
     final provider =
         widget.app.providers.byId(widget.provider.id) ?? widget.provider;
     await widget.app.providers.save(
@@ -836,9 +868,59 @@ class _ModelEditorState extends State<_ModelEditor> {
     widget.app.showToast('${model.id} を保存しました');
   }
 
+  static int? _positive(String text) {
+    final value = int.tryParse(text.trim());
+    return value != null && value > 0 ? value : null;
+  }
+
+  /// Asks the provider (and, for a Hugging Face name, the Hub) what the model can do, and puts the
+  /// answer in the fields. Nothing is saved until the user presses 保存.
+  Future<void> _fetch() async {
+    setState(() {
+      _busy = true;
+      _note = '調べています…';
+    });
+    try {
+      final provider = widget.app.providers.build(widget.provider, model: widget.model);
+      if (provider is! OpenAiCompatibleProvider) return;
+      final found = await widget.app.modelInfo.fetchFor(
+        provider,
+        widget.model.withLimits(),
+        useHub: widget.app.settings.value.fetchModelInfoFromHub,
+        overwrite: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (found.contextTokens != null) _context.text = '${found.contextTokens}';
+        if (found.maxOutputTokens != null) _maxOutput.text = '${found.maxOutputTokens}';
+        if (found.vision != null) _vision = found.vision!;
+        _note = found.contextTokens == null && found.maxOutputTokens == null
+            ? '上限は見つかりませんでした。提供元が返さないモデルは、数字を直接入れてください'
+            : '見つかりました（コンテキスト ${found.contextTokens ?? '—'}、最大出力 ${found.maxOutputTokens ?? '—'}）。保存すると反映されます';
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Fills the fields with what the model's maker recommends.
+  void _applyHint() {
+    final hint = _hint;
+    if (hint == null) return;
+    setState(() {
+      if (hint.temperature != null) _temperature.text = '${hint.temperature}';
+      if (hint.topP != null) _topP.text = '${hint.topP}';
+      if (hint.maxTokens != null) _maxTokens.text = '${hint.maxTokens}';
+      if (_context.text.trim().isEmpty && hint.contextTokens != null) _context.text = '${hint.contextTokens}';
+      _note = '推奨の値を入れました。保存すると反映されます';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final hint = _hint;
+    final shared = widget.app.settings.value;
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -856,12 +938,33 @@ class _ModelEditorState extends State<_ModelEditor> {
               style: ts(context, 14, weight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
-            Text('空欄はアプリの既定値を使います。', style: ts(context, 9.5, color: c.muted)),
+            Text(
+              hint == null ? '空欄はアプリの既定値を使います。' : '空欄は、下の推奨か、アプリの既定値を使います。',
+              style: ts(context, 9.5, color: c.muted),
+            ),
+            if (hint != null) ...[
+              const SizedBox(height: 4),
+              Text(hint.label, style: ts(context, 9.5, color: c.accent, height: 1.5)),
+            ],
             const SizedBox(height: 10),
             _field('表示名', _name, widget.model.id),
-            _field('temperature', _temperature, '0.7'),
-            _field('top_p', _topP, '0.95'),
-            _field('最大トークン', _maxTokens, '2048'),
+            _field('temperature', _temperature, '${hint?.temperature ?? 0.7}'),
+            _field('top_p', _topP, '${hint?.topP ?? 0.95}'),
+            _field('最大トークン（1回の返信の長さ。思考の分も含みます）', _maxTokens, '${hint?.maxTokens ?? shared.maxTokens}'),
+            _field('最大出力の上限（モデルが返せる最大。最大トークンはこれに収めます）', _maxOutput, '例: 65536'),
+            _field('コンテキスト長（入力と出力の合計）', _context, '${hint?.contextTokens ?? '例: 131072'}'),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Wrap(spacing: 8, runSpacing: 8, children: [
+                SoftButton(label: '上限を取得', svg: ArceSvg.retry, onTap: _busy ? null : _fetch),
+                if (hint != null) SoftButton(label: '公式の推奨を入れる', svg: ArceSvg.check, onTap: _applyHint),
+              ]),
+            ),
+            if (_note != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(_note!, style: ts(context, 10, color: c.muted, height: 1.5)),
+              ),
             _field('追加プロンプト', _prompt, 'このモデルにだけ送る指示（任意）', maxLines: 3),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,

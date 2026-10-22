@@ -45,8 +45,8 @@ class CodingSettings {
     this.maxTasks = 4,
     this.parallel = 3,
     this.reviewRounds = 1,
-    this.plannerMaxTokens = 2048,
-    this.developerMaxTokens = 4096,
+    this.plannerMaxTokens = 0,
+    this.developerMaxTokens = 0,
   });
 
   final bool enabled;
@@ -61,6 +61,10 @@ class CodingSettings {
 
   /// How many times the design model may send work back for fixes. 0 skips the review.
   final int reviewRounds;
+
+  /// The longest reply of each role; 0 lets the model's own settings decide (the maker's
+  /// recommendation, then what the role usually needs). A reasoning model spends part of the
+  /// budget on thinking, so a small fixed number cuts its answer short.
   final int plannerMaxTokens;
   final int developerMaxTokens;
 

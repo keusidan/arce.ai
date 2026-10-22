@@ -38,6 +38,7 @@ class FakeRole implements RoleModel {
     required int maxTokens,
     required bool Function() cancelled,
     double temperature = 0.3,
+    int autoTokens = 4096,
   }) async {
     calls.add(messages);
     running++;

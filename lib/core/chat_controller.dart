@@ -211,6 +211,7 @@ class GenerationSettings {
     this.topK,
     this.minP,
     this.dryMultiplier,
+    this.userMaxTokens,
     this.extraPrompt = '',
     this.toolRepeatLimit = ChatController.repeatToolLimit,
     this.attachments = const AttachmentLimits(),
@@ -227,6 +228,10 @@ class GenerationSettings {
 
   /// The device model's repetition penalty (DRY).
   final double? dryMultiplier;
+
+  /// The reply length the user set for the model that answers (null: they set none, so the shared
+  /// default is in [maxTokens]).
+  final int? userMaxTokens;
 
   /// How many identical tool calls in a row count as a loop.
   final int toolRepeatLimit;
@@ -713,6 +718,7 @@ class ChatController extends ChangeNotifier {
         images: _images,
         agentId: agent.id,
         continuation: roundPrefill.isNotEmpty,
+        user: UserSampling(temperature: config.temperature, topP: config.topP, maxTokens: config.userMaxTokens),
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
         sampling: config.applyTo(

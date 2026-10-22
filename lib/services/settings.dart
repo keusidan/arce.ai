@@ -62,8 +62,8 @@ class AppSettings {
     this.codingMaxTasks = 4,
     this.codingParallel = 3,
     this.codingReviewRounds = 1,
-    this.codingPlannerMaxTokens = 2048,
-    this.codingDeveloperMaxTokens = 4096,
+    this.codingPlannerMaxTokens = 0,
+    this.codingDeveloperMaxTokens = 0,
     this.attachMaxFiles = 5,
     this.attachCharsPerFile = 8000,
     this.attachTotalChars = 16000,
@@ -79,6 +79,8 @@ class AppSettings {
     this.kvSnapshotEnabled = false,
     this.kvSnapshotMaxMb = 1024,
     this.kvSnapshotMinTokens = 512,
+    this.autoFetchModelInfo = true,
+    this.fetchModelInfoFromHub = true,
   });
 
   static const defaultRepo = 'keusidan/arce.ai';
@@ -193,6 +195,15 @@ class AppSettings {
   /// A prompt shorter than this is not saved.
   final int kvSnapshotMinTokens;
 
+  // ---- finding out what an online model can do ----
+
+  /// Ask the provider (and the Hub) for a model's limits when it is first used.
+  final bool autoFetchModelInfo;
+
+  /// Let that also read the context window from the model's `config.json` on huggingface.co
+  /// (only the model's name is sent).
+  final bool fetchModelInfoFromHub;
+
   KvSnapshotConfig get kvSnapshot => KvSnapshotConfig(
     enabled: kvSnapshotEnabled,
     maxBytes: kvSnapshotMaxMb.clamp(64, 65536) * 1024 * 1024,
@@ -213,8 +224,8 @@ class AppSettings {
     maxTasks: codingMaxTasks.clamp(1, 8),
     parallel: codingParallel.clamp(1, 8),
     reviewRounds: codingReviewRounds.clamp(0, 3),
-    plannerMaxTokens: codingPlannerMaxTokens.clamp(256, 32768),
-    developerMaxTokens: codingDeveloperMaxTokens.clamp(256, 32768),
+    plannerMaxTokens: codingPlannerMaxTokens <= 0 ? 0 : codingPlannerMaxTokens.clamp(256, 1048576),
+    developerMaxTokens: codingDeveloperMaxTokens <= 0 ? 0 : codingDeveloperMaxTokens.clamp(256, 1048576),
   );
 
   /// The MCP servers the chat may use (Streamable HTTP). Tokens live in secure storage.
@@ -280,6 +291,8 @@ class AppSettings {
     bool? kvSnapshotEnabled,
     int? kvSnapshotMaxMb,
     int? kvSnapshotMinTokens,
+    bool? autoFetchModelInfo,
+    bool? fetchModelInfoFromHub,
   }) => AppSettings(
     thinking: thinking ?? this.thinking,
     searchEnabled: searchEnabled ?? this.searchEnabled,
@@ -340,6 +353,8 @@ class AppSettings {
     kvSnapshotEnabled: kvSnapshotEnabled ?? this.kvSnapshotEnabled,
     kvSnapshotMaxMb: kvSnapshotMaxMb ?? this.kvSnapshotMaxMb,
     kvSnapshotMinTokens: kvSnapshotMinTokens ?? this.kvSnapshotMinTokens,
+    autoFetchModelInfo: autoFetchModelInfo ?? this.autoFetchModelInfo,
+    fetchModelInfoFromHub: fetchModelInfoFromHub ?? this.fetchModelInfoFromHub,
   );
 
   Map<String, Object?> toJson() => {
@@ -402,6 +417,8 @@ class AppSettings {
     'kvSnapshotEnabled': kvSnapshotEnabled,
     'kvSnapshotMaxMb': kvSnapshotMaxMb,
     'kvSnapshotMinTokens': kvSnapshotMinTokens,
+    'autoFetchModelInfo': autoFetchModelInfo,
+    'fetchModelInfoFromHub': fetchModelInfoFromHub,
   };
 
   /// Unknown, missing or wrongly typed values fall back to the defaults, so older or damaged
@@ -471,8 +488,14 @@ class AppSettings {
       codingMaxTasks: whole('codingMaxTasks', d.codingMaxTasks),
       codingParallel: whole('codingParallel', d.codingParallel),
       codingReviewRounds: whole('codingReviewRounds', d.codingReviewRounds),
-      codingPlannerMaxTokens: whole('codingPlannerMaxTokens', d.codingPlannerMaxTokens),
-      codingDeveloperMaxTokens: whole('codingDeveloperMaxTokens', d.codingDeveloperMaxTokens),
+      // 0.8.1 saved its fixed defaults (2048 / 4096) with every settings write; they were never a
+      // choice, and they are far too small for a reasoning model, so they mean "decide" now
+      codingPlannerMaxTokens: whole('codingPlannerMaxTokens', d.codingPlannerMaxTokens) == 2048
+          ? 0
+          : whole('codingPlannerMaxTokens', d.codingPlannerMaxTokens),
+      codingDeveloperMaxTokens: whole('codingDeveloperMaxTokens', d.codingDeveloperMaxTokens) == 4096
+          ? 0
+          : whole('codingDeveloperMaxTokens', d.codingDeveloperMaxTokens),
       attachMaxFiles: whole('attachMaxFiles', d.attachMaxFiles),
       attachCharsPerFile: whole('attachCharsPerFile', d.attachCharsPerFile),
       attachTotalChars: whole('attachTotalChars', d.attachTotalChars),
@@ -488,6 +511,8 @@ class AppSettings {
       kvSnapshotEnabled: flag('kvSnapshotEnabled', d.kvSnapshotEnabled),
       kvSnapshotMaxMb: whole('kvSnapshotMaxMb', d.kvSnapshotMaxMb),
       kvSnapshotMinTokens: whole('kvSnapshotMinTokens', d.kvSnapshotMinTokens),
+      autoFetchModelInfo: flag('autoFetchModelInfo', d.autoFetchModelInfo),
+      fetchModelInfoFromHub: flag('fetchModelInfoFromHub', d.fetchModelInfoFromHub),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {
         final parsed = McpServers.decode(json['mcpServers']);
@@ -521,6 +546,7 @@ class AppSettings {
     minP: cloud ? null : _set(localMinP),
     extraPrompt: (cloud ? onlinePrompt : localPrompt).trim(),
     dryMultiplier: cloud ? null : _set(localDryMultiplier),
+    userMaxTokens: (cloud ? onlineMaxTokens : localMaxTokens) > 0 ? (cloud ? onlineMaxTokens : localMaxTokens) : null,
     toolRepeatLimit: toolRepeatLimit.clamp(2, 10),
     attachments: attachmentLimits,
     searchEnabled: searchEnabled,

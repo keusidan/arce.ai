@@ -64,6 +64,32 @@ class _FixedProvider implements AiProvider {
   }
 }
 
+/// A provider with a given model and model settings, that remembers the request.
+class _ModelProvider implements AiProvider {
+  _ModelProvider(this.modelId, this.modelConfig);
+
+  @override
+  final String modelId;
+  @override
+  final ModelConfig? modelConfig;
+  AiRequest? last;
+
+  @override
+  String get id => 'model';
+  @override
+  String get label => 'モデル';
+  @override
+  ProviderCapabilities get capabilities => const ProviderCapabilities();
+  @override
+  Future<void> verify() async {}
+
+  @override
+  Stream<Delta> stream(AiRequest request) async* {
+    last = request;
+    yield const StopDelta(FinishReason.eog);
+  }
+}
+
 /// A provider whose endpoint or key is wrong.
 class _FailingProvider implements AiProvider {
   @override
@@ -206,6 +232,66 @@ void main() {
       throwsA(isA<EngineException>()),
     );
     expect(provider.last, isNull);
+  });
+
+  group('送る値の優先順位', () {
+    GenerateRequest request({UserSampling user = const UserSampling(), int maxTokens = 2048}) => GenerateRequest(
+          prompt: ChatMlPromptBuilder.build(const [UserTurn('こんにちは')], const [], null, false),
+          toolCallSchema: null,
+          thinking: false,
+          maxTokens: maxTokens,
+          sampling: _sampling,
+          user: user,
+        );
+
+    Future<AiRequest> sent(String modelId, ModelConfig? config, GenerateRequest r) async {
+      final provider = _ModelProvider(modelId, config);
+      await CloudEngine(provider).generate(r).toList();
+      return provider.last!;
+    }
+
+    test('設定が何もない DeepSeek V4 は、公式の推奨（temperature 1.0・top_p 1.0・最大256K）で送る', () async {
+      final r = await sent('deepseek-ai/DeepSeek-V4.1-Flash-1017', null, request());
+      expect(r.temperature, 1.0);
+      expect(r.topP, 1.0);
+      expect(r.maxTokens, 262144, reason: 'not the 2048 default that cut the answers short');
+    });
+
+    test('推奨のないモデルは、これまでどおりアプリの既定値', () async {
+      final r = await sent('gpt-4o', null, request());
+      expect(r.temperature, 0.3);
+      expect(r.topP, 0.9);
+      expect(r.maxTokens, 2048);
+    });
+
+    test('設定画面でユーザーが決めた値は、推奨より強い', () async {
+      final r = await sent(
+        'deepseek-v4-flash',
+        null,
+        request(user: const UserSampling(temperature: 0.5, topP: 0.8, maxTokens: 9000), maxTokens: 9000),
+      );
+      expect(r.temperature, 0.5);
+      expect(r.topP, 0.8);
+      expect(r.maxTokens, 9000);
+    });
+
+    test('モデルごとの設定は、いちばん強い', () async {
+      final config = const ModelConfig(id: 'deepseek-v4-flash', name: 'x', params: {'temperature': 0.2, 'topP': 0.7, 'maxTokens': 12345});
+      final r = await sent('deepseek-v4-flash', config, request(user: const UserSampling(temperature: 0.5, maxTokens: 9000), maxTokens: 9000));
+      expect(r.temperature, 0.2);
+      expect(r.topP, 0.7);
+      expect(r.maxTokens, 12345);
+    });
+
+    test('最大トークンは、モデルの最大出力と、文脈に残った分に収める', () async {
+      final limited = const ModelConfig(id: 'deepseek-v4-flash', name: 'x', maxOutputTokens: 65536);
+      expect((await sent('deepseek-v4-flash', limited, request())).maxTokens, 65536);
+
+      final small = const ModelConfig(id: 'tiny', name: 'x', params: {'maxTokens': 100000}, contextTokens: 8192);
+      final r = await sent('tiny', small, request());
+      expect(r.maxTokens, lessThan(8192), reason: 'the prompt and the reply must fit the window');
+      expect(r.maxTokens, greaterThan(7000));
+    });
   });
 }
 

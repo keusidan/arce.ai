@@ -87,7 +87,7 @@ abstract final class AgentSettings {
       label: '最大トークン',
       kind: SettingKind.whole,
       min: 256,
-      max: 32768,
+      max: 1048576,
     ),
     'retryLimit': SettingSpec(
       key: 'retryLimit',
@@ -180,10 +180,10 @@ abstract final class AgentSettings {
     ),
     'onlineMaxTokens': SettingSpec(
       key: 'onlineMaxTokens',
-      label: 'オンライン: 最大トークン（0で共通の値）',
+      label: 'オンライン: 最大トークン（0でモデルの推奨か共通の値）',
       kind: SettingKind.whole,
       min: 0,
-      max: 32768,
+      max: 1048576,
     ),
     'onlinePrompt': SettingSpec(
       key: 'onlinePrompt',
@@ -223,17 +223,17 @@ abstract final class AgentSettings {
     ),
     'codingPlannerMaxTokens': SettingSpec(
       key: 'codingPlannerMaxTokens',
-      label: 'コーディング: 設計モデルの最大トークン',
+      label: 'コーディング: 設計モデルの最大トークン（0で自動）',
       kind: SettingKind.whole,
-      min: 256,
-      max: 32768,
+      min: 0,
+      max: 1048576,
     ),
     'codingDeveloperMaxTokens': SettingSpec(
       key: 'codingDeveloperMaxTokens',
-      label: 'コーディング: 開発モデルの最大トークン',
+      label: 'コーディング: 開発モデルの最大トークン（0で自動）',
       kind: SettingKind.whole,
-      min: 256,
-      max: 32768,
+      min: 0,
+      max: 1048576,
     ),
     // limits and timeouts
     'attachMaxFiles': SettingSpec(
@@ -319,6 +319,17 @@ abstract final class AgentSettings {
       kind: SettingKind.decimal,
       min: -1,
       max: 5,
+    ),
+    // Finding out what an online model can do
+    'autoFetchModelInfo': SettingSpec(
+      key: 'autoFetchModelInfo',
+      label: 'オンライン: モデルの上限を自動で調べる',
+      kind: SettingKind.flag,
+    ),
+    'fetchModelInfoFromHub': SettingSpec(
+      key: 'fetchModelInfoFromHub',
+      label: 'オンライン: Hugging Face からも調べる',
+      kind: SettingKind.flag,
     ),
     // Saving the device model's KV cache to files
     'kvSnapshotEnabled': SettingSpec(

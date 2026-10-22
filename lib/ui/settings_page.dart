@@ -271,10 +271,11 @@ class _SettingsPageState extends State<SettingsPage> {
               SettingRow(
                 icon: ArceSvg.file,
                 title: '最大トークン数（共通）',
-                subtitle: '1回の返信の長さの目安。ローカル・オンラインで別に決めたときは、そちらが先です',
+                subtitle: '1回の返信の長さの目安（思考の分も含みます）。ローカル・オンラインで別に決めたとき、'
+                    'また DeepSeek V4・GLM-5 のように公式の推奨があるモデルでは、そちらが先です',
                 trailing: _Cycle<int>(
                   value: s.maxTokens,
-                  values: const [1024, 2048, 4096, 8192],
+                  values: const [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144],
                   label: (v) => '$v',
                   onChanged: (v) => set((x) => x.copyWith(maxTokens: v)),
                 ),
@@ -554,23 +555,23 @@ class _SettingsPageState extends State<SettingsPage> {
           SettingRow(
             icon: ArceSvg.file,
             title: '設計モデルの最大トークン',
-            subtitle: '計画とレビューの長さ',
+            subtitle: '計画とレビューの長さ。自動は、モデルの推奨と上限に合わせます',
             trailing: _Cycle<int>(
               value: coding.plannerMaxTokens,
-              values: const [1024, 2048, 4096, 8192],
-              label: (v) => '$v',
+              values: const [0, 4096, 8192, 16384, 32768, 65536, 131072, 262144],
+              label: (v) => v == 0 ? '自動' : '$v',
               onChanged: (v) => set((x) => x.copyWith(codingPlannerMaxTokens: v)),
             ),
           ),
           SettingRow(
             icon: ArceSvg.file,
             title: '開発モデルの最大トークン',
-            subtitle: '1つのタスクのコードの長さ',
+            subtitle: '1つのタスクのコードの長さ（思考の分も含みます）。自動は、モデルの推奨と上限に合わせます',
             last: true,
             trailing: _Cycle<int>(
               value: coding.developerMaxTokens,
-              values: const [2048, 4096, 8192, 16384],
-              label: (v) => '$v',
+              values: const [0, 8192, 16384, 32768, 65536, 131072, 262144],
+              label: (v) => v == 0 ? '自動' : '$v',
               onChanged: (v) => set((x) => x.copyWith(codingDeveloperMaxTokens: v)),
             ),
           ),
@@ -612,10 +613,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _whole(
           icon: ArceSvg.file,
           title: '最大トークン',
-          subtitle: '1回の返信の長さの基準。空欄は共通の値',
+          subtitle: '1回の返信の長さの基準（思考の分も含みます）。空欄は、モデルの推奨か共通の値',
           value: s.onlineMaxTokens,
           hint: '${s.maxTokens}',
-          max: 32768,
+          max: 1048576,
           onChanged: (v) => set((x) => x.copyWith(onlineMaxTokens: v)),
         ),
         _TextRow(
@@ -624,9 +625,25 @@ class _SettingsPageState extends State<SettingsPage> {
           subtitle: 'オンラインのモデルにだけ送る指示（2000文字まで）',
           value: s.onlinePrompt,
           hint: '例: 回答は必ず日本語で',
-          last: true,
           maxLines: 3,
           onChanged: (v) => set((x) => x.copyWith(onlinePrompt: v)),
+        ),
+        SettingRow(
+          icon: ArceSvg.retry,
+          title: 'モデルの上限を自動で調べる',
+          subtitle: '使い始めたモデルのコンテキスト長・最大出力・画像対応を、提供元のモデル一覧から調べて保存します',
+          trailing: ArceSwitch(value: s.autoFetchModelInfo, onChanged: (v) => set((x) => x.copyWith(autoFetchModelInfo: v))),
+        ),
+        SettingRow(
+          icon: ArceSvg.globe,
+          title: 'Hugging Face からも調べる',
+          subtitle: '提供元が上限を返さないとき、モデル名（owner/name）だけを huggingface.co に送って、'
+              'コンテキスト長を読みます',
+          last: true,
+          trailing: ArceSwitch(
+            value: s.fetchModelInfoFromHub,
+            onChanged: (v) => set((x) => x.copyWith(fetchModelInfoFromHub: v)),
+          ),
         ),
       ],
     ),

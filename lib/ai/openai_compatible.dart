@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../core/generation.dart';
+import 'model_info.dart';
 import 'provider.dart';
 import 'provider_config.dart';
 
@@ -247,7 +248,11 @@ class OpenAiCompatibleProvider implements AiProvider {
   }
 
   /// The model names the endpoint offers, for the settings screen's "取得" button.
-  Future<List<String>> listModels() async {
+  Future<List<String>> listModels() async => [for (final info in await fetchModelInfos()) info.id];
+
+  /// The models the endpoint offers, with whatever it says about each one's limits and abilities
+  /// (see [ModelInfoParser] for the fields that are read). Sorted by id.
+  Future<List<ModelInfo>> fetchModelInfos() async {
     final response = await _client
         .get(
           _uri('models'),
@@ -258,13 +263,7 @@ class OpenAiCompatibleProvider implements AiProvider {
       throw AiProviderException(_failure(response.statusCode, response.body));
     }
     try {
-      final decoded = jsonDecode(response.body);
-      final data = decoded is Map ? decoded['data'] : decoded;
-      if (data is! List) return const [];
-      return [
-        for (final item in data)
-          if (item is Map && item['id'] is String) item['id'] as String,
-      ]..sort();
+      return ModelInfoParser.parseList(jsonDecode(response.body))..sort((a, b) => a.id.compareTo(b.id));
     } catch (_) {
       throw const AiProviderException('モデル一覧を読み取れませんでした');
     }

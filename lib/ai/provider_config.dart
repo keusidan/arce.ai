@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'model_info.dart';
+
 /// One model of a provider, with the sampling settings and the extra prompt it needs.
 ///
 /// A provider usually offers many models, and each one may want a different temperature or a
@@ -12,6 +14,8 @@ class ModelConfig {
     this.params = const {},
     this.prompt = '',
     this.vision,
+    this.contextTokens,
+    this.maxOutputTokens,
   });
 
   /// The name the API expects (`gpt-4o-mini`, `openai/gpt-oss-120b`, ...).
@@ -30,6 +34,12 @@ class ModelConfig {
   /// Whether the model takes images; null while the user has not said, then [guessVision] decides.
   final bool? vision;
 
+  /// The model's context window (prompt and reply together) and its longest reply, when known:
+  /// from the provider's model list or from the model's own config, or typed by the user.
+  /// Null means not known; the maker's recommendation (`ModelHints`) fills in where it has one.
+  final int? contextTokens;
+  final int? maxOutputTokens;
+
   /// What the chat acts on: the user's answer, or a guess from the model's name.
   bool get supportsImages => vision ?? guessVision(id);
 
@@ -41,6 +51,8 @@ class ModelConfig {
     r'gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-5|claude|gemini|gemma-?3|llava|vision|pixtral|llama-?4|'
     r'minicpm-v|internvl|molmo|qwen.*omni|(^|[-_/:.])vl([-_/:.]|$)',
   );
+
+  static int? _positive(Object? value) => value is num && value > 0 ? value.toInt() : null;
 
   double? param(String key) => params[key];
 
@@ -60,6 +72,31 @@ class ModelConfig {
     params: params ?? this.params,
     prompt: prompt ?? this.prompt,
     vision: vision ?? this.vision,
+    contextTokens: contextTokens,
+    maxOutputTokens: maxOutputTokens,
+  );
+
+  /// The same model with exactly these limits; null clears one (copyWith cannot).
+  ModelConfig withLimits({int? contextTokens, int? maxOutputTokens}) => ModelConfig(
+    id: id,
+    name: name,
+    params: params,
+    prompt: prompt,
+    vision: vision,
+    contextTokens: contextTokens,
+    maxOutputTokens: maxOutputTokens,
+  );
+
+  /// What [info] adds to this model. Values the model already has stay, unless [overwrite]
+  /// (the user asked to fetch again); something the provider does not say is never erased.
+  ModelConfig mergeInfo(ModelInfo info, {bool overwrite = false}) => ModelConfig(
+    id: id,
+    name: name,
+    params: params,
+    prompt: prompt,
+    vision: overwrite ? (info.vision ?? vision) : (vision ?? info.vision),
+    contextTokens: overwrite ? (info.contextTokens ?? contextTokens) : (contextTokens ?? info.contextTokens),
+    maxOutputTokens: overwrite ? (info.maxOutputTokens ?? maxOutputTokens) : (maxOutputTokens ?? info.maxOutputTokens),
   );
 
   Map<String, Object?> toJson() => {
@@ -68,6 +105,8 @@ class ModelConfig {
     if (params.isNotEmpty) 'params': params,
     if (prompt.trim().isNotEmpty) 'prompt': prompt,
     if (vision != null) 'vision': vision,
+    if (contextTokens != null) 'contextTokens': contextTokens,
+    if (maxOutputTokens != null) 'maxOutputTokens': maxOutputTokens,
   };
 
   factory ModelConfig.fromJson(Map<String, Object?> json) {
@@ -87,6 +126,8 @@ class ModelConfig {
       },
       prompt: json['prompt'] is String ? json['prompt']! as String : '',
       vision: json['vision'] is bool ? json['vision']! as bool : null,
+      contextTokens: _positive(json['contextTokens']),
+      maxOutputTokens: _positive(json['maxOutputTokens']),
     );
   }
 }

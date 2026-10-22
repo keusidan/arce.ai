@@ -138,6 +138,31 @@ void main() {
     expect(AppSettings.fromJson({'kvCache': 'q4_0'}).kvCache, KvCacheType.q4_0);
   });
 
+  test('the coding token budgets are automatic (0) unless the user picked one; 0.8.1 defaults migrate', () {
+    expect(const AppSettings().coding.plannerMaxTokens, 0);
+    expect(const AppSettings().coding.developerMaxTokens, 0);
+    // 0.8.1 wrote its fixed defaults (2048 / 4096) into every saved settings document
+    final old = AppSettings.fromJson({'codingPlannerMaxTokens': 2048, 'codingDeveloperMaxTokens': 4096});
+    expect(old.coding.plannerMaxTokens, 0);
+    expect(old.coding.developerMaxTokens, 0);
+    final chosen = AppSettings.fromJson({'codingPlannerMaxTokens': 16384, 'codingDeveloperMaxTokens': 262144});
+    expect(chosen.coding.plannerMaxTokens, 16384);
+    expect(chosen.coding.developerMaxTokens, 262144, reason: 'a 256K budget is allowed now');
+    expect(AppSettings.fromJson(chosen.toJson()).coding.developerMaxTokens, 262144);
+  });
+
+  test('model info lookup is on by default, and the user-set reply length is passed on', () {
+    const d = AppSettings();
+    expect(d.autoFetchModelInfo, isTrue);
+    expect(d.fetchModelInfoFromHub, isTrue);
+    expect(AppSettings.fromJson(const AppSettings(autoFetchModelInfo: false).toJson()).autoFetchModelInfo, isFalse);
+
+    expect(d.toGeneration(null, cloud: true).userMaxTokens, isNull, reason: 'nothing set: the maker\'s recommendation may apply');
+    expect(const AppSettings(onlineMaxTokens: 9000).toGeneration(null, cloud: true).userMaxTokens, 9000);
+    expect(const AppSettings(localMaxTokens: 500).toGeneration(null).userMaxTokens, 500);
+    expect(const AppSettings(onlineMaxTokens: 9000).toGeneration(null).userMaxTokens, isNull, reason: 'the online setting never reaches the device model');
+  });
+
   test('threads and GPU layers follow HyperLoad and the offload setting', () {
     expect(const AppSettings().effectiveThreads(8), 4);
     expect(const AppSettings(hyperLoad: true).effectiveThreads(8), 8);

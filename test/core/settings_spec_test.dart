@@ -60,7 +60,8 @@ void main() {
 
     test('範囲の外は拒否する', () {
       expect(AgentSettings.normalize('maxTokens', 100), isA<SettingsChangeInvalid>());
-      expect(AgentSettings.normalize('maxTokens', 999999), isA<SettingsChangeInvalid>());
+      expect(AgentSettings.normalize('maxTokens', 999999), isA<SettingsChangeOk>(), reason: 'a 256K reply is normal for a reasoning model now');
+      expect(AgentSettings.normalize('maxTokens', 2000000), isA<SettingsChangeInvalid>());
       expect(AgentSettings.normalize('threads', -1), isA<SettingsChangeInvalid>());
     });
 

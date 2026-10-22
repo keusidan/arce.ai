@@ -5,6 +5,7 @@ import '../core/coding_plan.dart';
 import '../core/engine.dart';
 import '../core/generation.dart';
 import 'chatml_bridge.dart';
+import 'model_hints.dart';
 import 'provider.dart';
 
 /// One model that can be given a job: an online provider's model, or the model on the device.
@@ -16,11 +17,14 @@ abstract interface class RoleModel {
   int get maxParallel;
 
   /// Sends [messages] and returns the whole answer. [cancelled] is checked while it streams.
+  /// [maxTokens] 0 means "decide": the model's own setting, the maker's recommendation, then
+  /// [autoTokens].
   Future<String> ask(
     List<AiMessage> messages, {
     required int maxTokens,
     required bool Function() cancelled,
     double temperature = 0.3,
+    int autoTokens = 4096,
   });
 
   /// Stops whatever is running on this model.
@@ -45,13 +49,28 @@ class ProviderRole implements RoleModel {
     required int maxTokens,
     required bool Function() cancelled,
     double temperature = 0.3,
+    int autoTokens = 4096,
   }) async {
     final out = StringBuffer();
+    final model = provider.modelConfig;
+    final hint = ModelHints.of(provider.modelId);
     final request = AiRequest(
       messages: messages,
       model: provider.modelId,
-      maxTokens: maxTokens,
-      temperature: temperature,
+      // a number typed in the coding settings is the user's; 0 leaves it to the model
+      maxTokens: ModelHints.resolveMaxTokens(
+        modelSetting: maxTokens > 0 ? maxTokens : model?.intParam('maxTokens'),
+        requestedIsUserSet: false,
+        requested: autoTokens,
+        hint: hint,
+        maxOutput: model?.maxOutputTokens,
+        context: model?.contextTokens,
+        promptTokens: ModelHints.estimateTokens([for (final m in messages) m.text].join('\n')),
+      ),
+      // the maker's recommended sampling replaces the role's own (a reasoning model does not
+      // want the low temperature that suits a plain one)
+      temperature: model?.param('temperature') ?? hint?.temperature ?? temperature,
+      topP: model?.param('topP') ?? hint?.topP ?? 0.95,
     );
     try {
       await for (final delta in provider.stream(request).takeWhile((_) => !cancelled())) {
@@ -87,13 +106,14 @@ class LocalRole implements RoleModel {
     required int maxTokens,
     required bool Function() cancelled,
     double temperature = 0.3,
+    int autoTokens = 4096,
   }) async {
     final out = StringBuffer();
     final request = GenerateRequest(
       prompt: chatMl(messages),
       toolCallSchema: null,
       thinking: false,
-      maxTokens: maxTokens,
+      maxTokens: maxTokens > 0 ? maxTokens : autoTokens,
       sampling: SamplingParams(temperature: temperature, topP: 0.8, topK: 20, minP: 0),
     );
     await for (final event in engine.generate(request)) {
@@ -241,6 +261,7 @@ class CodingEngine implements InferenceEngine {
       final planText = await planner.ask(
         [AiMessage(AiRole.system, text: CodingPrompts.planner(s.maxTasks)), ...conversation],
         maxTokens: s.plannerMaxTokens,
+        autoTokens: 8192,
         cancelled: cancelled,
       );
       if (_cancelled) return _finish(out, FinishReason.cancelled);
@@ -279,6 +300,7 @@ class CodingEngine implements InferenceEngine {
           results[task.id] = (await developer.ask(
             messages,
             maxTokens: s.developerMaxTokens,
+            autoTokens: 16384,
             cancelled: cancelled,
             temperature: 0.2,
           )).trim();
@@ -301,6 +323,7 @@ class CodingEngine implements InferenceEngine {
               AiMessage(AiRole.user, text: CodingPrompts.reviewInput(lastUser.text, plan, results)),
             ],
             maxTokens: s.plannerMaxTokens,
+            autoTokens: 8192,
             cancelled: cancelled,
           ),
           taskIds: {for (final t in plan.tasks) t.id},

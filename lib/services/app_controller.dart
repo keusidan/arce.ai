@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener, WidgetsFlutterBinding;
 
 import '../ai/cloud_engine.dart';
+import '../ai/model_info.dart';
+import '../ai/openai_compatible.dart';
 import '../ai/coding_engine.dart';
 import '../ai/provider.dart';
 import '../ai/provider_config.dart';
@@ -26,6 +29,7 @@ import '../engine/native_engine.dart';
 import 'conversation_database.dart';
 import 'conversation_search.dart';
 import 'device_info.dart';
+import 'model_info_fetcher.dart';
 import 'foreground_service.dart';
 import 'kv_snapshots.dart';
 import 'model_manager.dart';
@@ -115,6 +119,12 @@ class AppController extends ChangeNotifier {
   bool get acceptsImages => engine.cloudProvider?.capabilities.vision ?? false;
 
   AppPage page = AppPage.chat;
+
+  /// Finds out what an online model can do (its limits, whether it sees images).
+  final modelInfo = ModelInfoFetcher();
+
+  /// The models already asked about in this run, so each is asked once.
+  final _modelInfoAsked = <String>{};
 
   /// Saves the device model's KV cache of a conversation to a file; null where the engine cannot.
   KvSnapshotService? _kv;
@@ -321,7 +331,32 @@ class AppController extends ChangeNotifier {
   }
 
   /// Points the router at the chosen provider; the device model when none is usable.
+  /// Asks the provider (and the Hub) about the model in use when its limits are not known yet, and
+  /// keeps the answer with the model. Once per model and run; what the user typed is not replaced.
+  Future<void> _autoFillModelInfo() async {
+    final config = providers.active;
+    final model = providers.activeModel;
+    if (!settings.value.autoFetchModelInfo || config == null || model == null) return;
+    if (model.contextTokens != null && model.maxOutputTokens != null) return;
+    if (!_modelInfoAsked.add('${config.id}|${model.id}')) return;
+    try {
+      final provider = providers.build(config, model: model);
+      if (provider is! OpenAiCompatibleProvider) return;
+      final found = await modelInfo.fetchFor(provider, model, useHub: settings.value.fetchModelInfoFromHub);
+      if (jsonEncode(found.toJson()) == jsonEncode(model.toJson())) return;
+      // the provider may have changed while it was being asked
+      final current = providers.byId(config.id);
+      if (current == null) return;
+      await providers.save(
+        current.copyWith(models: [for (final m in current.models) m.id == found.id ? m.mergeInfo(ModelInfo(found.id, contextTokens: found.contextTokens, maxOutputTokens: found.maxOutputTokens, vision: found.vision)) : m]),
+      );
+    } catch (e) {
+      debugPrint('could not look up ${model.id}: $e');
+    }
+  }
+
   void _applyProvider() {
+    unawaited(_autoFillModelInfo());
     providers.requestTimeout = Duration(seconds: settings.value.providerTimeoutSeconds.clamp(10, 1800));
     final provider = providers.buildActive();
     if (provider != null) cloud.provider = provider;
