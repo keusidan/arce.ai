@@ -815,6 +815,7 @@ class _ModelEditorState extends State<ModelEditor> {
     text: widget.model.thinking.effort,
   );
   late ThinkingConfig _thinking = widget.model.thinking;
+  late ToolStyle _toolStyle = widget.model.toolStyle;
   String? _note;
   bool _busy = false;
 
@@ -859,7 +860,7 @@ class _ModelEditorState extends State<ModelEditor> {
           prompt: _prompt.text.trim(),
           vision: _vision,
         )
-        .copyWith(thinking: _thinking.copyWith(effort: _effort.text.trim()))
+        .copyWith(thinking: _thinking.copyWith(effort: _effort.text.trim()), toolStyle: _toolStyle)
         .withLimits(contextTokens: _positive(_context.text), maxOutputTokens: _positive(_maxOutput.text));
     final provider =
         widget.app.providers.byId(widget.provider.id) ?? widget.provider;
@@ -939,6 +940,18 @@ class _ModelEditorState extends State<ModelEditor> {
         ThinkingFormat.openaiEffort => 'OpenAI の形（reasoning_effort）',
       };
 
+  static String _toolStyleLabel(ToolStyle style) => switch (style) {
+        ToolStyle.auto => '自動（提供元がツールに対応していれば function calling）',
+        ToolStyle.native => 'function calling（tools・tool_calls・tool メッセージ）',
+        ToolStyle.text => 'テキスト形式（<tool_call> を本文に書く。Qwen 形式）',
+      };
+
+  static String _replayLabel(ReasoningReplay replay) => switch (replay) {
+        ReasoningReplay.auto => '自動（DeepSeek・GLM で、ツールが function calling のとき返す）',
+        ReasoningReplay.always => '常に返す（reasoning_content）',
+        ReasoningReplay.never => '返さない（答えだけを履歴に残す）',
+      };
+
   static String _modeLabel(ThinkingMode mode) => switch (mode) {
         ThinkingMode.auto => '自動（チャットの思考スイッチと、速度⇔精度に従う）',
         ThinkingMode.on => '常にオン',
@@ -1015,9 +1028,29 @@ class _ModelEditorState extends State<ModelEditor> {
             (v) => setState(() => _thinking = _thinking.copyWith(clearThinking: v)),
           ),
       ],
+      _dropdown<ReasoningReplay>(
+        '過去の思考を返す',
+        _thinking.replay,
+        {for (final r in ReasoningReplay.values) r: _replayLabel(r)},
+        (v) => setState(() => _thinking = _thinking.copyWith(replay: v)),
+      ),
       Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: SoftButton(label: 'おすすめの送り方を入れる', svg: ArceSvg.check, onTap: _suggestThinking),
+      ),
+      Text('ツール', style: ts(context, 12, weight: FontWeight.w700)),
+      const SizedBox(height: 4),
+      Text(
+        'ツールの定義と結果を、function calling の形で送るか、本文のテキストで送るかを選びます。'
+        'どちらの形でも、ツールの説明は 1 回だけ送ります。',
+        style: ts(context, 9.5, color: c.muted, height: 1.5),
+      ),
+      const SizedBox(height: 8),
+      _dropdown<ToolStyle>(
+        'ツールの送り方',
+        _toolStyle,
+        {for (final s in ToolStyle.values) s: _toolStyleLabel(s)},
+        (v) => setState(() => _toolStyle = v),
       ),
     ];
   }

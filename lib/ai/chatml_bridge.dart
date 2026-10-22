@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../core/attachments.dart';
 import '../core/engine.dart';
+import '../core/prompt.dart';
 import '../core/stream_segmenter.dart' hide ToolCallDelta;
 import 'provider.dart';
 
@@ -12,6 +13,12 @@ import 'provider.dart';
 /// between local and cloud: each block becomes a system / user / assistant message, and the
 /// `<tool_call>` / `<tool_response>` conventions stay in the text exactly as the local model
 /// receives them. Providers therefore see the same instructions the device would.
+///
+/// With `native`, the tool part of the conversation takes the shape function calling expects
+/// instead: the instructions for the `<tool_call>` text are cut from the system prompt (the
+/// definitions travel as `tools`), a call becomes an assistant message's `tool_calls`, and its
+/// result a `tool` message. Models trained on that shape (DeepSeek, GLM and most others) follow
+/// it better than the Qwen text form.
 abstract final class ChatMlBridge {
   static const _start = '<|im_start|>';
   static const _end = '<|im_end|>';
@@ -29,13 +36,23 @@ abstract final class ChatMlBridge {
   /// A picture the user attached is marked in the text (see [ImageMarker]). When [vision] is true
   /// and the bytes are in [images] it goes to the provider as a picture; otherwise the marker
   /// becomes the file's name, so the model still knows something was attached.
+  ///
+  /// [reasoning] is what the model thought before each earlier reply (one entry per assistant
+  /// block, oldest first); it is attached to those messages only when [replayReasoning] is set.
   static List<AiMessage> messages(
     String prompt, {
     Map<String, ImageData> images = const {},
     bool vision = false,
+    bool native = false,
+    List<String> reasoning = const [],
+    bool replayReasoning = false,
   }) {
     final out = <AiMessage>[];
     var cursor = 0;
+    var assistantIndex = 0;
+    // the id of a call whose result has not come yet; a result takes it
+    String? pendingCall;
+    var nextCall = 1;
 
     while (cursor < prompt.length) {
       final open = prompt.indexOf(_start, cursor);
@@ -63,14 +80,80 @@ abstract final class ChatMlBridge {
 
       switch (role) {
         case 'system':
-          out.add(AiMessage(AiRole.system, text: text.trim()));
+          out.add(AiMessage(AiRole.system, text: (native ? _withoutTools(text) : text).trim()));
         case 'user':
-          out.add(_user(text.trim(), images, vision));
+          final answer = native ? _toolResponse(text) : null;
+          if (answer != null && pendingCall != null) {
+            out.add(AiMessage(AiRole.tool, text: answer, toolCallId: pendingCall));
+            pendingCall = null;
+          } else {
+            out.add(_user(text.trim(), images, vision));
+          }
         case 'assistant':
-          out.add(AiMessage(AiRole.assistant, text: _cleanAnswer(text)));
+          final thought = replayReasoning && assistantIndex < reasoning.length ? reasoning[assistantIndex] : '';
+          assistantIndex++;
+          final cleaned = _cleanAnswer(text);
+          final call = native ? _toolCall(cleaned, 'call_$nextCall') : null;
+          if (call == null) {
+            out.add(AiMessage(AiRole.assistant, text: cleaned, reasoning: thought));
+          } else {
+            nextCall++;
+            pendingCall = call.$2.id;
+            out.add(AiMessage(AiRole.assistant, text: call.$1, toolCalls: [call.$2], reasoning: thought));
+          }
       }
     }
-    return out;
+    return native ? _closeOpenCalls(out) : out;
+  }
+
+  /// The system block without the tool instructions (they are the block's last part).
+  static String _withoutTools(String system) {
+    final at = system.indexOf(ChatMlPromptBuilder.toolsMarker);
+    return at < 0 ? system : system.substring(0, at);
+  }
+
+  static final _toolCallTail = RegExp(r'\s*<tool_call>\s*([\s\S]*?)\s*</tool_call>\s*$');
+  static final _toolResponseOnly = RegExp(r'^\s*<tool_response>\n?([\s\S]*?)\n?</tool_response>\s*$');
+
+  /// The text before a trailing `<tool_call>` and the call it holds; null when the reply does not
+  /// end with a readable call.
+  static (String, ToolCallDelta)? _toolCall(String text, String id) {
+    final match = _toolCallTail.firstMatch(text);
+    if (match == null) return null;
+    try {
+      final decoded = jsonDecode(match.group(1)!);
+      if (decoded is! Map || decoded['name'] is! String) return null;
+      final arguments = decoded['arguments'];
+      return (
+        text.substring(0, match.start).trim(),
+        ToolCallDelta(id: id, name: decoded['name'] as String, argumentsJson: jsonEncode(arguments is Map ? arguments : const {})),
+      );
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// The result inside a user block that is only a `<tool_response>`.
+  static String? _toolResponse(String text) => _toolResponseOnly.firstMatch(text)?.group(1);
+
+  /// A provider refuses an assistant `tool_calls` that no `tool` message follows (a conversation
+  /// that was stopped before the call ran). Such a call goes back to being plain text.
+  static List<AiMessage> _closeOpenCalls(List<AiMessage> messages) {
+    return [
+      for (var i = 0; i < messages.length; i++)
+        if (messages[i].toolCalls.isNotEmpty && (i + 1 >= messages.length || messages[i + 1].role != AiRole.tool))
+          AiMessage(
+            AiRole.assistant,
+            text: [
+              messages[i].text,
+              for (final call in messages[i].toolCalls)
+                '${StreamSegmenter.toolOpen}{"name": ${jsonEncode(call.name)}, "arguments": ${call.argumentsJson}}${StreamSegmenter.toolClose}',
+            ].where((s) => s.isNotEmpty).join('\n'),
+            reasoning: messages[i].reasoning,
+          )
+        else
+          messages[i],
+    ];
   }
 
   static AiMessage _user(String text, Map<String, ImageData> images, bool vision) {

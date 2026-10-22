@@ -7,6 +7,7 @@ import 'package:arce_ai/ai/thinking_config.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
 import 'package:arce_ai/core/prompt.dart';
+import 'package:arce_ai/core/protocol.dart';
 import 'package:arce_ai/core/stream_segmenter.dart' hide ToolCallDelta;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -67,7 +68,9 @@ class _FixedProvider implements AiProvider {
 
 /// A provider with a given model and model settings, that remembers the request.
 class _ModelProvider implements AiProvider {
-  _ModelProvider(this.modelId, this.modelConfig);
+  _ModelProvider(this.modelId, this.modelConfig, {this.tools = false});
+
+  final bool tools;
 
   @override
   final String modelId;
@@ -80,7 +83,7 @@ class _ModelProvider implements AiProvider {
   @override
   String get label => 'モデル';
   @override
-  ProviderCapabilities get capabilities => const ProviderCapabilities();
+  ProviderCapabilities get capabilities => ProviderCapabilities(tools: tools);
   @override
   Future<void> verify() async {}
 
@@ -317,6 +320,81 @@ void main() {
       final r = await sent('tiny', small, request());
       expect(r.maxTokens, lessThan(8192), reason: 'the prompt and the reply must fit the window');
       expect(r.maxTokens, greaterThan(7000));
+    });
+  });
+
+  group('ツールの会話の形', () {
+    const getTime = ToolDefinition(name: 'get_time', description: '時刻', parameters: {'type': 'object'});
+    const call = '{"name": "get_time", "arguments": {}}';
+
+    GenerateRequest request() => GenerateRequest(
+          prompt: ChatMlPromptBuilder.build(
+            const [UserTurn('いま何時'), AssistantTurn('調べます', call, '時刻を知りたい'), ToolResponseTurn('12:00')],
+            const [getTime],
+            null,
+            false,
+          ),
+          toolCallSchema: '{}',
+          tools: const [getTime],
+          thinking: false,
+          maxTokens: 256,
+          sampling: _sampling,
+          assistantReasoning: const ['時刻を知りたい'],
+        );
+
+    Future<AiRequest> sent(String modelId, ModelConfig? config, {bool tools = true}) async {
+      final provider = _ModelProvider(modelId, config, tools: tools);
+      await CloudEngine(provider).generate(request()).toList();
+      return provider.last!;
+    }
+
+    test('既定は function calling：tools に 1 回、会話は tool_calls と tool メッセージ、本文にツールの説明は無い', () async {
+      final r = await sent('gpt-4o', null);
+      expect(r.tools.map((t) => t.name), ['get_time']);
+      expect([for (final m in r.messages) m.role], [AiRole.system, AiRole.user, AiRole.assistant, AiRole.tool]);
+      expect(r.messages.first.text, isNot(contains('<tools>')));
+      expect(r.messages[2].toolCalls.single.name, 'get_time');
+    });
+
+    test('提供元がツールに対応していなければ、テキスト形式（説明は本文に、tools は送らない）', () async {
+      final r = await sent('gpt-4o', null, tools: false);
+      expect(r.tools, isEmpty);
+      expect(r.messages.first.text, contains('<tools>'));
+      expect(r.messages[2].text, contains('<tool_call>'));
+    });
+
+    test('「テキスト形式」を選んだモデルは、対応している提供元でもテキスト形式。tools と本文で二重にならない', () async {
+      final r = await sent('gpt-4o', const ModelConfig(id: 'gpt-4o', name: 'x', toolStyle: ToolStyle.text));
+      expect(r.tools, isEmpty);
+      expect(r.messages.first.text, contains('<tools>'));
+      expect(r.messages[3].role, AiRole.user);
+    });
+
+    test('過去の思考：DeepSeek と GLM は自動で返し、他のモデルは返さない', () async {
+      final deepseek = await sent('deepseek-v4-flash', null);
+      expect(deepseek.messages[2].reasoning, '時刻を知りたい');
+      final glm = await sent('zai-org/GLM-5.3', null);
+      expect(glm.messages[2].reasoning, '時刻を知りたい');
+      final other = await sent('gpt-4o', null);
+      expect(other.messages[2].reasoning, isEmpty);
+    });
+
+    test('テキスト形式のあいだは、自動では思考を返さない（ツールが function calling のときの決まりのため）', () async {
+      final r = await sent('deepseek-v4-flash', const ModelConfig(id: 'deepseek-v4-flash', name: 'x', toolStyle: ToolStyle.text));
+      expect([for (final m in r.messages) m.reasoning], everyElement(''));
+    });
+
+    test('「常に返す」「返さない」は、モデルの種類より強い', () async {
+      final always = await sent(
+        'gpt-4o',
+        const ModelConfig(id: 'gpt-4o', name: 'x', thinking: ThinkingConfig(replay: ReasoningReplay.always)),
+      );
+      expect(always.messages[2].reasoning, '時刻を知りたい');
+      final never = await sent(
+        'deepseek-v4-flash',
+        const ModelConfig(id: 'deepseek-v4-flash', name: 'x', thinking: ThinkingConfig(replay: ReasoningReplay.never)),
+      );
+      expect(never.messages[2].reasoning, isEmpty);
     });
   });
 }

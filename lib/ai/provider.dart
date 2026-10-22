@@ -57,10 +57,15 @@ class AiMessage {
     this.toolCalls = const [],
     this.toolCallId = '',
     this.images = const [],
+    this.reasoning = '',
   });
 
   final AiRole role;
   final String text;
+
+  /// What the model thought before this assistant message. Sent back only when the model is set
+  /// to receive its earlier reasoning (`reasoning_content`); empty for every other message.
+  final String reasoning;
 
   /// Pictures sent with a user message. Only set for a provider that can see them.
   final List<ImageData> images;

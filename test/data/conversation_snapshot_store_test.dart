@@ -35,7 +35,7 @@ Map<String, Object?> snapshot({String text = 'こんにちは'}) => {
       ],
       'history': [
         {'type': 'user', 'text': text, 'toolCallJson': null},
-        {'type': 'assistant', 'text': '答え', 'toolCallJson': '{"name": "ask_user"}'},
+        {'type': 'assistant', 'text': '答え', 'toolCallJson': '{"name": "ask_user"}', 'reasoning': '考えた'},
         {'type': 'tool', 'text': 'A', 'toolCallJson': null},
       ],
       'nextId': 2,
@@ -140,6 +140,8 @@ void main() {
 
       expect([for (final t in history) t['type']], ['user', 'assistant', 'tool']);
       expect(history[1]['toolCallJson'], '{"name": "ask_user"}');
+      expect(history[1]['reasoning'], '考えた', reason: 'a reopened conversation can send its reasoning back');
+      expect(history[0].containsKey('reasoning'), isFalse);
     });
 
     test('生成中の印は cancelled として読む（続行できる状態）', () {

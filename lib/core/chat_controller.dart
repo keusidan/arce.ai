@@ -718,6 +718,10 @@ class ChatController extends ChangeNotifier {
         images: _images,
         agentId: agent.id,
         continuation: roundPrefill.isNotEmpty,
+        assistantReasoning: [
+          for (final turn in _history)
+            if (turn is AssistantTurn) turn.reasoning ?? '',
+        ],
         user: UserSampling(temperature: config.temperature, topP: config.topP, maxTokens: config.userMaxTokens, speedAccuracy: config.speedAccuracy),
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
@@ -762,7 +766,7 @@ class ChatController extends ChangeNotifier {
           : ToolCallParser.parse(result.toolCallJson!, tools);
       final call = parsed is ParseOk ? parsed.call : null;
       _history.add(
-        AssistantTurn(result.answer, call == null ? null : result.toolCallJson),
+        AssistantTurn(result.answer, call == null ? null : result.toolCallJson, result.thinking),
       );
       final shown = _join(earlierText, result.answer);
 

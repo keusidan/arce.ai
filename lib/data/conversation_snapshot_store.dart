@@ -188,6 +188,7 @@ class ConversationSnapshotStore {
               : MessageRole.user,
       text: turn['text'] as String?,
       toolCallJson: turn['toolCallJson'] as String?,
+      reasoning: turn['reasoning'] as String?,
     );
   }
 
@@ -195,6 +196,7 @@ class ConversationSnapshotStore {
         'type': turn.kind,
         'text': turn.text ?? '',
         'toolCallJson': turn.toolCallJson,
+        if (turn.reasoning != null) 'reasoning': turn.reasoning,
       };
 
   /// The title the history list shows: the first thing the user typed, shortened.

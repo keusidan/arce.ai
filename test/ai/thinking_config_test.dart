@@ -104,6 +104,16 @@ void main() {
       expect(ThinkingConfig.fromJson(null).isDefault, isTrue);
     });
 
+    test('過去の思考を返す設定：既定は自動で書き出さない。選べば往復できる', () {
+      expect(ThinkingConfig.none.replay, ReasoningReplay.auto);
+      expect(ThinkingConfig.none.toJson().containsKey('replay'), isFalse);
+      const config = ThinkingConfig(replay: ReasoningReplay.always);
+      expect(config.isDefault, isFalse);
+      expect(ThinkingConfig.fromJson(config.toJson()).replay, ReasoningReplay.always);
+      expect(ThinkingConfig.fromJson({'replay': 'sometimes'}).replay, ReasoningReplay.auto);
+      expect(config.copyWith(effort: 'low').replay, ReasoningReplay.always);
+    });
+
     test('copyWith は、clearThinking を null に戻せる', () {
       const config = ThinkingConfig(clearThinking: true);
       expect(config.copyWith(effort: 'low').clearThinking, isTrue);

@@ -222,6 +222,20 @@ void main() {
     expect(find.text('clear_thinking（GLM）'), findsOneWidget);
     expect(find.text('true（過去の思考を捨てる・チャット向け）'), findsWidgets, reason: 'the GLM-5.3 card says to pass true for chat');
 
+    // tools and earlier thinking: the defaults are shown, and a choice is kept
+    expect(find.text('自動（提供元がツールに対応していれば function calling）'), findsOneWidget);
+    expect(find.text('自動（DeepSeek・GLM で、ツールが function calling のとき返す）'), findsOneWidget);
+    await tester.ensureVisible(find.text('自動（提供元がツールに対応していれば function calling）'));
+    await tester.tap(find.text('自動（提供元がツールに対応していれば function calling）'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('テキスト形式（<tool_call> を本文に書く。Qwen 形式）').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('自動（DeepSeek・GLM で、ツールが function calling のとき返す）'));
+    await tester.tap(find.text('自動（DeepSeek・GLM で、ツールが function calling のとき返す）'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('返さない（答えだけを履歴に残す）').last);
+    await tester.pumpAndSettle();
+
     // the empty context field shows the maker's 1M as its placeholder
     await tester.enterText(find.widgetWithText(TextField, '1048576'), '900000');
     await tester.enterText(find.widgetWithText(TextField, '例: 65536'), '131072');
@@ -235,6 +249,8 @@ void main() {
     expect(saved.thinking.clearThinking, isTrue);
     expect(saved.contextTokens, 900000);
     expect(saved.maxOutputTokens, 131072);
+    expect(saved.toolStyle, ToolStyle.text);
+    expect(saved.thinking.replay, ReasoningReplay.never);
   });
 
   testWidgets('chat: the thinking switch says when an online model does not hear about it', (tester) async {

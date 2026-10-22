@@ -142,7 +142,7 @@ class AssetRow {
 /// One turn of the conversation as the model sees it. Kept apart from [MessageRow] because the
 /// model history also holds tool responses and the raw tool-call JSON, which the screen never shows.
 class TurnRow {
-  const TurnRow({required this.seq, required this.kind, this.text, this.toolCallJson});
+  const TurnRow({required this.seq, required this.kind, this.text, this.toolCallJson, this.reasoning});
 
   final int seq;
 
@@ -150,15 +150,19 @@ class TurnRow {
   final String kind;
   final String? text;
   final String? toolCallJson;
+
+  /// What the model thought before it answered (an assistant turn of a model that thinks).
+  final String? reasoning;
 }
 
 /// A turn about to be written.
 class NewTurn {
-  const NewTurn(this.kind, {this.text, this.toolCallJson});
+  const NewTurn(this.kind, {this.text, this.toolCallJson, this.reasoning});
 
   final String kind;
   final String? text;
   final String? toolCallJson;
+  final String? reasoning;
 }
 
 /// One message with its parts, as the chat screen needs them.
@@ -254,7 +258,7 @@ class LlmDatabase {
 
   final Database _db;
 
-  static const _schemaVersion = 2;
+  static const _schemaVersion = 3;
 
   int get schemaVersion => _db.userVersion;
 
@@ -319,6 +323,7 @@ class LlmDatabase {
           kind            TEXT NOT NULL,
           text            TEXT,
           tool_call_json  TEXT,
+          reasoning       TEXT,
           PRIMARY KEY (conversation_id, seq)
         );
         CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, seq);
@@ -332,6 +337,9 @@ class LlmDatabase {
           message_id UNINDEXED, conversation_id UNINDEXED, body, tokenize='trigram'
         );
       ''');
+      // version 3: a turn keeps the model's reasoning (a database made before has the table without it)
+      final hasReasoning = _db.select('PRAGMA table_info(turns)').any((c) => c['name'] == 'reasoning');
+      if (!hasReasoning) _db.execute('ALTER TABLE turns ADD COLUMN reasoning TEXT');
       _db.userVersion = _schemaVersion;
     }
   }
@@ -638,8 +646,8 @@ class LlmDatabase {
       var seq = 0;
       for (final t in turns) {
         _db.execute(
-          'INSERT INTO turns (conversation_id, seq, kind, text, tool_call_json) VALUES (?, ?, ?, ?, ?)',
-          [conversationId, seq++, t.kind, t.text, t.toolCallJson],
+          'INSERT INTO turns (conversation_id, seq, kind, text, tool_call_json, reasoning) VALUES (?, ?, ?, ?, ?, ?)',
+          [conversationId, seq++, t.kind, t.text, t.toolCallJson, t.reasoning],
         );
       }
     });
@@ -647,7 +655,7 @@ class LlmDatabase {
 
   List<TurnRow> turnsOf(String conversationId) {
     final rows = _db.select(
-      'SELECT seq, kind, text, tool_call_json FROM turns WHERE conversation_id = ? ORDER BY seq',
+      'SELECT seq, kind, text, tool_call_json, reasoning FROM turns WHERE conversation_id = ? ORDER BY seq',
       [conversationId],
     );
     return [
@@ -657,6 +665,7 @@ class LlmDatabase {
           kind: r['kind'] as String,
           text: r['text'] as String?,
           toolCallJson: r['tool_call_json'] as String?,
+          reasoning: r['reasoning'] as String?,
         ),
     ];
   }

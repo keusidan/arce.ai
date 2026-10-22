@@ -452,4 +452,38 @@ void main() {
       expect(with_('my-model', config: const ModelConfig(id: 'my-model', name: 'x', vision: true)).capabilities.vision, isTrue);
     });
   });
+
+  group('思考を返す（reasoning_content）', () {
+    Future<List<Map<String, Object?>>> send(List<AiMessage> messages) async {
+      Map<String, Object?>? sent;
+      final provider = providerWith(
+        [textEvent('ok')],
+        onRequest: (request) => sent = jsonDecode((request as http.Request).body) as Map<String, Object?>,
+      );
+      await provider.stream(AiRequest(messages: messages)).toList();
+      return (sent!['messages'] as List).cast<Map<String, Object?>>();
+    }
+
+    test('思考のある assistant メッセージは reasoning_content を付け、無いものには付けない', () async {
+      final messages = await send(const [
+        AiMessage(AiRole.user, text: 'x'),
+        AiMessage(AiRole.assistant, text: '調べます', reasoning: '時刻を知りたい', toolCalls: [
+          ToolCallDelta(id: 'call_1', name: 'get_time', argumentsJson: '{}'),
+        ]),
+        AiMessage(AiRole.tool, text: '12:00', toolCallId: 'call_1'),
+        AiMessage(AiRole.assistant, text: '正午です', reasoning: '答えられる'),
+        AiMessage(AiRole.user, text: 'もう一度'),
+        AiMessage(AiRole.assistant, text: '了解'),
+      ]);
+      expect(messages[1]['reasoning_content'], '時刻を知りたい');
+      expect(messages[3]['reasoning_content'], '答えられる');
+      expect(messages[5].containsKey('reasoning_content'), isFalse);
+      expect(messages[0].containsKey('reasoning_content'), isFalse);
+    });
+
+    test('空白だけの思考は送らない', () async {
+      final messages = await send(const [AiMessage(AiRole.assistant, text: 'a', reasoning: '  \n')]);
+      expect(messages.single.containsKey('reasoning_content'), isFalse);
+    });
+  });
 }

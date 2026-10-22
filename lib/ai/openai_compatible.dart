@@ -228,12 +228,14 @@ class OpenAiCompatibleProvider implements AiProvider {
           ],
         };
       case AiRole.assistant:
+        final reasoning = message.reasoning.trim().isEmpty ? null : message.reasoning;
         if (message.toolCalls.isEmpty) {
-          return {'role': 'assistant', 'content': message.text};
+          return {'role': 'assistant', 'content': message.text, 'reasoning_content': ?reasoning};
         }
         return {
           'role': 'assistant',
           'content': message.text,
+          'reasoning_content': ?reasoning,
           'tool_calls': [
             for (final call in message.toolCalls)
               {

@@ -250,4 +250,20 @@ void main() {
       expect(edited.contextTokens, 100);
     });
   });
+
+  group('ツールの送り方', () {
+    test('選んだ値は書き出して読み戻せ、自動なら書き出さない', () {
+      final config = _openai.copyWith(models: const [ModelConfig(id: 'm', name: 'm', toolStyle: ToolStyle.text)]);
+      final back = ProviderList.decode(ProviderList.encode([config])).single.models.single;
+      expect(back.toolStyle, ToolStyle.text);
+      expect(ProviderList.encode([_openai]), isNot(contains('toolStyle')));
+    });
+
+    test('壊れた値は自動に戻し、他の項目を編集しても消えない', () {
+      expect(ModelConfig.fromJson({'id': 'm', 'toolStyle': 'magic'}).toolStyle, ToolStyle.auto);
+      const m = ModelConfig(id: 'm', name: 'm', toolStyle: ToolStyle.native);
+      final edited = m.copyWith(name: 'n').withLimits(contextTokens: 1).mergeInfo(const ModelInfo('m', maxOutputTokens: 5));
+      expect(edited.toolStyle, ToolStyle.native);
+    });
+  });
 }

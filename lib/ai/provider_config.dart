@@ -3,6 +3,20 @@ import 'dart:convert';
 import 'model_info.dart';
 import 'thinking_config.dart';
 
+/// How the tools and their results travel to a model.
+enum ToolStyle {
+  /// Function calling when the provider offers it, the text form otherwise.
+  auto,
+
+  /// Function calling: the tools go as `tools`, a call is an assistant `tool_calls`, its result a
+  /// `tool` message. The tool instructions are not repeated in the system prompt.
+  native,
+
+  /// The Qwen text form on every provider: the tools are described in the system prompt, a call is
+  /// `<tool_call>` in the reply and its result a `<tool_response>` in the next user message.
+  text,
+}
+
 /// One model of a provider, with the sampling settings and the extra prompt it needs.
 ///
 /// A provider usually offers many models, and each one may want a different temperature or a
@@ -18,6 +32,7 @@ class ModelConfig {
     this.contextTokens,
     this.maxOutputTokens,
     this.thinking = ThinkingConfig.none,
+    this.toolStyle = ToolStyle.auto,
   });
 
   /// The name the API expects (`gpt-4o-mini`, `openai/gpt-oss-120b`, ...).
@@ -44,6 +59,9 @@ class ModelConfig {
 
   /// How thinking is asked for in the request (see [ThinkingConfig]); nothing is sent by default.
   final ThinkingConfig thinking;
+
+  /// How tools reach the model (see [ToolStyle]).
+  final ToolStyle toolStyle;
 
   /// What the chat acts on: the user's answer, or a guess from the model's name.
   bool get supportsImages => vision ?? guessVision(id);
@@ -72,6 +90,7 @@ class ModelConfig {
     String? prompt,
     bool? vision,
     ThinkingConfig? thinking,
+    ToolStyle? toolStyle,
   }) => ModelConfig(
     id: id,
     name: name ?? this.name,
@@ -81,6 +100,7 @@ class ModelConfig {
     contextTokens: contextTokens,
     maxOutputTokens: maxOutputTokens,
     thinking: thinking ?? this.thinking,
+    toolStyle: toolStyle ?? this.toolStyle,
   );
 
   /// The same model with exactly these limits; null clears one (copyWith cannot).
@@ -93,6 +113,7 @@ class ModelConfig {
     contextTokens: contextTokens,
     maxOutputTokens: maxOutputTokens,
     thinking: thinking,
+    toolStyle: toolStyle,
   );
 
   /// What [info] adds to this model. Values the model already has stay, unless [overwrite]
@@ -106,6 +127,7 @@ class ModelConfig {
     contextTokens: overwrite ? (info.contextTokens ?? contextTokens) : (contextTokens ?? info.contextTokens),
     maxOutputTokens: overwrite ? (info.maxOutputTokens ?? maxOutputTokens) : (maxOutputTokens ?? info.maxOutputTokens),
     thinking: thinking,
+    toolStyle: toolStyle,
   );
 
   Map<String, Object?> toJson() => {
@@ -117,6 +139,7 @@ class ModelConfig {
     if (contextTokens != null) 'contextTokens': contextTokens,
     if (maxOutputTokens != null) 'maxOutputTokens': maxOutputTokens,
     if (!thinking.isDefault) 'thinking': thinking.toJson(),
+    if (toolStyle != ToolStyle.auto) 'toolStyle': toolStyle.name,
   };
 
   factory ModelConfig.fromJson(Map<String, Object?> json) {
@@ -139,6 +162,7 @@ class ModelConfig {
       contextTokens: _positive(json['contextTokens']),
       maxOutputTokens: _positive(json['maxOutputTokens']),
       thinking: ThinkingConfig.fromJson(json['thinking']),
+      toolStyle: ToolStyle.values.asNameMap()[json['toolStyle']] ?? ToolStyle.auto,
     );
   }
 }

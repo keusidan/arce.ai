@@ -12,7 +12,7 @@ sealed class ChatMessage {
       case 'user':
         return UserTurn(json['text'] as String);
       case 'assistant':
-        return AssistantTurn(json['text'] as String, json['toolCallJson'] as String?);
+        return AssistantTurn(json['text'] as String, json['toolCallJson'] as String?, json['reasoning'] as String?);
       case 'tool':
         return ToolResponseTurn(json['text'] as String);
     }
@@ -30,12 +30,22 @@ class UserTurn extends ChatMessage {
 
 /// Past assistant turns keep only the answer; Qwen3 drops old reasoning from the context.
 class AssistantTurn extends ChatMessage {
-  const AssistantTurn(this.text, [this.toolCallJson]);
+  const AssistantTurn(this.text, [this.toolCallJson, this.reasoning]);
   final String text;
   final String? toolCallJson;
 
+  /// What the model thought before it answered. It is never part of the prompt text (the device
+  /// model does not see it); a provider that wants it back (DeepSeek and GLM, when tools are in
+  /// use) receives it beside the prompt (`GenerateRequest.reasoning`).
+  final String? reasoning;
+
   @override
-  Map<String, Object?> toJson() => {'type': 'assistant', 'text': text, 'toolCallJson': toolCallJson};
+  Map<String, Object?> toJson() => {
+        'type': 'assistant',
+        'text': text,
+        'toolCallJson': toolCallJson,
+        if (reasoning != null && reasoning!.isNotEmpty) 'reasoning': reasoning,
+      };
 }
 
 /// The user's answer to a tool call such as ask_user.
@@ -144,9 +154,14 @@ Rules:
       ..write('\n');
   }
 
+  /// Where the tool instructions begin in the system block. They are its last part, so a bridge
+  /// that sends the tools another way cuts from here.
+  static const toolsMarker = '\n\n# Tools\n\n';
+
   static void _appendTools(StringBuffer b, List<ToolDefinition> tools) {
     b
-      ..write('\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\n')
+      ..write(toolsMarker)
+      ..write('You may call one or more functions to assist with the user query.\n\n')
       ..write('You are provided with function signatures within <tools></tools> XML tags:\n<tools>');
     for (final tool in tools) {
       final signature = {

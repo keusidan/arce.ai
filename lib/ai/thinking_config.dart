@@ -29,6 +29,19 @@ enum ThinkingFormat {
   openaiEffort,
 }
 
+/// Whether the thinking of the earlier replies goes back to the provider with the conversation.
+///
+/// Most models are trained to see only the answers of the past, and a longer prompt costs money.
+/// DeepSeek's encoding guide (V4.1) keeps the reasoning of every earlier turn when tools are in use,
+/// and GLM-5 has `clear_thinking: false` for the same ("preserved thinking"); a model that was
+/// trained that way acts on a conversation without its own reasoning as if it had forgotten why.
+enum ReasoningReplay {
+  /// DeepSeek and GLM models, while the tools go as function calling; nothing for the others.
+  auto,
+  always,
+  never,
+}
+
 /// The thinking settings of one model.
 class ThinkingConfig {
   const ThinkingConfig({
@@ -36,6 +49,7 @@ class ThinkingConfig {
     this.format = ThinkingFormat.none,
     this.effort = '',
     this.clearThinking,
+    this.replay = ReasoningReplay.auto,
   });
 
   static const none = ThinkingConfig();
@@ -52,13 +66,28 @@ class ThinkingConfig {
   /// chat).
   final bool? clearThinking;
 
-  bool get isDefault => mode == ThinkingMode.auto && format == ThinkingFormat.none && effort.isEmpty && clearThinking == null;
+  /// Whether earlier thinking is sent back with the conversation (see [ReasoningReplay]).
+  final ReasoningReplay replay;
 
-  ThinkingConfig copyWith({ThinkingMode? mode, ThinkingFormat? format, String? effort, Object? clearThinking = _keep}) => ThinkingConfig(
+  bool get isDefault =>
+      mode == ThinkingMode.auto &&
+      format == ThinkingFormat.none &&
+      effort.isEmpty &&
+      clearThinking == null &&
+      replay == ReasoningReplay.auto;
+
+  ThinkingConfig copyWith({
+    ThinkingMode? mode,
+    ThinkingFormat? format,
+    String? effort,
+    Object? clearThinking = _keep,
+    ReasoningReplay? replay,
+  }) => ThinkingConfig(
         mode: mode ?? this.mode,
         format: format ?? this.format,
         effort: effort ?? this.effort,
         clearThinking: identical(clearThinking, _keep) ? this.clearThinking : clearThinking as bool?,
+        replay: replay ?? this.replay,
       );
 
   static const _keep = Object();
@@ -68,6 +97,7 @@ class ThinkingConfig {
         if (format != ThinkingFormat.none) 'format': format.name,
         if (effort.isNotEmpty) 'effort': effort,
         if (clearThinking != null) 'clearThinking': clearThinking,
+        if (replay != ReasoningReplay.auto) 'replay': replay.name,
       };
 
   factory ThinkingConfig.fromJson(Object? json) {
@@ -84,6 +114,7 @@ class ThinkingConfig {
       format: pick(ThinkingFormat.values, json['format'], ThinkingFormat.none),
       effort: json['effort'] is String ? (json['effort']! as String).trim() : '',
       clearThinking: json['clearThinking'] is bool ? json['clearThinking']! as bool : null,
+      replay: pick(ReasoningReplay.values, json['replay'], ReasoningReplay.auto),
     );
   }
 }

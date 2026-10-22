@@ -3,6 +3,7 @@ import '../core/generation.dart';
 import 'chatml_bridge.dart';
 import 'model_hints.dart';
 import 'provider.dart';
+import 'provider_config.dart';
 import 'thinking_config.dart';
 
 /// Answers through a cloud provider (or a local server that speaks the same protocol) while
@@ -33,20 +34,40 @@ class CloudEngine implements InferenceEngine {
   @override
   void cancel() => _cancelled = true;
 
+  /// Whether tools go as function calling: the model's choice, or whatever the provider offers.
+  static bool usesNativeTools(ModelConfig? model, bool providerOffersTools) => switch (model?.toolStyle ?? ToolStyle.auto) {
+    ToolStyle.auto => providerOffersTools,
+    ToolStyle.native => providerOffersTools,
+    ToolStyle.text => false,
+  };
+
+  /// Whether the earlier reasoning goes back with the conversation. By default only for the models
+  /// whose makers keep it (DeepSeek, GLM) and only while tools are function calls, which is
+  /// where their guides keep it.
+  static bool replaysReasoning(ModelConfig? model, String modelId, bool native) => switch (model?.thinking.replay ?? ReasoningReplay.auto) {
+    ReasoningReplay.always => true,
+    ReasoningReplay.never => false,
+    ReasoningReplay.auto => native && ModelHints.familyOf(modelId) != ModelFamily.other,
+  };
+
   @override
   Stream<GenerationEvent> generate(GenerateRequest request) async* {
     _cancelled = false;
+    final model = provider.modelConfig;
+    final native = usesNativeTools(model, provider.capabilities.tools);
     final messages = ChatMlBridge.messages(
       request.prompt,
       images: request.images,
       vision: provider.capabilities.vision,
+      native: native,
+      reasoning: request.assistantReasoning,
+      replayReasoning: replaysReasoning(model, provider.modelId, native),
     );
     if (messages.isEmpty) {
       throw EngineException('送信する内容を組み立てられませんでした');
     }
 
     final adapter = CloudEventAdapter();
-    final model = provider.modelConfig;
     final extraPrompt = model?.prompt.trim() ?? '';
     final allMessages = [
       if (extraPrompt.isNotEmpty) AiMessage(AiRole.system, text: extraPrompt),
@@ -76,10 +97,11 @@ class CloudEngine implements InferenceEngine {
       ),
       temperature: model?.param('temperature') ?? request.user.temperature ?? hint?.temperature ?? request.sampling.temperature,
       topP: model?.param('topP') ?? request.user.topP ?? hint?.topP ?? request.sampling.topP,
-      // The prompt already teaches the `<tool_call>` form; sending the definitions as function
-      // calling as well is what makes cloud models actually call one.
+      // With function calling the definitions travel here, and the conversation has the matching
+      // shape (see [ChatMlBridge]); the text form keeps them in the system prompt instead, so
+      // the model is never told about the same tools twice.
       tools: [
-        if (provider.capabilities.tools)
+        if (native)
           for (final tool in request.tools)
             AiToolSpec(
               name: tool.name,

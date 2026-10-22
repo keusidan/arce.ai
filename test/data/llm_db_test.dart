@@ -22,7 +22,7 @@ void main() {
 
   group('データベース', () {
     test('スキーマ版が記録される', () {
-      expect(db.schemaVersion, 2);
+      expect(db.schemaVersion, 3);
     });
 
     test('同じパスを開き直してもデータが残る（永続化の確認）', () {
@@ -405,6 +405,56 @@ void main() {
   });
 
   group('スキーマの移行', () {
+    test('v2 のデータベース（reasoning 列が無い turns）を開くと列が足され、前の履歴は思考なしで読める', () {
+      final dir = Directory.systemTemp.createTempSync('arce_mig2');
+      final path = '${dir.path}/v2.db';
+      final raw = sqlite3.open(path);
+      raw.execute('''
+        CREATE TABLE conversations (
+          id TEXT PRIMARY KEY, title TEXT NOT NULL, agent_id TEXT NOT NULL,
+          provider_id TEXT NOT NULL, model_id TEXT NOT NULL,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          archived INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE turns (
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          seq INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT, tool_call_json TEXT,
+          PRIMARY KEY (conversation_id, seq)
+        );
+      ''');
+      raw.execute("INSERT INTO conversations VALUES ('c', '前の会話', 'general', 'local', 'm', 1, 1, 0, 0)");
+      raw.execute("INSERT INTO turns VALUES ('c', 0, 'assistant', '前の答え', NULL)");
+      raw.userVersion = 2;
+      raw.close();
+
+      final db = LlmDatabase.open(path);
+      expect(db.schemaVersion, 3);
+      expect(db.turnsOf('c').single.text, '前の答え');
+      expect(db.turnsOf('c').single.reasoning, isNull);
+
+      db.saveTurns('c', [const NewTurn('assistant', text: '答え', reasoning: '考えた')]);
+      expect(db.turnsOf('c').single.reasoning, '考えた');
+
+      db.close();
+      // opening it again does not try to add the column twice
+      final again = LlmDatabase.open(path);
+      expect(again.turnsOf('c').single.reasoning, '考えた');
+      again.close();
+      dir.deleteSync(recursive: true);
+    });
+
+    test('新しいデータベースでは、turns が思考を保存して返す', () {
+      final db = LlmDatabase.memory();
+      final id = db.startConversation(title: 't', agentId: 'general', providerId: 'local', modelId: 'm');
+      db.saveTurns(id, [
+        const NewTurn('user', text: '質問'),
+        const NewTurn('assistant', text: '答え', toolCallJson: '{}', reasoning: '考えた'),
+        const NewTurn('assistant', text: '次'),
+      ]);
+      expect([for (final t in db.turnsOf(id)) t.reasoning], [null, '考えた', null]);
+      db.close();
+    });
+
     test('v1 のデータベースを開くと turns が足され、中身は残る', () {
       final dir = Directory.systemTemp.createTempSync('arce_mig');
       final path = '${dir.path}/old.db';
@@ -424,7 +474,7 @@ void main() {
       raw.close();
 
       final db = LlmDatabase.open(path);
-      expect(db.schemaVersion, 2);
+      expect(db.schemaVersion, 3);
       expect(db.conversation('old-1')?.title, '前からある会話');
 
       db.saveTurns('old-1', [const NewTurn('user', text: '移行後も使える')]);

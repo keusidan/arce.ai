@@ -98,9 +98,15 @@ class GenerateRequest {
     this.agentId,
     this.continuation = false,
     this.user = const UserSampling(),
+    this.assistantReasoning = const [],
   });
 
   final String prompt;
+
+  /// What the model thought before each earlier reply, oldest first, one entry per assistant turn
+  /// of the prompt (empty when it did not think). The prompt text never carries it; only an
+  /// engine whose provider takes it back reads it.
+  final List<String> assistantReasoning;
 
   /// The agent this reply is for; null for the app's own short requests (choosing an agent).
   final String? agentId;

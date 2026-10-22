@@ -5,6 +5,7 @@ import 'package:arce_ai/core/attachments.dart';
 import 'package:arce_ai/core/chat_controller.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
+import 'package:arce_ai/core/prompt.dart';
 import 'package:arce_ai/core/protocol.dart';
 import 'package:arce_ai/core/tool_runtime.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -299,5 +300,30 @@ void main() {
     expect(chat.state.task, TaskState.error);
     expect(chat.state.error, contains('同じ道具を繰り返し呼んでいます'));
     expect(engine.requests, hasLength(3));
+  });
+
+  test('the thinking of each reply is kept in the history and goes back beside the next prompt, never inside it', () async {
+    final engine = ScriptedEngine([
+      (
+        '<think>時刻を調べる</think><tool_call>\n{"name":"get_time","arguments":{}}\n</tool_call>',
+        FinishReason.eog,
+      ),
+      ('<think>答える</think>正午です', FinishReason.eog),
+    ]);
+    final chat = ChatController(
+      engine,
+      toolRuntime: _Runtime((_) => const ToolOutcome('12:00', ToolActivity('Time', '12:00'))),
+    );
+    await chat.send('いま何時');
+
+    expect(engine.requests, hasLength(2));
+    expect(engine.requests.first.assistantReasoning, isEmpty);
+    expect(engine.requests.last.assistantReasoning, hasLength(1));
+    expect(engine.requests.last.assistantReasoning.single, contains('時刻を調べる'));
+    expect(engine.requests.last.prompt, isNot(contains('時刻を調べる')), reason: 'the device model never sees old reasoning');
+
+    final saved = chat.snapshot().history.whereType<AssistantTurn>().map((t) => t.reasoning).toList();
+    expect(saved.first, contains('時刻を調べる'));
+    expect(saved.last, contains('答える'));
   });
 }

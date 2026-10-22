@@ -13,8 +13,8 @@
 | 最大トークンを上げられない | 一部正しい。モデル設定の上限が 131072 だった（公式の推奨 256K 以上に届かない）。→ **1,048,576 まで** |
 | ルールはモデル設定の「プロンプト」に書く | その通り（`ModelConfig.prompt` は毎回 system で先頭に入る） |
 | A. 思考の指定がクラウドに届かない | **正しい**（思考スイッチは端末用の `<think>` を作るだけ。provider の `body` は 0.8.1 までは UI で編集できなかった）。→ 次の 0.8.3 |
-| B. ツールの会話の形が合っていない（`<tool_call>` の文字列、`<tool_response>` を user に、推論を捨てる） | **正しい**。公式の `encoding` では、ツールを宣言すると **過去のターンの reasoning を全部残す**（`drop_thinking` が自動で無効になる）。→ 0.8.4 |
-| C. ツール定義が二重（Qwen 形式の文章＋ネイティブの function calling） | **正しい**（`cloud_engine.dart` の注釈どおり、意図して二重にしている）。DeepSeek V4.1 のネイティブは DSML 形式で、`tools` から変換される。→ 0.8.4 |
+| B. ツールの会話の形が合っていない（`<tool_call>` の文字列、`<tool_response>` を user に、推論を捨てる） | **正しい**。公式の `encoding` では、ツールを宣言すると **過去のターンの reasoning を全部残す**（`drop_thinking` が自動で無効になる）。→ **0.8.4 で対応** |
+| C. ツール定義が二重（Qwen 形式の文章＋ネイティブの function calling） | **正しい**（`cloud_engine.dart` の注釈どおり、意図して二重にしている）。DeepSeek V4.1 のネイティブは DSML 形式で、`tools` から変換される。→ **0.8.4 で対応** |
 | D. Coding エージェントにファイルを読み書きするツールが無い | **正しい**。MCP でつなぐか、アプリにツールを足す（今回は未対応） |
 
 ## 2. 一次情報で確認したこと
@@ -88,8 +88,30 @@
 - **確認（公式モデルカード）**：DeepSeek V4.1 の推論の強さ＝1〜100（low=50・high=75・max=100）、`thinking`／`chat` のモード。GLM-5.3 の `reasoning_effort`（low/high/max、既定 max）と `clear_thinking`（既定 false、チャットでは true）。
 - **未確認**：DeepSeek API・Z.ai の API・各ホストの **HTTP の項目名そのもの**。`api-docs.deepseek.com` と `docs.z.ai` はこの環境から開けなかった。そのため、送り方は**選ぶ形**にして、既定を「送らない」にした。選んだ形で 400 が返るときは、提供元のドキュメントに合わせて、プロバイダの「追加のリクエスト項目」で上書きできる。DeepSeek の API が、数字の推論の強さと、`high`/`max` の文字のどちらを受けるかも未確認（入れた値をそのまま送る）。
 
-## 6. 次
-- 0.8.4：ツールの会話を、provider のネイティブの形（`tool_calls`／`tool` ロール）で送り、`reasoning_content` を捨てずに返す（公式の `encoding`：ツールを宣言すると、過去の思考を全部残す）。ツール定義の二重送信も整理する。
+## 6. 0.8.4 の変更：ツールの会話の形と、思考を返す
+
+### 6.1 ツールの送り方（モデルごと）
+モデルの設定に「ツールの送り方」を足した。
+
+| 選択 | 動き |
+|---|---|
+| 自動（既定） | 提供元がツールに対応していれば function calling、していなければテキスト形式 |
+| function calling | `tools` に定義、呼び出しは assistant の `tool_calls`、結果は `tool` メッセージ。システムプロンプトから `# Tools`（Qwen 形式の説明）を**外す** |
+| テキスト形式 | これまでの Qwen 形式（システムプロンプトに説明、本文に `<tool_call>`、結果は user の `<tool_response>`）。`tools` は**送らない** |
+
+どちらでも、ツールの説明は **1 回だけ**になる（C の解消）。端末のモデルの会話は変わらない（変換は provider に渡す直前の `ChatMlBridge` だけ）。呼び出しと結果は、アプリが作る `call_N` の id で結ぶ。結果が返らなかった呼び出し（途中で止めた会話）は、provider が `tool_calls` に `tool` の返事を求めるため、テキストに戻して送る。
+
+### 6.2 思考を返す（B の解消）
+- 各返信の思考を、履歴（`AssistantTurn.reasoning`）に残す。DB は **schema 3**：`turns` に `reasoning` 列を足した（`ALTER TABLE`、前の DB は思考なしで読める）。会話を開き直しても、思考を返せる。
+- 思考は**プロンプトの文字には入れない**（端末のモデルは古い思考を見ない）。リクエストの横（`GenerateRequest.assistantReasoning`）を通り、provider の assistant メッセージの `reasoning_content` になる。
+- モデルの設定「過去の思考を返す」：**自動**（DeepSeek・GLM で、ツールが function calling のとき返す）／常に返す／返さない。自動の根拠は、DeepSeek の `encoding`（ツールを宣言すると過去の思考を全部残す）と、GLM の `clear_thinking: false`（思考を残す）。その他のモデルは、答えだけを返す。
+
+### 6.3 確認できていないこと
+- `reasoning_content` を**リクエストで受け取る**項目名は、DeepSeek・Z.ai の API ドキュメントをこの環境から開けず、**未確認**。返信で読む項目名（`reasoning_content`／`reasoning`）に合わせた。受け取らない host が 400 を返すときは、「過去の思考を返す」を「返さない」にするか、「追加のリクエスト項目」で調整する。
+- 実際の provider とのやり取り（tool_calls の往復）は、テストでは送る body の形までを確かめている。実機の API での確認は、まだ。
+
+## 7. 次
+- 公式 harness にあたる「Coding エージェントのファイルの読み書きツール」（分析の D）は、まだ。
 
 ## 出典
 - DeepSeek-V4.1-Flash-1017 モデルカード：https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017

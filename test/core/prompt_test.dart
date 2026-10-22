@@ -50,7 +50,7 @@ void main() {
   });
 
   test('messages survive a JSON round trip', () {
-    const turns = <ChatMessage>[UserTurn('a'), AssistantTurn('b', '{"x":1}'), ToolResponseTurn('c')];
+    const turns = <ChatMessage>[UserTurn('a'), AssistantTurn('b', '{"x":1}', '考えた'), AssistantTurn('d'), ToolResponseTurn('c')];
     final back = [for (final t in turns) ChatMessage.fromJson(t.toJson())];
     expect(back.map((t) => t.toJson()), turns.map((t) => t.toJson()));
   });
