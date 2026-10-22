@@ -187,4 +187,41 @@ void main() {
       expect(m.supportsImages, isTrue);
     });
   });
+
+  group('追加ヘッダーと追加のリクエスト項目', () {
+    test('JSON のオブジェクトを読み、空なら何も足さない', () {
+      expect(ProviderExtras.parseHeaders('{"HTTP-Referer": "https://example.com"}'), {'HTTP-Referer': 'https://example.com'});
+      expect(ProviderExtras.parseHeaders('  '), isEmpty);
+      expect(ProviderExtras.parseBody('{"reasoning_effort": "low", "n": 1}'), {'reasoning_effort': 'low', 'n': 1});
+      expect(ProviderExtras.parseBody(''), isEmpty);
+    });
+
+    test('JSON でないもの、オブジェクトでないものは、そのまま見せられる理由で断る', () {
+      for (final bad in ['{壊れ', '[1, 2]', '"text"']) {
+        expect(() => ProviderExtras.parseBody(bad), throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('JSON のオブジェクト'))));
+      }
+      expect(() => ProviderExtras.parseHeaders('{"X-Retry": 3}'), throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('文字列'))));
+    });
+
+    test('機密になりうるヘッダーは、設定に書かせない（キーは安全な領域の欄へ）', () {
+      for (final name in ['Authorization', 'x-api-key', 'X-Auth-Token', 'Cookie', 'client_secret']) {
+        expect(
+          () => ProviderExtras.parseHeaders('{"$name": "abc"}'),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('APIキー'))),
+          reason: name,
+        );
+      }
+      expect(ProviderExtras.parseHeaders('{"X-Title": "ARCE"}'), isNotEmpty);
+    });
+
+    test('保存して読み戻せて、編集欄に見せる形にもなる', () {
+      final config = _openai.copyWith(headers: {'X-Title': 'ARCE'}, body: {'reasoning_effort': 'low'}, supportsTools: false);
+      final back = ProviderList.decode(ProviderList.encode([config])).single;
+      expect(back.headers, {'X-Title': 'ARCE'});
+      expect(back.body, {'reasoning_effort': 'low'});
+      expect(back.supportsTools, isFalse);
+      expect(ProviderExtras.parseBody(ProviderExtras.show(back.body)), back.body);
+      expect(ProviderExtras.show(const {}), isEmpty);
+    });
+  });
 }

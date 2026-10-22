@@ -210,7 +210,10 @@ class GenerationSettings {
     this.topP,
     this.topK,
     this.minP,
+    this.dryMultiplier,
     this.extraPrompt = '',
+    this.toolRepeatLimit = ChatController.repeatToolLimit,
+    this.attachments = const AttachmentLimits(),
   });
 
   final String? tone;
@@ -221,6 +224,15 @@ class GenerationSettings {
   final double? topP;
   final int? topK;
   final double? minP;
+
+  /// The device model's repetition penalty (DRY).
+  final double? dryMultiplier;
+
+  /// How many identical tool calls in a row count as a loop.
+  final int toolRepeatLimit;
+
+  /// How much of the attached files is kept.
+  final AttachmentLimits attachments;
 
   /// An extra instruction for the model that answers; empty for none.
   final String extraPrompt;
@@ -240,7 +252,7 @@ class GenerationSettings {
     topP: topP ?? base.topP,
     topK: topK ?? base.topK,
     minP: minP ?? base.minP,
-    dryMultiplier: base.dryMultiplier,
+    dryMultiplier: dryMultiplier ?? base.dryMultiplier,
   );
 
   /// 0 = no limit. Asked of the model in the system prompt.
@@ -476,11 +488,12 @@ class ChatController extends ChangeNotifier {
         _busy) {
       return Future.value();
     }
-    for (final a in attachments.take(AttachmentPolicy.maxFiles)) {
+    final limits = _settings().attachments;
+    for (final a in attachments.take(limits.maxFiles)) {
       final image = a.image;
       if (image != null) _images[image.id] = image;
     }
-    _history.add(UserTurn(AttachmentPolicy.compose(text, attachments)));
+    _history.add(UserTurn(AttachmentPolicy.compose(text, attachments, limits: limits)));
     _append(
       UiMessage(
         id: _nextId++,
@@ -808,7 +821,7 @@ class ChatController extends ChangeNotifier {
           final key = _toolKey(call);
           repeated = key == lastToolKey ? repeated + 1 : 1;
           lastToolKey = key;
-          if (repeated >= repeatToolLimit) {
+          if (repeated >= config.toolRepeatLimit) {
             _fail(id, '同じ道具を繰り返し呼んでいます（$key）');
             return;
           }

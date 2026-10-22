@@ -71,11 +71,12 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _pickFiles() async {
     final app = ArceScope.of(context);
     final files = await FilePicker.pickFiles();
+    final limits = app.settings.value.attachmentLimits;
     for (final file in files) {
       final path = file.path;
       if (path == null) continue;
-      if (_attachments.length >= AttachmentPolicy.maxFiles) {
-        app.showToast('添付できるのは${AttachmentPolicy.maxFiles}ファイルまでです');
+      if (_attachments.length >= limits.maxFiles) {
+        app.showToast('添付できるのは${limits.maxFiles}ファイルまでです（設定で変えられます）');
         break;
       }
       try {
@@ -84,6 +85,7 @@ class _ChatPageState extends State<ChatPage> {
           file.name,
           await File(path).readAsBytes(),
           acceptImages: app.acceptsImages,
+          maxImageBytes: limits.maxImageBytes,
         );
         setState(() => _attachments.add(attachment));
       } on AttachmentException catch (e) {

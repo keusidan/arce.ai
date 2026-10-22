@@ -180,6 +180,25 @@ void main() {
     await tester.pump(const Duration(seconds: 3)); // the toast's timer
   });
 
+  testWidgets('settings page: the limits group lists what used to be fixed', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.limits);
+    await tester.pumpAndSettle();
+    expect(find.text('添付できるファイルの数'), findsOneWidget);
+    expect(find.text('検索結果の件数'), findsOneWidget);
+    expect(find.text('オンラインモデルの応答のタイムアウト'), findsOneWidget);
+
+    // a pill steps to the next value
+    expect(app.settings.value.attachMaxFiles, 5);
+    await tester.tap(find.text('5').first);
+    await tester.pump();
+    expect(app.settings.value.attachMaxFiles, 10);
+  });
+
   testWidgets('settings page: local and online model settings are kept apart', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);

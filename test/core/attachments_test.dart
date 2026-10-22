@@ -124,4 +124,29 @@ void main() {
       expect(user.text, contains('[画像: a.png]'));
     });
   });
+
+  group('上限は設定で変えられる', () {
+    test('ファイルの数・1ファイルの文字数・全体の文字数を、渡した上限で切る', () {
+      final files = [for (var i = 0; i < 4; i++) Attachment('f$i.txt', 'x' * 100)];
+      const limits = AttachmentLimits(maxFiles: 2, maxCharsPerFile: 30, maxTotalChars: 50);
+      final composed = AttachmentPolicy.compose('質問', files, limits: limits);
+      expect(RegExp('<file ').allMatches(composed).length, 2);
+      expect(composed, contains('[… 70 characters omitted …]'), reason: 'the first file is cut at 30');
+      expect(composed, contains('[… 80 characters omitted …]'), reason: 'the second gets what is left of 50');
+      expect(composed, contains('[2 more files not included]'));
+    });
+
+    test('上限を渡さなければ、これまでの既定値のまま', () {
+      final composed = AttachmentPolicy.compose('q', [Attachment('a.txt', 'x' * 9000)]);
+      expect(composed, contains('[… 1000 characters omitted …]'));
+    });
+
+    test('画像の大きさの上限も、渡した値で決まる', () {
+      expect(
+        () => AttachmentReader.read('a.png', png(2000), acceptImages: true, maxImageBytes: 1000),
+        throwsA(isA<AttachmentException>()),
+      );
+      expect(AttachmentReader.read('a.png', png(2000), acceptImages: true, maxImageBytes: 5000).image, isNotNull);
+    });
+  });
 }

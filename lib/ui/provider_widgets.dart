@@ -291,12 +291,20 @@ class _ProviderEditorState extends State<_ProviderEditor> {
         : widget.store.keyOf(widget.existing!.id),
   );
 
+  late final TextEditingController _headers = TextEditingController(
+    text: ProviderExtras.show({...?widget.existing?.headers}),
+  );
+  late final TextEditingController _body = TextEditingController(
+    text: ProviderExtras.show(widget.existing?.body ?? const {}),
+  );
+  late bool _tools = widget.existing?.supportsTools ?? true;
+
   String? _result;
   bool _busy = false;
 
   @override
   void dispose() {
-    for (final controller in [_label, _baseUrl, _key]) {
+    for (final controller in [_label, _baseUrl, _key, _headers, _body]) {
       controller.dispose();
     }
     super.dispose();
@@ -310,14 +318,26 @@ class _ProviderEditorState extends State<_ProviderEditor> {
       label: label.isEmpty ? 'プロバイダ' : label,
       baseUrl: _baseUrl.text.trim(),
       models: existing?.models ?? const [],
-      headers: existing?.headers ?? const {},
-      body: existing?.body ?? const {},
-      supportsTools: existing?.supportsTools ?? true,
+      // a [FormatException] from the two JSON fields is shown by the caller
+      headers: ProviderExtras.parseHeaders(_headers.text),
+      body: ProviderExtras.parseBody(_body.text),
+      supportsTools: _tools,
     );
   }
 
+  /// The config the fields describe, or null (with the reason shown) when a JSON field is wrong.
+  ProviderConfig? _configOrExplain() {
+    try {
+      return _config();
+    } on FormatException catch (e) {
+      setState(() => _result = e.message);
+      return null;
+    }
+  }
+
   Future<void> _check() async {
-    final config = _config();
+    final config = _configOrExplain();
+    if (config == null) return;
     final model = config.defaultModel;
     if (config.baseUrl.trim().isEmpty || model == null) {
       setState(() => _result = 'Base URL（https://…）とモデルを用意してください');
@@ -354,7 +374,8 @@ class _ProviderEditorState extends State<_ProviderEditor> {
   }
 
   Future<void> _save() async {
-    final config = _config();
+    final config = _configOrExplain();
+    if (config == null) return;
     if (config.baseUrl.trim().isEmpty) {
       setState(() => _result = 'Base URL（https://…）を入れてください');
       return;
@@ -390,6 +411,19 @@ class _ProviderEditorState extends State<_ProviderEditor> {
             _field('名前', _label, '例: OpenAI / Groq / 自宅の Ollama'),
             _field('Base URL', _baseUrl, 'https://api.openai.com/v1'),
             _field('APIキー', _key, 'sk-…（端末の安全な領域に保存します）', obscure: true),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: _tools,
+              onChanged: (value) => setState(() => _tools = value),
+              title: Text('ツール呼び出しに対応', style: ts(context, 12)),
+              subtitle: Text(
+                '検索や設定の変更などを、モデルが自分で呼べるようにします。対応しないモデルではオフに',
+                style: ts(context, 9.5, color: c.muted),
+              ),
+            ),
+            _field('追加ヘッダー（JSON・任意）', _headers, '{"HTTP-Referer": "https://example.com"}', maxLines: 3),
+            _field('追加のリクエスト項目（JSON・任意）', _body, '{"reasoning_effort": "low"}', maxLines: 3),
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Text(
@@ -432,11 +466,13 @@ class _ProviderEditorState extends State<_ProviderEditor> {
     TextEditingController controller,
     String hint, {
     bool obscure = false,
+    int maxLines = 1,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: TextField(
       controller: controller,
       obscureText: obscure,
+      maxLines: obscure ? 1 : maxLines,
       autocorrect: false,
       enableSuggestions: false,
       style: ts(context, 12),

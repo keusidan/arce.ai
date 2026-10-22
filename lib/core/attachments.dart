@@ -39,6 +39,22 @@ class AttachmentException implements Exception {
   String toString() => message;
 }
 
+/// How much of the attached files is kept. The defaults are `AttachmentPolicy`'s; the user can
+/// change them in the settings.
+class AttachmentLimits {
+  const AttachmentLimits({
+    this.maxFiles = AttachmentPolicy.maxFiles,
+    this.maxCharsPerFile = AttachmentPolicy.maxCharsPerFile,
+    this.maxTotalChars = AttachmentPolicy.maxTotalChars,
+    this.maxImageBytes = AttachmentReader.maxImageBytes,
+  });
+
+  final int maxFiles;
+  final int maxCharsPerFile;
+  final int maxTotalChars;
+  final int maxImageBytes;
+}
+
 /// Decides how a file is read: as an image when the model can take one, otherwise as text.
 abstract final class AttachmentReader {
   /// Under every provider's per-image limit (Anthropic's is the lowest, 5 MB).
@@ -69,7 +85,12 @@ abstract final class AttachmentReader {
   ///
   /// An image the model cannot take is refused with a reason instead of being read as text:
   /// its bytes are not text, and the model would be answering about garbage.
-  static Attachment read(String name, Uint8List bytes, {required bool acceptImages}) {
+  static Attachment read(
+    String name,
+    Uint8List bytes, {
+    required bool acceptImages,
+    int maxImageBytes = AttachmentReader.maxImageBytes,
+  }) {
     final type = imageType(bytes);
     if (type != null) {
       if (!acceptImages) {
@@ -77,7 +98,7 @@ abstract final class AttachmentReader {
       }
       if (bytes.length > maxImageBytes) {
         final mb = (bytes.length / 1048576).toStringAsFixed(1);
-        throw AttachmentException('$name は大きすぎます（$mb MB。上限は${maxImageBytes ~/ 1048576} MB）');
+        throw AttachmentException('$name は大きすぎます（$mb MB。上限は${maxImageBytes ~/ 1048576} MB。設定で変えられます）');
       }
       return Attachment(name, '', image: ImageData(type, bytes));
     }
@@ -119,11 +140,15 @@ abstract final class AttachmentPolicy {
   static const maxCharsPerFile = 8000;
   static const maxTotalChars = 16000;
 
-  static String compose(String text, List<Attachment> attachments) {
+  static String compose(
+    String text,
+    List<Attachment> attachments, {
+    AttachmentLimits limits = const AttachmentLimits(),
+  }) {
     if (attachments.isEmpty) return text;
-    var budget = maxTotalChars;
+    var budget = limits.maxTotalChars;
     final b = StringBuffer();
-    for (final file in attachments.take(maxFiles)) {
+    for (final file in attachments.take(limits.maxFiles)) {
       final image = file.image;
       if (image != null) {
         // pictures cost no characters of the text budget
@@ -132,7 +157,7 @@ abstract final class AttachmentPolicy {
           ..write('\n');
         continue;
       }
-      final limit = budget < maxCharsPerFile ? budget : maxCharsPerFile;
+      final limit = budget < limits.maxCharsPerFile ? budget : limits.maxCharsPerFile;
       final body = file.text.length > limit ? file.text.substring(0, limit) : file.text;
       budget -= body.length;
       b
@@ -145,8 +170,8 @@ abstract final class AttachmentPolicy {
       }
       b.write('\n</file>\n');
     }
-    if (attachments.length > maxFiles) {
-      b.write('[${attachments.length - maxFiles} more files not included]\n');
+    if (attachments.length > limits.maxFiles) {
+      b.write('[${attachments.length - limits.maxFiles} more files not included]\n');
     }
     b.write(text);
     return b.toString();

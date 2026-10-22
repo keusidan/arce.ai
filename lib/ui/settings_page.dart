@@ -28,6 +28,7 @@ const _groups = [
   _Group(SettingsSection.online, ArceSvg.globe, 'オンラインモデルの設定', 'temperature・最大トークン・追加プロンプト'),
   _Group(SettingsSection.local, ArceSvg.sliders, 'ローカルモデルの設定', 'サンプリング・コンテキスト長・スレッド・GPU'),
   _Group(SettingsSection.coding, ArceSvg.codeEdit, 'コーディングモード', '設計モデルが開発モデルに指示して、安く実装する'),
+  _Group(SettingsSection.limits, ArceSvg.sliders2, '上限とタイムアウト', '添付・検索・通信・更新の上限と待ち時間'),
   _Group(SettingsSection.mcp, ArceSvg.bolt, 'MCP サーバー', '外部の道具（GitHub など）をつなぐ'),
   _Group(SettingsSection.basic, ArceSvg.settings, '基本設定', '思考・検索'),
   _Group(SettingsSection.answer, ArceSvg.compass, '回答', '口調・速度と精度・エージェント・返信の長さ'),
@@ -144,6 +145,8 @@ class _SettingsPageState extends State<SettingsPage> {
         return _localModel(s, set);
       case SettingsSection.coding:
         return _codingMode(app, s, set);
+      case SettingsSection.limits:
+        return _limits(s, set);
       case SettingsSection.basic:
         return ArceCard(
           child: Column(
@@ -405,6 +408,61 @@ class _SettingsPageState extends State<SettingsPage> {
     },
   );
 
+  Widget _limits(AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
+    Widget cycle(
+      String icon,
+      String title,
+      String subtitle,
+      int value,
+      List<int> values,
+      AppSettings Function(AppSettings, int) apply, {
+      String unit = '',
+      bool last = false,
+    }) => SettingRow(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      last: last,
+      trailing: _Cycle<int>(value: value, values: values, label: (v) => '$v$unit', onChanged: (v) => set((x) => apply(x, v))),
+    );
+    return ArceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              '押すと次の値になります。ほかの値は、チャットで「添付の文字数を 20000 にして」のように頼めます。',
+              style: ts(context, 10, color: context.c.muted, height: 1.6),
+            ),
+          ),
+          cycle(ArceSvg.paperclip, '添付できるファイルの数', '1回のメッセージに付けられる数', s.attachMaxFiles, const [1, 3, 5, 10, 20],
+              (x, v) => x.copyWith(attachMaxFiles: v)),
+          cycle(ArceSvg.file, '添付1ファイルから読む文字数', 'これを超えた分は省略されます', s.attachCharsPerFile, const [2000, 4000, 8000, 16000, 32000],
+              (x, v) => x.copyWith(attachCharsPerFile: v)),
+          cycle(ArceSvg.file, '添付全体で読む文字数', 'コンテキストを使い切らないための上限', s.attachTotalChars, const [8000, 16000, 32000, 64000, 128000],
+              (x, v) => x.copyWith(attachTotalChars: v)),
+          cycle(ArceSvg.eye, '送る画像の大きさ', '画像に対応するモデルへ送る1枚の上限', s.attachImageMb, const [1, 2, 4, 8, 16],
+              (x, v) => x.copyWith(attachImageMb: v), unit: ' MB'),
+          cycle(ArceSvg.search, '検索結果の件数', 'Web検索で使う結果の数', s.searchResultCount, const [3, 5, 8, 10, 15],
+              (x, v) => x.copyWith(searchResultCount: v)),
+          cycle(ArceSvg.clock, '検索・天気のタイムアウト', 'この秒数で通信をあきらめます', s.httpTimeoutSeconds, const [10, 20, 30, 60],
+              (x, v) => x.copyWith(httpTimeoutSeconds: v), unit: ' 秒'),
+          cycle(ArceSvg.bolt, 'MCPサーバーのタイムアウト', '道具の呼び出しを待つ時間', s.mcpTimeoutSeconds, const [20, 40, 60, 120],
+              (x, v) => x.copyWith(mcpTimeoutSeconds: v), unit: ' 秒'),
+          cycle(ArceSvg.cube, 'オンラインモデルの応答のタイムアウト', '最初の応答までに待つ時間', s.providerTimeoutSeconds, const [30, 60, 120, 300, 600],
+              (x, v) => x.copyWith(providerTimeoutSeconds: v), unit: ' 秒'),
+          cycle(ArceSvg.retry, 'ツールの繰り返しで止める回数', '同じ呼び出しがこの回数続いたら、ループとみなして止めます', s.toolRepeatLimit, const [2, 3, 4, 5],
+              (x, v) => x.copyWith(toolRepeatLimit: v)),
+          cycle(ArceSvg.retry, '更新ダウンロードの試行回数', '通信が切れたとき、続きから取り直す回数', s.updateRetryAttempts, const [1, 3, 5, 10],
+              (x, v) => x.copyWith(updateRetryAttempts: v)),
+          cycle(ArceSvg.clock, '更新ダウンロードの無通信の判定', 'この秒数なにも届かなければ、切れたとみなします', s.updateStallSeconds, const [15, 30, 60, 120],
+              (x, v) => x.copyWith(updateStallSeconds: v), unit: ' 秒', last: true),
+        ],
+      ),
+    );
+  }
+
   Widget _codingMode(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
     final c = context.c;
     // every model of every provider, and the one on the device
@@ -621,6 +679,15 @@ class _SettingsPageState extends State<SettingsPage> {
           hint: '0',
           max: 1,
           onChanged: (v) => set((x) => x.copyWith(localMinP: v)),
+        ),
+        _decimal(
+          icon: ArceSvg.retry,
+          title: 'DRY（繰り返しの抑制）',
+          subtitle: '大きいほど、同じ言い回しの繰り返しを避けます（0 でオフ）',
+          value: s.localDryMultiplier,
+          hint: '0.8',
+          max: 5,
+          onChanged: (v) => set((x) => x.copyWith(localDryMultiplier: v)),
         ),
         _whole(
           icon: ArceSvg.file,

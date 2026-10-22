@@ -351,6 +351,7 @@ class _Sidebar extends StatelessWidget {
                   _NavItem(label: '回答の設定', svg: ArceSvg.compass, onTap: () => app.openSettings(SettingsSection.answer)),
                   _NavItem(label: '表示・プライバシー', svg: ArceSvg.moon, onTap: () => app.openSettings(SettingsSection.display)),
                   _NavItem(label: '開発者設定', svg: ArceSvg.sliders, onTap: () => app.openSettings(SettingsSection.developer)),
+                  _NavItem(label: '上限とタイムアウト', svg: ArceSvg.sliders2, onTap: () => app.openSettings(SettingsSection.limits)),
                   _NavItem(label: 'アップデート', svg: ArceSvg.retry, onTap: () => app.openSettings(SettingsSection.update)),
                 ],
               ),

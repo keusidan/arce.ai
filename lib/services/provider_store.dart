@@ -170,6 +170,10 @@ class ProviderStore extends ChangeNotifier {
 
   /// The provider in use, ready to send requests; null for the device model, or when the stored
   /// settings are not usable yet (the screen then shows what is missing instead of sending).
+  /// How long a request to an online model may take before it gives up (a setting). Providers
+  /// built after it changes use the new value.
+  Duration requestTimeout = const Duration(seconds: 120);
+
   AiProvider? buildActive({http.Client? client}) {
     final config = active;
     if (config == null || !config.isComplete) return null;
@@ -194,6 +198,7 @@ class ProviderStore extends ChangeNotifier {
       body: config.body,
       supportsTools: config.supportsTools,
       client: client,
+      timeout: requestTimeout,
     );
   }
 

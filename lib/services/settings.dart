@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/attachments.dart';
 import '../core/chat_controller.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
@@ -62,6 +63,18 @@ class AppSettings {
     this.codingReviewRounds = 1,
     this.codingPlannerMaxTokens = 2048,
     this.codingDeveloperMaxTokens = 4096,
+    this.attachMaxFiles = 5,
+    this.attachCharsPerFile = 8000,
+    this.attachTotalChars = 16000,
+    this.attachImageMb = 4,
+    this.searchResultCount = 5,
+    this.httpTimeoutSeconds = 20,
+    this.mcpTimeoutSeconds = 40,
+    this.providerTimeoutSeconds = 120,
+    this.toolRepeatLimit = 3,
+    this.updateRetryAttempts = 5,
+    this.updateStallSeconds = 30,
+    this.localDryMultiplier = -1,
   });
 
   static const defaultRepo = 'keusidan/arce.ai';
@@ -133,6 +146,45 @@ class AppSettings {
   final int codingPlannerMaxTokens;
   final int codingDeveloperMaxTokens;
 
+  // ---- limits and timeouts that used to be fixed in the code ----
+
+  /// How much of the attached files reaches the model (see `AttachmentPolicy`).
+  final int attachMaxFiles;
+  final int attachCharsPerFile;
+  final int attachTotalChars;
+
+  /// The biggest picture that is sent, in megabytes.
+  final int attachImageMb;
+
+  /// How many web search results a search keeps.
+  final int searchResultCount;
+
+  /// Seconds before a web search or a weather request gives up.
+  final int httpTimeoutSeconds;
+
+  /// Seconds before a call to an MCP server gives up.
+  final int mcpTimeoutSeconds;
+
+  /// Seconds an online model may take to answer a request before it gives up.
+  final int providerTimeoutSeconds;
+
+  /// How many identical tool calls in a row count as a loop.
+  final int toolRepeatLimit;
+
+  /// How many times an update download is tried, and how many silent seconds end a try.
+  final int updateRetryAttempts;
+  final int updateStallSeconds;
+
+  /// DRY, the repetition penalty of the device model; -1 keeps the app's own value.
+  final double localDryMultiplier;
+
+  AttachmentLimits get attachmentLimits => AttachmentLimits(
+    maxFiles: attachMaxFiles.clamp(1, 20),
+    maxCharsPerFile: attachCharsPerFile.clamp(500, 200000),
+    maxTotalChars: attachTotalChars.clamp(1000, 400000),
+    maxImageBytes: attachImageMb.clamp(1, 20) * 1024 * 1024,
+  );
+
   CodingSettings get coding => CodingSettings(
     enabled: codingPlanEnabled,
     planner: plannerModel,
@@ -192,6 +244,18 @@ class AppSettings {
     int? codingReviewRounds,
     int? codingPlannerMaxTokens,
     int? codingDeveloperMaxTokens,
+    int? attachMaxFiles,
+    int? attachCharsPerFile,
+    int? attachTotalChars,
+    int? attachImageMb,
+    int? searchResultCount,
+    int? httpTimeoutSeconds,
+    int? mcpTimeoutSeconds,
+    int? providerTimeoutSeconds,
+    int? toolRepeatLimit,
+    int? updateRetryAttempts,
+    int? updateStallSeconds,
+    double? localDryMultiplier,
   }) => AppSettings(
     thinking: thinking ?? this.thinking,
     searchEnabled: searchEnabled ?? this.searchEnabled,
@@ -237,6 +301,18 @@ class AppSettings {
     codingReviewRounds: codingReviewRounds ?? this.codingReviewRounds,
     codingPlannerMaxTokens: codingPlannerMaxTokens ?? this.codingPlannerMaxTokens,
     codingDeveloperMaxTokens: codingDeveloperMaxTokens ?? this.codingDeveloperMaxTokens,
+    attachMaxFiles: attachMaxFiles ?? this.attachMaxFiles,
+    attachCharsPerFile: attachCharsPerFile ?? this.attachCharsPerFile,
+    attachTotalChars: attachTotalChars ?? this.attachTotalChars,
+    attachImageMb: attachImageMb ?? this.attachImageMb,
+    searchResultCount: searchResultCount ?? this.searchResultCount,
+    httpTimeoutSeconds: httpTimeoutSeconds ?? this.httpTimeoutSeconds,
+    mcpTimeoutSeconds: mcpTimeoutSeconds ?? this.mcpTimeoutSeconds,
+    providerTimeoutSeconds: providerTimeoutSeconds ?? this.providerTimeoutSeconds,
+    toolRepeatLimit: toolRepeatLimit ?? this.toolRepeatLimit,
+    updateRetryAttempts: updateRetryAttempts ?? this.updateRetryAttempts,
+    updateStallSeconds: updateStallSeconds ?? this.updateStallSeconds,
+    localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
   );
 
   Map<String, Object?> toJson() => {
@@ -284,6 +360,18 @@ class AppSettings {
     'codingReviewRounds': codingReviewRounds,
     'codingPlannerMaxTokens': codingPlannerMaxTokens,
     'codingDeveloperMaxTokens': codingDeveloperMaxTokens,
+    'attachMaxFiles': attachMaxFiles,
+    'attachCharsPerFile': attachCharsPerFile,
+    'attachTotalChars': attachTotalChars,
+    'attachImageMb': attachImageMb,
+    'searchResultCount': searchResultCount,
+    'httpTimeoutSeconds': httpTimeoutSeconds,
+    'mcpTimeoutSeconds': mcpTimeoutSeconds,
+    'providerTimeoutSeconds': providerTimeoutSeconds,
+    'toolRepeatLimit': toolRepeatLimit,
+    'updateRetryAttempts': updateRetryAttempts,
+    'updateStallSeconds': updateStallSeconds,
+    'localDryMultiplier': localDryMultiplier,
   };
 
   /// Unknown, missing or wrongly typed values fall back to the defaults, so older or damaged
@@ -355,6 +443,18 @@ class AppSettings {
       codingReviewRounds: whole('codingReviewRounds', d.codingReviewRounds),
       codingPlannerMaxTokens: whole('codingPlannerMaxTokens', d.codingPlannerMaxTokens),
       codingDeveloperMaxTokens: whole('codingDeveloperMaxTokens', d.codingDeveloperMaxTokens),
+      attachMaxFiles: whole('attachMaxFiles', d.attachMaxFiles),
+      attachCharsPerFile: whole('attachCharsPerFile', d.attachCharsPerFile),
+      attachTotalChars: whole('attachTotalChars', d.attachTotalChars),
+      attachImageMb: whole('attachImageMb', d.attachImageMb),
+      searchResultCount: whole('searchResultCount', d.searchResultCount),
+      httpTimeoutSeconds: whole('httpTimeoutSeconds', d.httpTimeoutSeconds),
+      mcpTimeoutSeconds: whole('mcpTimeoutSeconds', d.mcpTimeoutSeconds),
+      providerTimeoutSeconds: whole('providerTimeoutSeconds', d.providerTimeoutSeconds),
+      toolRepeatLimit: whole('toolRepeatLimit', d.toolRepeatLimit),
+      updateRetryAttempts: whole('updateRetryAttempts', d.updateRetryAttempts),
+      updateStallSeconds: whole('updateStallSeconds', d.updateStallSeconds),
+      localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {
         final parsed = McpServers.decode(json['mcpServers']);
@@ -387,6 +487,9 @@ class AppSettings {
     topK: cloud || localTopK <= 0 ? null : localTopK,
     minP: cloud ? null : _set(localMinP),
     extraPrompt: (cloud ? onlinePrompt : localPrompt).trim(),
+    dryMultiplier: cloud ? null : _set(localDryMultiplier),
+    toolRepeatLimit: toolRepeatLimit.clamp(2, 10),
+    attachments: attachmentLimits,
     searchEnabled: searchEnabled,
     retryLimit: retryLimit,
     maxToolRounds: maxToolRounds,

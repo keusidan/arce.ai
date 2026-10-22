@@ -89,6 +89,41 @@ void main() {
     expect(const AppSettings().coding.isReady, isFalse, reason: 'off until the user turns it on');
   });
 
+  test('limits and timeouts are settings, kept inside sane ranges', () {
+    final s = const AppSettings(
+      attachMaxFiles: 99,
+      attachCharsPerFile: 10,
+      attachTotalChars: 20000,
+      attachImageMb: 8,
+      toolRepeatLimit: 1,
+      localDryMultiplier: 1.5,
+    );
+    final back = AppSettings.fromJson(s.toJson());
+    expect(back.attachmentLimits.maxFiles, 20, reason: 'cut to the limit');
+    expect(back.attachmentLimits.maxCharsPerFile, 500);
+    expect(back.attachmentLimits.maxTotalChars, 20000);
+    expect(back.attachmentLimits.maxImageBytes, 8 * 1024 * 1024);
+
+    final generation = back.toGeneration(null);
+    expect(generation.toolRepeatLimit, 2, reason: 'one identical call is not a loop');
+    expect(generation.attachments.maxFiles, 20);
+    expect(generation.dryMultiplier, 1.5);
+    expect(back.toGeneration(null, cloud: true).dryMultiplier, isNull, reason: 'DRY is the device model\'s');
+
+    // nothing changed: the values the app always had
+    const d = AppSettings();
+    expect(d.attachmentLimits.maxFiles, 5);
+    expect(d.attachmentLimits.maxCharsPerFile, 8000);
+    expect(d.attachmentLimits.maxTotalChars, 16000);
+    expect(d.searchResultCount, 5);
+    expect(d.httpTimeoutSeconds, 20);
+    expect(d.mcpTimeoutSeconds, 40);
+    expect(d.providerTimeoutSeconds, 120);
+    expect(d.toolRepeatLimit, 3);
+    expect(d.updateRetryAttempts, 5);
+    expect(d.updateStallSeconds, 30);
+  });
+
   test('threads and GPU layers follow HyperLoad and the offload setting', () {
     expect(const AppSettings().effectiveThreads(8), 4);
     expect(const AppSettings(hyperLoad: true).effectiveThreads(8), 8);

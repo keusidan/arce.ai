@@ -115,7 +115,7 @@ Future<(UpdateService, Directory)> serviceFor(MockClient client, {String current
     cacheDirectory: () async => dir,
     currentVersion: Version.parse(current),
     retryDelay: Duration.zero,
-    stallTimeout: const Duration(milliseconds: 200),
+    stallTimeoutOverride: const Duration(milliseconds: 200),
   );
   addTearDown(service.dispose);
   return (service, dir);
@@ -178,7 +178,7 @@ void main() {
     await service.check();
     await service.download();
 
-    expect(github.ranges, hasLength(UpdateService.maxAttempts));
+    expect(github.ranges, hasLength(service.maxAttempts));
     expect((service.state as UpdateFailed).reason, contains('通信が途切れました'));
   }, skip: canDownload ? false : 'this platform has no update files');
 

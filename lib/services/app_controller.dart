@@ -39,6 +39,7 @@ enum SettingsSection {
   online,
   local,
   coding,
+  limits,
   mcp,
   basic,
   answer,
@@ -170,7 +171,9 @@ class AppController extends ChangeNotifier {
     return app;
   }
 
-  final _http = packageHttpGet();
+  late final _http = packageHttpGet(
+    timeoutOf: () => Duration(seconds: settings.value.httpTimeoutSeconds.clamp(3, 300)),
+  );
 
   /// Built per call so a changed SearXNG address or search switch applies immediately.
   late final ToolRuntime _toolRuntime = _SettingsToolRuntime(
@@ -215,6 +218,7 @@ class AppController extends ChangeNotifier {
           McpClient(
             url: server.url.trim(),
             token: settings.mcpTokenOf(server.id),
+            timeout: Duration(seconds: settings.value.mcpTimeoutSeconds.clamp(5, 600)),
           ),
         ),
   ];
@@ -234,6 +238,13 @@ class AppController extends ChangeNotifier {
     settings.addListener(() => chat.setThinking(settings.value.thinking));
     // adding, removing or editing a provider changes which one answers
     providers.addListener(_applyProvider);
+    // a changed timeout reaches the provider in use by building it again
+    var timeout = settings.value.providerTimeoutSeconds;
+    settings.addListener(() {
+      if (settings.value.providerTimeoutSeconds == timeout) return;
+      timeout = settings.value.providerTimeoutSeconds;
+      _applyProvider();
+    });
     try {
       await refreshConversations();
       final item = conversations.where((c) => c.generating).firstOrNull;
@@ -285,6 +296,7 @@ class AppController extends ChangeNotifier {
 
   /// Points the router at the chosen provider; the device model when none is usable.
   void _applyProvider() {
+    providers.requestTimeout = Duration(seconds: settings.value.providerTimeoutSeconds.clamp(10, 1800));
     final provider = providers.buildActive();
     if (provider != null) cloud.provider = provider;
     engine.target = provider;
@@ -500,6 +512,7 @@ class _SettingsToolRuntime implements ToolRuntime {
               McpClient(
                 url: server.url.trim(),
                 token: _settings.mcpTokenOf(server.id),
+                timeout: Duration(seconds: _settings.value.mcpTimeoutSeconds.clamp(5, 600)),
               ),
             ),
       ];
@@ -516,6 +529,7 @@ class _SettingsToolRuntime implements ToolRuntime {
           ? SearchService(
               providers,
               retriesPerProvider: s.retryLimit.clamp(0, 3),
+              limit: s.searchResultCount.clamp(1, 20),
             )
           : null,
       weather: OpenMeteoWeather(_http),

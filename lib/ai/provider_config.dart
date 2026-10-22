@@ -211,6 +211,50 @@ class ProviderConfig {
   }
 }
 
+/// The two free-form fields of a provider (extra headers and extra request fields), as the user
+/// types them in the editor: one JSON object each.
+abstract final class ProviderExtras {
+  /// Header names that would carry a secret. Settings are kept in plain storage and travel in
+  /// backups; a secret belongs in the API key field, which goes to the secure storage.
+  static final _secretName = RegExp(r'authorization|api[-_ ]?key|token|secret|password|cookie', caseSensitive: false);
+
+  /// `{"HTTP-Referer": "https://example.com"}` → the map; empty text → none. Throws a
+  /// [FormatException] whose message can be shown as it is.
+  static Map<String, String> parseHeaders(String text) {
+    final object = _object(text, 'ヘッダー');
+    final out = <String, String>{};
+    for (final entry in object.entries) {
+      if (entry.value is! String) throw FormatException('ヘッダー ${entry.key} の値は文字列にしてください');
+      if (_secretName.hasMatch(entry.key)) {
+        throw FormatException('ヘッダー ${entry.key} は機密情報になりえます。キーは「APIキー」の欄に入れてください（安全な領域に保存されます）');
+      }
+      out[entry.key] = entry.value! as String;
+    }
+    return out;
+  }
+
+  /// `{"reasoning_effort": "low"}` → the map; sent with every request and written over the app's
+  /// own fields. Throws a [FormatException] whose message can be shown as it is.
+  static Map<String, Object?> parseBody(String text) => _object(text, 'リクエスト項目');
+
+  /// The map as the editor shows it; empty when there is nothing to show.
+  static String show(Map<String, Object?> map) =>
+      map.isEmpty ? '' : const JsonEncoder.withIndent('  ').convert(map);
+
+  static Map<String, Object?> _object(String text, String what) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return const {};
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(trimmed);
+    } on FormatException {
+      throw FormatException('$whatは JSON のオブジェクトで書いてください（例: {"名前": "値"}）');
+    }
+    if (decoded is! Map) throw FormatException('$whatは JSON のオブジェクトで書いてください（例: {"名前": "値"}）');
+    return decoded.cast<String, Object?>();
+  }
+}
+
 /// The provider list as one JSON document, the way the settings store keeps it.
 abstract final class ProviderList {
   /// The on-device model: a provider like any other, and never an implicit fallback.

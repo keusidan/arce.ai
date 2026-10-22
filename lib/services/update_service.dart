@@ -67,16 +67,21 @@ class UpdateService extends ChangeNotifier {
     this.currentVersion,
     this.foreground,
     this.retryDelay = const Duration(seconds: 2),
-    this.stallTimeout = const Duration(seconds: 30),
+    this.stallTimeoutOverride,
+    this.maxAttemptsOverride,
   })  : _client = client ?? http.Client(),
         _cacheDirectory = cacheDirectory ?? getApplicationCacheDirectory;
 
   static const _system = MethodChannel('ai.arce.app/system');
 
-  /// How many times a download is tried before it is reported as failed. Every try after the
-  /// first continues from the part file, so a connection that dropped (the app was in the
-  /// background, the network switched) costs only the time it was down.
-  static const maxAttempts = 5;
+  /// Fixed values for tests; the settings decide when these are null.
+  final int? maxAttemptsOverride;
+  final Duration? stallTimeoutOverride;
+
+  /// How many times a download is tried before it is reported as failed (a setting). Every try
+  /// after the first continues from the part file, so a connection that dropped (the app was in
+  /// the background, the network switched) costs only the time it was down.
+  int get maxAttempts => (maxAttemptsOverride ?? _settings.value.updateRetryAttempts).clamp(1, 20);
 
   final SettingsStore _settings;
   final http.Client _client;
@@ -89,8 +94,9 @@ class UpdateService extends ChangeNotifier {
   /// Wait before try *n* is `retryDelay * n`.
   final Duration retryDelay;
 
-  /// A response that sends nothing for this long is treated as a dropped connection.
-  final Duration stallTimeout;
+  /// A response that sends nothing for this long is treated as a dropped connection (a setting).
+  Duration get stallTimeout =>
+      stallTimeoutOverride ?? Duration(seconds: _settings.value.updateStallSeconds.clamp(5, 600));
 
   UpdateState _state = const UpdateIdle();
   UpdateState get state => _state;
