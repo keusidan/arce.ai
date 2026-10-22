@@ -8,6 +8,7 @@ import '../core/attachments.dart';
 import '../core/chat_controller.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
+import '../core/search.dart';
 import '../core/settings_spec.dart';
 import '../mcp/mcp_server.dart';
 import 'kv_snapshots.dart';
@@ -45,6 +46,7 @@ class AppSettings {
     this.autoUpdateCheck = true,
     this.autoInstallUpdate = true,
     this.mcpServers = const [],
+    this.searchApis = const [],
     this.updateIntervalHours = 12,
     this.localTemperature = -1,
     this.localTopP = -1,
@@ -231,6 +233,9 @@ class AppSettings {
   /// The MCP servers the chat may use (Streamable HTTP). Tokens live in secure storage.
   final List<McpServerConfig> mcpServers;
 
+  /// Search services the user set up (their keys are in the secure storage, not here).
+  final List<SearchApiConfig> searchApis;
+
   AppSettings copyWith({
     bool? thinking,
     bool? searchEnabled,
@@ -258,6 +263,7 @@ class AppSettings {
     bool? autoInstallUpdate,
     int? updateIntervalHours,
     List<McpServerConfig>? mcpServers,
+    List<SearchApiConfig>? searchApis,
     double? localTemperature,
     double? localTopP,
     int? localTopK,
@@ -320,6 +326,7 @@ class AppSettings {
     autoInstallUpdate: autoInstallUpdate ?? this.autoInstallUpdate,
     updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
     mcpServers: mcpServers ?? this.mcpServers,
+    searchApis: searchApis ?? this.searchApis,
     localTemperature: localTemperature ?? this.localTemperature,
     localTopP: localTopP ?? this.localTopP,
     localTopK: localTopK ?? this.localTopK,
@@ -384,6 +391,7 @@ class AppSettings {
     'autoInstallUpdate': autoInstallUpdate,
     'updateIntervalHours': updateIntervalHours,
     'mcpServers': [for (final server in mcpServers) server.toJson()],
+    'searchApis': [for (final api in searchApis) api.toJson()],
     'localTemperature': localTemperature,
     'localTopP': localTopP,
     'localTopK': localTopK,
@@ -513,6 +521,7 @@ class AppSettings {
       kvSnapshotMinTokens: whole('kvSnapshotMinTokens', d.kvSnapshotMinTokens),
       autoFetchModelInfo: flag('autoFetchModelInfo', d.autoFetchModelInfo),
       fetchModelInfoFromHub: flag('fetchModelInfoFromHub', d.fetchModelInfoFromHub),
+      searchApis: SearchApis.decode(json['searchApis']),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {
         final parsed = McpServers.decode(json['mcpServers']);
@@ -600,7 +609,7 @@ class SettingsStore extends ChangeNotifier {
 
   static const _key = 'settings.v1';
   static const _tokenKey = 'github_token';
-  static const _braveKey = 'brave_api_key';
+  static const _legacyBraveKey = 'brave_api_key'; // 0.8.6, before the search services were a list
   static const _mcpTokenKey =
       'mcp_token'; // one server, before the list existed
 
@@ -615,10 +624,10 @@ class SettingsStore extends ChangeNotifier {
   /// Empty when none is set (or secure storage is unavailable on this system).
   String get githubToken => _token;
 
-  String _braveApiKey = '';
+  final Map<String, String> _searchKeys = {};
 
-  /// The key of the Brave Search API; empty when none is set. Kept in the secure storage only.
-  String get braveApiKey => _braveApiKey;
+  /// The key of the search service [id]; empty when none is set. Kept in the secure storage only.
+  String searchKeyOf(String id) => _searchKeys[id] ?? '';
 
   final Map<String, String> _mcpTokens = {};
 
@@ -643,7 +652,10 @@ class SettingsStore extends ChangeNotifier {
     }
     try {
       store._token = await store._secure.read(key: _tokenKey) ?? '';
-      store._braveApiKey = await store._secure.read(key: _braveKey) ?? '';
+      for (final api in store._value.searchApis) {
+        store._searchKeys[api.id] = await store._secure.read(key: api.keyRef) ?? '';
+      }
+      await store._migrateBraveKey();
       final legacy = await store._secure.read(key: _mcpTokenKey) ?? '';
       for (final server in store._value.mcpServers) {
         store._mcpTokens[server.id] =
@@ -662,7 +674,7 @@ class SettingsStore extends ChangeNotifier {
       }
     } catch (_) {
       store._token = '';
-      store._braveApiKey = '';
+      store._searchKeys.clear();
       store._mcpTokens.clear();
     }
     return store;
@@ -702,18 +714,46 @@ class SettingsStore extends ChangeNotifier {
     }
   }
 
-  Future<void> setBraveApiKey(String key) async {
-    _braveApiKey = key.trim();
+  Future<void> setSearchKey(String id, String key) async {
+    _searchKeys[id] = key.trim();
     notifyListeners();
     try {
-      if (_braveApiKey.isEmpty) {
-        await _secure.delete(key: _braveKey);
+      final ref = SearchApiConfig(id: id, name: '', url: '').keyRef;
+      if (key.trim().isEmpty) {
+        await _secure.delete(key: ref);
       } else {
-        await _secure.write(key: _braveKey, value: _braveApiKey);
+        await _secure.write(key: ref, value: key.trim());
       }
     } catch (_) {
       // keep the key for this run only when the system keyring is missing
     }
+  }
+
+  /// Removes the key of a search service that was deleted.
+  Future<void> forgetSearchKey(String id) async {
+    _searchKeys.remove(id);
+    notifyListeners();
+    try {
+      await _secure.delete(key: SearchApiConfig(id: id, name: '', url: '').keyRef);
+    } catch (_) {
+      // nothing was stored
+    }
+  }
+
+  /// 0.8.6 kept one Brave key of its own; it becomes the first entry of the list.
+  Future<void> _migrateBraveKey() async {
+    final legacy = await _secure.read(key: _legacyBraveKey) ?? '';
+    if (legacy.isEmpty) return;
+    if (!_value.searchApis.any((a) => a.id == 'brave-search')) {
+      final preset = SearchApiConfig.presets['Brave Search']!;
+      _value = _value.copyWith(searchApis: [..._value.searchApis, SearchApiConfig.fromJson({...preset.toJson(), 'id': 'brave-search'})]);
+      await _prefs.setString(_key, jsonEncode(_value.toJson()));
+    }
+    if (searchKeyOf('brave-search').isEmpty) {
+      _searchKeys['brave-search'] = legacy;
+      await _secure.write(key: SearchApiConfig(id: 'brave-search', name: '', url: '').keyRef, value: legacy);
+    }
+    await _secure.delete(key: _legacyBraveKey);
   }
 
   Future<void> setGithubToken(String token) async {

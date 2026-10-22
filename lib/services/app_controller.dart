@@ -282,6 +282,19 @@ class AppController extends ChangeNotifier {
   /// Used by the settings screen: asks one server what it offers and says so in a toast.
   Future<String> probeMcp(String id) => _mcpTools.describe(id);
 
+  /// Runs one search with the values of the editor (saved or not) and says what came back.
+  Future<String> testSearchApi(SearchApiConfig config, String key) async {
+    if (!config.isComplete) return 'URL に {query} を入れてください';
+    try {
+      final hits = await ConfiguredSearchProvider(config, key, _http).search('test', 3);
+      return hits.isEmpty
+          ? '接続できましたが、結果を読み取れませんでした（結果のパスと項目名を確かめてください）'
+          : '${hits.length} 件読み取れました: ${hits.first.title}';
+    } catch (e) {
+      return '失敗: $e';
+    }
+  }
+
   Future<void> _start() async {
     settings.addListener(() => chat.setThinking(settings.value.thinking));
     // adding, removing or editing a provider changes which one answers
@@ -677,14 +690,15 @@ class _SettingsToolRuntime implements ToolRuntime {
     final providers = <SearchProvider>[
       if (s.searxngUrl.trim().isNotEmpty)
         SearXngProvider(s.searxngUrl.trim(), _http),
-      if (_settings.braveApiKey.isNotEmpty) BraveSearchProvider(_settings.braveApiKey, _http),
+      for (final api in s.searchApis)
+        if (api.enabled) ConfiguredSearchProvider(api, _settings.searchKeyOf(api.id), _http),
       DuckDuckGoInstantProvider(_http),
     ];
-    // without a search server or a key, only DuckDuckGo's summaries are left, which answer few questions
-    final onlySummaries = s.searxngUrl.trim().isEmpty && _settings.braveApiKey.isEmpty;
+    // without a search server or a search API, only DuckDuckGo's summaries are left, which answer few questions
+    final onlySummaries = s.searxngUrl.trim().isEmpty && !s.searchApis.any((a) => a.enabled);
     return DefaultToolRuntime(
       searchHint: onlySummaries
-          ? '検索の設定がありません。設定の「Brave Search API キー」か「SearXNG のアドレス」を入れると、普通の検索ができます'
+          ? '検索の設定がありません。設定の「検索 API」か「SearXNG のアドレス」を入れると、普通の検索ができます'
           : null,
       search: s.searchEnabled
           ? SearchService(
@@ -735,7 +749,19 @@ class _SettingsToolRuntime implements ToolRuntime {
         );
       }
     }
-    b.write('APIキーとMCPトークンは、このツールでも設定画面でも読み出せません（変更もできません）。');
+    b.write('検索 API（設定画面から追加・編集できます）:\n');
+    final apis = _settings.value.searchApis;
+    if (apis.isEmpty) {
+      b.write('- （なし。SearXNG のアドレス: ${_settings.value.searxngUrl.trim().isEmpty ? '未設定' : _settings.value.searxngUrl.trim()}）\n');
+    } else {
+      for (final api in apis) {
+        b.write(
+          '- ${api.name.isEmpty ? api.id : api.name} (id=${api.id}) = ${api.url.split('?').first}、${api.enabled ? '有効' : '無効'}'
+          '${api.needsKey ? '、APIキー: ${_settings.searchKeyOf(api.id).isEmpty ? '未設定' : '設定済み'}' : ''}\n',
+        );
+      }
+    }
+    b.write('APIキー・MCPトークン・検索のキーは、このツールでも設定画面でも読み出せません（チャットからは変更もできません）。');
     return b.toString();
   }
 }

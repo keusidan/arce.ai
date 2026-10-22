@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:arce_ai/core/engine.dart';
+import 'package:arce_ai/core/search.dart';
 import 'package:arce_ai/mcp/mcp_server.dart';
 import 'package:arce_ai/services/settings.dart';
 import 'package:flutter/material.dart';
@@ -198,19 +199,24 @@ void main() {
     expect(again.value.maxChars, 800);
   });
 
-  test('the Brave key is never written to the settings JSON', () async {
+  test('search services are saved, their keys are not', () async {
     SharedPreferences.setMockInitialValues({});
     final store = await SettingsStore.load();
-    await store.setBraveApiKey('  BSA-secret  ');
-    await store.update((s) => s.copyWith(searchEnabled: true));
+    final api = SearchApiConfig.presets['Brave Search']!.copyWith(name: 'Brave Search');
+    final saved = SearchApiConfig.fromJson({...api.toJson(), 'id': 'brave-search'});
+    await store.update((s) => s.copyWith(searchApis: [saved]));
+    await store.setSearchKey('brave-search', '  BSA-secret  ');
 
-    expect(store.braveApiKey, 'BSA-secret');
+    expect(store.searchKeyOf('brave-search'), 'BSA-secret');
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('settings.v1'), isNot(contains('BSA-secret')));
     expect(jsonEncode(store.value.toJson()), isNot(contains('BSA-secret')));
 
-    await store.setBraveApiKey('');
-    expect(store.braveApiKey, isEmpty);
+    final again = await SettingsStore.load();
+    expect(again.value.searchApis.single.url, saved.url);
+
+    await store.forgetSearchKey('brave-search');
+    expect(store.searchKeyOf('brave-search'), isEmpty);
   });
 
   test('a damaged save does not stop the app from starting', () async {

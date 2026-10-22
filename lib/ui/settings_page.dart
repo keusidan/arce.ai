@@ -7,6 +7,7 @@ import '../services/app_controller.dart';
 import '../services/settings.dart';
 import 'app_scope.dart';
 import 'mcp_widgets.dart';
+import 'search_widgets.dart';
 import 'provider_widgets.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
@@ -148,41 +149,39 @@ class _SettingsPageState extends State<SettingsPage> {
       case SettingsSection.limits:
         return _limits(s, set);
       case SettingsSection.basic:
-        return ArceCard(
-          child: Column(
-            children: [
-              SettingRow(
-                icon: ArceSvg.brainOutline,
-                title: 'Thinking 表示',
-                subtitle: '生成中の状態と思考プロセスを表示します',
-                trailing: ArceSwitch(value: s.thinking, onChanged: (v) => set((x) => x.copyWith(thinking: v))),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ArceCard(
+              child: Column(
+                children: [
+                  SettingRow(
+                    icon: ArceSvg.brainOutline,
+                    title: 'Thinking 表示',
+                    subtitle: '生成中の状態と思考プロセスを表示します',
+                    trailing: ArceSwitch(value: s.thinking, onChanged: (v) => set((x) => x.copyWith(thinking: v))),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.searchClock,
+                    title: 'Search',
+                    subtitle: 'AIが必要と判断したときにWeb検索を使います',
+                    trailing: ArceSwitch(value: s.searchEnabled, onChanged: (v) => set((x) => x.copyWith(searchEnabled: v))),
+                  ),
+                  _TextRow(
+                    icon: ArceSvg.globe,
+                    title: 'SearXNG のアドレス',
+                    subtitle: '自分の検索サーバー（先に使います）',
+                    value: s.searxngUrl,
+                    hint: 'http://192.168.0.10:8080',
+                    last: true,
+                    onChanged: (v) => set((x) => x.copyWith(searxngUrl: v)),
+                  ),
+                ],
               ),
-              SettingRow(
-                icon: ArceSvg.searchClock,
-                title: 'Search',
-                subtitle: 'AIが必要と判断したときにWeb検索を使います',
-                trailing: ArceSwitch(value: s.searchEnabled, onChanged: (v) => set((x) => x.copyWith(searchEnabled: v))),
-              ),
-              _TextRow(
-                icon: ArceSvg.globe,
-                title: 'SearXNG のアドレス',
-                subtitle: '自分の検索サーバー（先に使います）',
-                value: s.searxngUrl,
-                hint: 'http://192.168.0.10:8080',
-                onChanged: (v) => set((x) => x.copyWith(searxngUrl: v)),
-              ),
-              _TextRow(
-                icon: ArceSvg.shield,
-                title: 'Brave Search API キー',
-                subtitle: '検索サーバーが無いとき、または届かないとき。この端末の安全な領域に保存します',
-                value: app.settings.braveApiKey,
-                hint: 'BSA…',
-                obscure: true,
-                last: true,
-                onChanged: app.settings.setBraveApiKey,
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 14),
+            const SearchApiSection(),
+          ],
         );
       case SettingsSection.answer:
         return ArceCard(

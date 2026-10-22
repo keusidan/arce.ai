@@ -37,30 +37,93 @@ void main() {
     expect(failed.errors, hasLength(2), reason: 'one try plus one retry');
   });
 
-  test('brave search sends the key as a header and reads web.results', () async {
-    const brave = '''{"web":{"results":[
+  SearchApiConfig brave() => SearchApiConfig.presets['Brave Search']!.copyWith(name: 'Brave Search');
+
+  test('a configured search API puts the key in the header and reads the results path', () async {
+    const body = '''{"web":{"results":[
       {"title":"Gemini <strong>API</strong> models","url":"https://ai.google.dev/models","description":"Latest &amp; stable <strong>models</strong>"},
       {"title":"No url"}]}}''';
     Map<String, String>? sent;
     String? asked;
-    final provider = BraveSearchProvider('KEY', (url, headers) async {
+    final provider = ConfiguredSearchProvider(brave(), 'KEY', (url, headers) async {
       asked = url;
       sent = headers;
-      return brave;
+      return body;
     });
 
     final hits = await provider.search('gemini api 最新', 5);
     expect(asked, startsWith('https://api.search.brave.com/res/v1/web/search?q='));
-    expect(asked, isNot(contains('KEY')), reason: 'the key never goes into the URL');
+    expect(asked, contains('count=5'));
+    expect(asked, isNot(contains('KEY')), reason: 'the key stays in the header here');
     expect(sent!['X-Subscription-Token'], 'KEY');
     expect(hits, hasLength(1));
     expect(hits.single.title, 'Gemini API models');
     expect(hits.single.snippet, 'Latest & stable models');
   });
 
-  test('brave comes before the instant answer when both are configured', () async {
+  test('{key} in the address is filled and encoded, and other field names can be used', () async {
+    String? asked;
+    final provider = ConfiguredSearchProvider(
+      const SearchApiConfig(
+        id: 'g',
+        name: 'Google',
+        url: 'https://www.googleapis.com/customsearch/v1?key={key}&cx=abc&q={query}&num={count}',
+        resultsPath: 'items',
+        urlField: 'link',
+        snippetField: 'snippet',
+      ),
+      'k&1',
+      (url, headers) async {
+        asked = url;
+        return '{"items":[{"title":"T","link":"https://e.com/","snippet":"s"}]}';
+      },
+    );
+    final hits = await provider.search('a b', 3);
+    expect(asked, contains('key=k%261'));
+    expect(asked, contains('q=a+b'));
+    expect(hits.single.url, 'https://e.com/');
+    expect(hits.single.snippet, 's');
+  });
+
+  test('a service that needs a key says so instead of calling it without one', () async {
+    var called = false;
+    final provider = ConfiguredSearchProvider(brave(), ' ', (url, headers) async {
+      called = true;
+      return '{}';
+    });
+    await expectLater(provider.search('q', 3), throwsA(isA<StateError>()));
+    expect(called, isFalse);
+  });
+
+  test('an answer that is the list itself needs no results path', () async {
+    final provider = ConfiguredSearchProvider(
+      const SearchApiConfig(id: 'x', name: 'X', url: 'https://x.example/s?q={query}', snippetField: 'text'),
+      '',
+      (url, headers) async => '[{"title":"A","url":"https://a.example/","text":"t"}]',
+    );
+    expect((await provider.search('q', 3)).single.snippet, 't');
+  });
+
+  test('headers: a secret-looking name must take its value from {key}', () {
+    expect(SearchApiConfig.parseHeaders('{"X-Subscription-Token": "{key}"}'), {'X-Subscription-Token': '{key}'});
+    expect(SearchApiConfig.parseHeaders(''), isEmpty);
+    expect(() => SearchApiConfig.parseHeaders('{"Authorization": "Bearer abc"}'), throwsFormatException);
+    expect(() => SearchApiConfig.parseHeaders('not json'), throwsFormatException);
+  });
+
+  test('the config survives a round trip and never has a key field', () {
+    final back = SearchApiConfig.fromJson(brave().copyWith(name: 'B').toJson());
+    expect(back.url, brave().url);
+    expect(back.headers['X-Subscription-Token'], '{key}');
+    expect(back.resultsPath, 'web.results');
+    expect(back.toJson().keys, isNot(contains('key')));
+    expect(SearchApis.idFor('Brave Search', const []), 'brave-search');
+    expect(SearchApis.idFor('日本語', const []), 'search');
+  });
+
+  test('configured providers come before the instant answer', () async {
     final service = SearchService([
-      BraveSearchProvider('KEY', http({'api.search.brave.com': '{"web":{"results":[{"title":"T","url":"https://e.com/","description":"d"}]}}'})),
+      ConfiguredSearchProvider(brave(), 'KEY', http({'api.search.brave.com': '{"web":{"results":[{"title":"T","url":"https://e.com/","description":"d"}]}}'})),
       DuckDuckGoInstantProvider(http({})),
     ]);
     expect((await service.search('q') as SearchFound).provider, 'Brave Search');

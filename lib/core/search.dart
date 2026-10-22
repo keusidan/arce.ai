@@ -43,44 +43,206 @@ class SearXngProvider implements SearchProvider {
   }
 }
 
-/// Brave Search's web search API: a real result list, with an API key (sent as a header, never kept
-/// in the settings JSON). https://api.search.brave.com/res/v1/web/search?q=…&count=…
-class BraveSearchProvider implements SearchProvider {
-  BraveSearchProvider(this.apiKey, this._get);
+/// A search service the user set up: a GET address with `{query}` (and `{count}`, `{key}`) in it,
+/// extra headers, and where in the JSON answer the results are.
+///
+/// The API key is not here. It lives in the platform's secure storage under [keyRef] and is put
+/// in wherever `{key}` stands (the address or a header value), so a settings file or a backup
+/// never carries it.
+class SearchApiConfig {
+  const SearchApiConfig({
+    required this.id,
+    required this.name,
+    required this.url,
+    this.headers = const {},
+    this.resultsPath = '',
+    this.titleField = 'title',
+    this.urlField = 'url',
+    this.snippetField = 'description',
+    this.enabled = true,
+  });
 
-  static const endpoint = 'https://api.search.brave.com/res/v1/web/search';
+  static const queryMark = '{query}';
+  static const countMark = '{count}';
+  static const keyMark = '{key}';
 
+  final String id;
+  final String name;
+
+  /// e.g. `https://api.example.com/search?q={query}&count={count}`.
+  final String url;
+
+  /// Values may contain `{key}`.
+  final Map<String, String> headers;
+
+  /// Dot path to the list of results in the answer (`web.results`); empty when the answer is the list.
+  final String resultsPath;
+
+  /// Dot paths inside one result.
+  final String titleField;
+  final String urlField;
+  final String snippetField;
+  final bool enabled;
+
+  String get keyRef => 'search_key_$id';
+
+  /// True when a key has to be set for the service to work.
+  bool get needsKey => url.contains(keyMark) || headers.values.any((v) => v.contains(keyMark));
+
+  bool get isComplete =>
+      id.trim().isNotEmpty && url.contains(queryMark) && (Uri.tryParse(url.replaceAll(RegExp(r'\{\w+\}'), 'x'))?.hasScheme ?? false);
+
+  SearchApiConfig copyWith({
+    String? name,
+    String? url,
+    Map<String, String>? headers,
+    String? resultsPath,
+    String? titleField,
+    String? urlField,
+    String? snippetField,
+    bool? enabled,
+  }) => SearchApiConfig(
+    id: id,
+    name: name ?? this.name,
+    url: url ?? this.url,
+    headers: headers ?? this.headers,
+    resultsPath: resultsPath ?? this.resultsPath,
+    titleField: titleField ?? this.titleField,
+    urlField: urlField ?? this.urlField,
+    snippetField: snippetField ?? this.snippetField,
+    enabled: enabled ?? this.enabled,
+  );
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'url': url,
+    if (headers.isNotEmpty) 'headers': headers,
+    'resultsPath': resultsPath,
+    'titleField': titleField,
+    'urlField': urlField,
+    'snippetField': snippetField,
+    'enabled': enabled,
+  };
+
+  factory SearchApiConfig.fromJson(Map<String, Object?> json) {
+    String text(String key, [String fallback = '']) => json[key] is String ? json[key]! as String : fallback;
+    final rawHeaders = json['headers'];
+    return SearchApiConfig(
+      id: text('id'),
+      name: text('name'),
+      url: text('url'),
+      headers: {
+        if (rawHeaders is Map)
+          for (final entry in rawHeaders.entries)
+            if (entry.key is String && entry.value is String) entry.key as String: entry.value as String,
+      },
+      resultsPath: text('resultsPath'),
+      titleField: text('titleField', 'title'),
+      urlField: text('urlField', 'url'),
+      snippetField: text('snippetField', 'description'),
+      enabled: json['enabled'] is bool ? json['enabled']! as bool : true,
+    );
+  }
+
+  /// Ready-made entries the editor offers. The field names come from each service's own documentation
+  /// (see docs); every one of them can be changed afterwards.
+  static const presets = <String, SearchApiConfig>{
+    'Brave Search': SearchApiConfig(
+      id: '',
+      name: 'Brave Search',
+      url: 'https://api.search.brave.com/res/v1/web/search?q={query}&count={count}',
+      headers: {'Accept': 'application/json', 'X-Subscription-Token': '{key}'},
+      resultsPath: 'web.results',
+    ),
+    'Google カスタム検索': SearchApiConfig(
+      id: '',
+      name: 'Google カスタム検索',
+      url: 'https://www.googleapis.com/customsearch/v1?key={key}&cx=（検索エンジンID）&q={query}&num={count}',
+      resultsPath: 'items',
+      urlField: 'link',
+      snippetField: 'snippet',
+    ),
+  };
+
+  /// `{"Accept": "application/json", "X-Token": "{key}"}` → the map; empty text → none. A header whose
+  /// name says it carries a secret must take it from `{key}`, because settings are kept in plain
+  /// storage and travel in backups. Throws a [FormatException] whose message can be shown as it is.
+  static Map<String, String> parseHeaders(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return const {};
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(trimmed);
+    } on FormatException {
+      throw const FormatException('ヘッダーは JSON のオブジェクトで書いてください（例: {"名前": "値"}）');
+    }
+    if (decoded is! Map) throw const FormatException('ヘッダーは JSON のオブジェクトで書いてください（例: {"名前": "値"}）');
+    final secretName = RegExp(r'authorization|api[-_ ]?key|token|secret|password|cookie', caseSensitive: false);
+    final out = <String, String>{};
+    for (final entry in decoded.entries) {
+      final name = '${entry.key}';
+      if (entry.value is! String) throw FormatException('ヘッダー $name の値は文字列にしてください');
+      final value = entry.value as String;
+      if (secretName.hasMatch(name) && !value.contains(keyMark)) {
+        throw FormatException('ヘッダー $name は機密情報になりえます。値は $keyMark にして、キーは「APIキー」の欄に入れてください');
+      }
+      out[name] = value;
+    }
+    return out;
+  }
+}
+
+/// Searches with a [SearchApiConfig]: fills in the address and headers, reads the answer's JSON.
+class ConfiguredSearchProvider implements SearchProvider {
+  ConfiguredSearchProvider(this.config, this.apiKey, this._get);
+
+  final SearchApiConfig config;
   final String apiKey;
   final HttpGet _get;
 
   @override
-  String get name => 'Brave Search';
+  String get name => config.name;
 
   @override
   Future<List<SearchHit>> search(String query, int limit) async {
-    final count = limit.clamp(1, 20);
-    final body = await _get(
-      '$endpoint?q=${Uri.encodeQueryComponent(query)}&count=$count',
-      {'Accept': 'application/json', 'X-Subscription-Token': apiKey},
-    );
-    final root = jsonDecode(body);
-    final web = root is Map ? root['web'] : null;
-    final results = web is Map ? web['results'] : null;
+    if (config.needsKey && apiKey.trim().isEmpty) throw StateError('APIキーが未設定です');
+    final key = apiKey.trim();
+    final count = limit.clamp(1, 50);
+    final url = config.url
+        .replaceAll(SearchApiConfig.queryMark, Uri.encodeQueryComponent(query))
+        .replaceAll(SearchApiConfig.countMark, '$count')
+        .replaceAll(SearchApiConfig.keyMark, Uri.encodeQueryComponent(key));
+    final headers = {
+      for (final entry in config.headers.entries) entry.key: entry.value.replaceAll(SearchApiConfig.keyMark, key),
+    };
+    final root = jsonDecode(await _get(url, headers));
+    final results = _at(root, config.resultsPath);
     final hits = <SearchHit>[];
     for (final element in (results is List ? results : const [])) {
-      if (element is! Map) continue;
-      final url = _string(element['url']);
-      if (url == null) continue;
+      final link = _string(_at(element, config.urlField));
+      if (link == null || link.trim().isEmpty) continue;
       hits.add(SearchHit(
-        _plain(_string(element['title'])) ?? url,
-        url,
-        _plain(_string(element['description'])) ?? '',
+        _plain(_string(_at(element, config.titleField))) ?? link,
+        link,
+        _plain(_string(_at(element, config.snippetField))) ?? '',
       ));
     }
     return hits.take(limit).toList();
   }
 
-  /// The snippets mark the matched words with tags and entities; the model needs only the text.
+  /// `a.b.c` into nested maps; an empty path is the value itself.
+  static Object? _at(Object? value, String path) {
+    var current = value;
+    for (final part in path.split('.')) {
+      if (part.trim().isEmpty) continue;
+      if (current is! Map) return null;
+      current = current[part.trim()];
+    }
+    return current;
+  }
+
+  /// The snippets of some services mark the matched words with tags and entities; the model needs only the text.
   static String? _plain(String? html) {
     if (html == null) return null;
     final text = html
@@ -93,6 +255,33 @@ class BraveSearchProvider implements SearchProvider {
         .replaceAll('&#39;', "'")
         .trim();
     return text.isEmpty ? null : text;
+  }
+}
+
+/// Helpers for the list of search services in the settings document.
+abstract final class SearchApis {
+  /// A readable id from the name, unique among [existing].
+  static String idFor(String name, Iterable<SearchApiConfig> existing) {
+    final stem = name
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    final base = stem.isEmpty ? 'search' : stem;
+    final taken = {for (final api in existing) api.id};
+    if (!taken.contains(base)) return base;
+    for (var n = 2; ; n++) {
+      final candidate = '$base-$n';
+      if (!taken.contains(candidate)) return candidate;
+    }
+  }
+
+  static List<SearchApiConfig> decode(Object? raw) {
+    if (raw is! List) return const [];
+    return [
+      for (final entry in raw)
+        if (entry is Map)
+          if (SearchApiConfig.fromJson(entry.cast<String, Object?>()) case final config when config.id.trim().isNotEmpty) config,
+    ];
   }
 }
 
