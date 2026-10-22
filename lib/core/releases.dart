@@ -78,6 +78,15 @@ class Release {
     return null;
   }
 
+  /// The difference between the build [from] and [asset] (`<asset>.from-<version>.patch`, a bsdiff
+  /// patch the Android release workflow writes for the last few builds), when there is one.
+  ReleaseAsset? patchFor(ReleaseAsset asset, Version from) {
+    for (final a in assets) {
+      if (a.name == '${asset.name}.from-$from.patch') return a;
+    }
+    return null;
+  }
+
   /// The `<asset>.sha256` file written next to every build by the release workflow.
   ReleaseAsset? checksumFor(ReleaseAsset asset) {
     for (final a in assets) {

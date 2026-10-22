@@ -335,6 +335,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 trailing: ArceSwitch(value: s.autoInstallUpdate, onChanged: (v) => set((x) => x.copyWith(autoInstallUpdate: v))),
               ),
               SettingRow(
+                icon: ArceSvg.cube,
+                title: '差分だけダウンロードする',
+                subtitle: 'Android：今のアプリとの差分があれば、それだけ取って新しいアプリを組み立てます（なければ全体）',
+                trailing: ArceSwitch(value: s.updateUseDelta, onChanged: (v) => set((x) => x.copyWith(updateUseDelta: v))),
+              ),
+              SettingRow(
                 icon: ArceSvg.clock,
                 title: '確認の間隔',
                 subtitle: '時間',

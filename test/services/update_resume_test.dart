@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:arce_ai/core/releases.dart';
+import 'package:arce_ai/services/bspatch.dart';
 import 'package:arce_ai/services/settings.dart';
 import 'package:arce_ai/services/update_service.dart';
 import 'package:crypto/crypto.dart';
@@ -10,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'bsdiff_fixture.dart';
 
 /// The name the release workflow gives the asset of this platform,
 /// e.g. `ARCE.AI-v0.5.0-linux-x64.tar.gz`.
@@ -25,7 +29,14 @@ class FakeGitHub {
     this.cutOff = false,
     this.dropFirst = 0,
     this.stallFirst = 0,
+    this.patch,
   });
+
+  /// The bsdiff patch from 0.4.0 that the release offers next to the APK, when given.
+  final List<int>? patch;
+
+  /// How many times the storage was asked for the patch.
+  int patchRequests = 0;
 
   final List<int> payload;
   final String checksum;
@@ -61,6 +72,7 @@ class FakeGitHub {
                 'assets': [
                   {'id': 11, 'name': assetName(), 'size': payload.length},
                   {'id': 12, 'name': '${assetName()}.sha256', 'size': 90},
+                  if (patch != null) {'id': 13, 'name': '${assetName()}.from-0.4.0.patch', 'size': patch!.length},
                 ],
               },
             ]))),
@@ -71,6 +83,10 @@ class FakeGitHub {
         }
         if (url.startsWith('https://storage.example/')) {
           if (url.endsWith('/12')) return reply(200, Stream.value(utf8.encode('$checksum  ${assetName()}\n')));
+          if (url.endsWith('/13')) {
+            patchRequests++;
+            return reply(200, Stream.value(patch!));
+          }
 
           final range = request.headers['Range'];
           ranges.add(range);
@@ -103,10 +119,16 @@ class FakeGitHub {
   }
 }
 
-Future<(UpdateService, Directory)> serviceFor(MockClient client, {String current = '0.4.0'}) async {
+Future<(UpdateService, Directory)> serviceFor(
+  MockClient client, {
+  String current = '0.4.0',
+  Future<String?> Function()? baseApk,
+  bool delta = true,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final settings = SettingsStore(await SharedPreferences.getInstance());
   await settings.setGithubToken('secret');
+  if (!delta) await settings.update((s) => s.copyWith(updateUseDelta: false));
   final dir = await Directory.systemTemp.createTemp('arce_update_resume');
   addTearDown(() => dir.delete(recursive: true));
   final service = UpdateService(
@@ -116,6 +138,7 @@ Future<(UpdateService, Directory)> serviceFor(MockClient client, {String current
     currentVersion: Version.parse(current),
     retryDelay: Duration.zero,
     stallTimeoutOverride: const Duration(milliseconds: 200),
+    baseApkOverride: baseApk,
   );
   addTearDown(service.dispose);
   return (service, dir);
@@ -185,6 +208,77 @@ void main() {
     expect(github.ranges.every((r) => r != null), isTrue);
     expect(await partFile(dir).exists(), isFalse);
   }, skip: canDownload ? false : 'this platform has no update files');
+
+  group('差分だけのダウンロード', () {
+    final base = bsdiffOld;
+    final built = BsPatch.apply(base, bsdiffPatch);
+
+    Future<File> baseFile() async {
+      final dir = await Directory.systemTemp.createTemp('arce_base');
+      addTearDown(() => dir.delete(recursive: true));
+      return File('${dir.path}/base.apk')..writeAsBytesSync(base);
+    }
+
+    test('差分から新しいファイルを組み立て、全体は取らない', () async {
+      final github = FakeGitHub(payload: built, checksum: bsdiffNewSha256, patch: bsdiffPatch);
+      final installed = await baseFile();
+      final (service, dir) = await serviceFor(github.client(), baseApk: () async => installed.path);
+
+      await service.check();
+      await service.download();
+
+      final ready = service.state as UpdateReady;
+      expect(await ready.file.readAsBytes(), built);
+      expect(github.patchRequests, 1);
+      expect(github.ranges, isEmpty, reason: 'the whole file was never asked for');
+      expect(await Directory(updates(dir).path).list().map((e) => e.path.split('/').last).toList(), [assetName()],
+          reason: 'the patch and the work files are removed');
+    }, skip: canDownload ? false : 'this platform has no update files');
+
+    test('土台のファイルが違えば、全体を取り直す', () async {
+      final github = FakeGitHub(payload: built, checksum: bsdiffNewSha256, patch: bsdiffPatch);
+      final installed = await baseFile();
+      installed.writeAsBytesSync(Uint8List.fromList(base)..[10] ^= 0xff);
+      final (service, _) = await serviceFor(github.client(), baseApk: () async => installed.path);
+
+      await service.check();
+      await service.download();
+
+      final ready = service.state as UpdateReady;
+      expect(await ready.file.readAsBytes(), built);
+      expect(github.patchRequests, 1);
+      expect(github.ranges, hasLength(1), reason: 'the whole file was downloaded after the check failed');
+    }, skip: canDownload ? false : 'this platform has no update files');
+
+    test('差分が無いか、土台が分からないときは、全体を取る', () async {
+      final noPatch = FakeGitHub(payload: built, checksum: bsdiffNewSha256);
+      final installed = await baseFile();
+      final (a, _) = await serviceFor(noPatch.client(), baseApk: () async => installed.path);
+      await a.check();
+      await a.download();
+      expect((a.state as UpdateReady).file.readAsBytesSync(), built);
+      expect(noPatch.patchRequests, 0);
+
+      final github = FakeGitHub(payload: built, checksum: bsdiffNewSha256, patch: bsdiffPatch);
+      final (b, _) = await serviceFor(github.client(), baseApk: () async => null);
+      await b.check();
+      await b.download();
+      expect((b.state as UpdateReady).file.readAsBytesSync(), built);
+      expect(github.patchRequests, 0, reason: 'without the installed file the patch is not even downloaded');
+    }, skip: canDownload ? false : 'this platform has no update files');
+
+    test('設定で差分をオフにすると、全体を取る', () async {
+      final github = FakeGitHub(payload: built, checksum: bsdiffNewSha256, patch: bsdiffPatch);
+      final installed = await baseFile();
+      final (service, _) = await serviceFor(github.client(), baseApk: () async => installed.path, delta: false);
+
+      await service.check();
+      await service.download();
+
+      expect((service.state as UpdateReady).file.readAsBytesSync(), built);
+      expect(github.patchRequests, 0);
+    }, skip: canDownload ? false : 'this platform has no update files');
+  });
 
   test('切れ続けるときは、決めた回数で諦めて理由を出す', () async {
     final github = FakeGitHub(payload: payload, checksum: good, cutOff: true);

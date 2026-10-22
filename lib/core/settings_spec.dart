@@ -313,6 +313,11 @@ abstract final class AgentSettings {
       min: 5,
       max: 600,
     ),
+    'updateUseDelta': SettingSpec(
+      key: 'updateUseDelta',
+      label: '更新は差分だけダウンロード（Android）',
+      kind: SettingKind.flag,
+    ),
     'downloadConnections': SettingSpec(
       key: 'downloadConnections',
       label: 'ダウンロードの同時接続数（1で分けない）',

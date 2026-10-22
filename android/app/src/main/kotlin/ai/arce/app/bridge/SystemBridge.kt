@@ -36,6 +36,12 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                     result.success(StatFs((existing ?: context.filesDir).absolutePath).availableBytes)
                 }
                 "soc" -> result.success("${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}")
+                // The installed APK, which a delta update patches. A build installed from split APKs has no
+                // single file that equals a release, so there is none to patch.
+                "baseApk" -> {
+                    val info = context.applicationInfo
+                    result.success(if (info.splitSourceDirs.isNullOrEmpty()) info.sourceDir else null)
+                }
                 "canInstall" -> result.success(installer.canInstall())
                 "requestInstall" -> {
                     context.startActivity(installer.permissionIntent())

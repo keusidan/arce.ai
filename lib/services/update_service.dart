@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/releases.dart';
 import 'desktop_installer.dart';
+import 'bspatch.dart';
 import 'foreground_service.dart';
 import 'segmented_download.dart';
 import 'settings.dart';
@@ -70,6 +71,7 @@ class UpdateService extends ChangeNotifier {
     this.retryDelay = const Duration(seconds: 2),
     this.stallTimeoutOverride,
     this.maxAttemptsOverride,
+    this.baseApkOverride,
   })  : _client = client ?? http.Client(),
         _cacheDirectory = cacheDirectory ?? getApplicationCacheDirectory;
 
@@ -78,6 +80,9 @@ class UpdateService extends ChangeNotifier {
   /// Fixed values for tests; the settings decide when these are null.
   final int? maxAttemptsOverride;
   final Duration? stallTimeoutOverride;
+
+  /// Where the installed build's APK is, for tests; on Android the system says.
+  final Future<String?> Function()? baseApkOverride;
 
   /// How many times a download is tried before it is reported as failed (a setting). Every try
   /// after the first continues from the part file, so a connection that dropped (the app was in
@@ -277,6 +282,10 @@ class UpdateService extends ChangeNotifier {
       }
       final file = File('${dir.path}${Platform.pathSeparator}${asset.name}');
       final part = File('${file.path}.part');
+      if (await _tryDelta(release, asset, file, expected, dir)) {
+        _set(UpdateReady(release, file));
+        return;
+      }
       final digest = await _retrying(
         () => _downloadAsset(asset, file, part, (done) => _set(UpdateDownloading(release, done, asset.sizeBytes))),
       );
@@ -291,6 +300,56 @@ class UpdateService extends ChangeNotifier {
       _set(UpdateFailed(_explain(e)));
     } finally {
       await foreground?.stop(ForegroundReason.update);
+    }
+  }
+
+  /// Android: when the release has the difference between the installed build and the new one,
+  /// downloads just that and puts the new APK together from the installed one. True when [file]
+  /// is the new APK and its SHA-256 is [expected]; in every other case nothing is left behind and
+  /// the caller downloads the whole file.
+  Future<bool> _tryDelta(Release release, ReleaseAsset asset, File file, String expected, Directory dir) async {
+    final from = currentVersion;
+    if (from == null || !_settings.value.updateUseDelta) return false;
+    final patch = release.patchFor(asset, from);
+    // a difference that is not much smaller than the file is not worth putting together
+    if (patch == null || patch.sizeBytes <= 0 || patch.sizeBytes * 2 > asset.sizeBytes) return false;
+    final base = await _baseApk();
+    if (base == null || !await File(base).exists()) return false;
+
+    final patchFile = File('${dir.path}${Platform.pathSeparator}${patch.name}');
+    final patchPart = File('${patchFile.path}.part');
+    final built = File('${file.path}.new');
+    try {
+      await _retrying(
+        () => _downloadAsset(patch, patchFile, patchPart, (done) => _set(UpdateDownloading(release, done, patch.sizeBytes))),
+      );
+      await BsPatch.applyFiles(base, patchFile.path, built.path);
+      final digest = (await sha256.bind(built.openRead()).first).toString();
+      if (digest.toLowerCase() != expected.toLowerCase()) {
+        debugPrint('the patched file does not match the published SHA-256; downloading the whole file');
+        return false;
+      }
+      if (await file.exists()) await file.delete();
+      await built.rename(file.path);
+      return true;
+    } catch (e) {
+      debugPrint('delta update failed ($e); downloading the whole file');
+      return false;
+    } finally {
+      for (final f in [patchFile, patchPart, built]) {
+        if (await f.exists()) await f.delete();
+      }
+    }
+  }
+
+  Future<String?> _baseApk() async {
+    final override = baseApkOverride;
+    if (override != null) return override();
+    if (target != UpdateTarget.android) return null;
+    try {
+      return await _system.invokeMethod<String>('baseApk');
+    } catch (_) {
+      return null;
     }
   }
 

@@ -257,6 +257,44 @@ jobs:
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+      # The app can download only what changed since the build it has installed: a bsdiff patch from each
+      # of the last few releases to this one, next to the APK. The app checks the result against the
+      # APK's SHA-256, so a patch that does not fit only costs it the full download. A failure here
+      # must not hold back the release.
+      - name: Make patches from earlier releases
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PATCH_FROM: "3" # how many earlier releases get a patch
+        run: |
+          python3 -m venv /tmp/bsdiff-venv
+          /tmp/bsdiff-venv/bin/pip install --quiet bsdiff4
+          new="dist/ARCE.AI-v$VERSION-android.apk"
+          new_size="$(stat -c %s "$new")"
+          mkdir -p old
+          # Android tags are plain vX.Y.Z; take the newest ones that are older than this version
+          versions="$( { gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//'; echo "$VERSION"; } \
+            | sort -uV | awk -v v="$VERSION" '$0 == v { exit } { print }' | tail -n "$PATCH_FROM")"
+          echo "patches from: $(echo $versions)"
+          for old_version in $versions; do
+            gh release download "v$old_version" --pattern "ARCE.AI-v$old_version-android.apk" --dir old --clobber || { echo "no APK in v$old_version"; continue; }
+            # made outside dist/ and moved in only when whole, so a failure leaves no half file to upload
+            made="old/from-$old_version.patch"
+            /tmp/bsdiff-venv/bin/python -c "import bsdiff4,sys; bsdiff4.file_diff(sys.argv[1], sys.argv[2], sys.argv[3])" \
+              "old/ARCE.AI-v$old_version-android.apk" "$new" "$made"
+            # a patch that is not much smaller than the file is not worth offering
+            if [ "$(( $(stat -c %s "$made") * 2 ))" -gt "$new_size" ]; then
+              echo "patch from $old_version is too large; skipped"
+            else
+              mv "$made" "dist/ARCE.AI-v$VERSION-android.apk.from-$old_version.patch"
+              echo "patch from $old_version: $(stat -c %s "dist/ARCE.AI-v$VERSION-android.apk.from-$old_version.patch") bytes (APK $new_size)"
+            fi
+          done
+          ls -l dist
+
       # Every platform has its own release. Only the Android one is "latest": the earlier native app
       # reads /releases/latest and expects an APK in it.
       - uses: ./.github/actions/publish

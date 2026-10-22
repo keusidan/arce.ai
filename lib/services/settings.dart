@@ -78,6 +78,7 @@ class AppSettings {
     this.updateRetryAttempts = 5,
     this.updateStallSeconds = 30,
     this.downloadConnections = 4,
+    this.updateUseDelta = true,
     this.localDryMultiplier = -1,
     this.kvSnapshotEnabled = false,
     this.kvSnapshotMaxMb = 1024,
@@ -186,6 +187,9 @@ class AppSettings {
 
   /// How many connections a download uses at once (1 = one connection, as before).
   final int downloadConnections;
+
+  /// Download only the difference to the installed build when the release has one (Android).
+  final bool updateUseDelta;
 
   /// DRY, the repetition penalty of the device model; -1 keeps the app's own value.
   final double localDryMultiplier;
@@ -298,6 +302,7 @@ class AppSettings {
     int? updateRetryAttempts,
     int? updateStallSeconds,
     int? downloadConnections,
+    bool? updateUseDelta,
     double? localDryMultiplier,
     bool? kvSnapshotEnabled,
     int? kvSnapshotMaxMb,
@@ -362,6 +367,7 @@ class AppSettings {
     updateRetryAttempts: updateRetryAttempts ?? this.updateRetryAttempts,
     updateStallSeconds: updateStallSeconds ?? this.updateStallSeconds,
     downloadConnections: downloadConnections ?? this.downloadConnections,
+    updateUseDelta: updateUseDelta ?? this.updateUseDelta,
     localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
     kvSnapshotEnabled: kvSnapshotEnabled ?? this.kvSnapshotEnabled,
     kvSnapshotMaxMb: kvSnapshotMaxMb ?? this.kvSnapshotMaxMb,
@@ -428,6 +434,7 @@ class AppSettings {
     'updateRetryAttempts': updateRetryAttempts,
     'updateStallSeconds': updateStallSeconds,
     'downloadConnections': downloadConnections,
+    'updateUseDelta': updateUseDelta,
     'localDryMultiplier': localDryMultiplier,
     'kvSnapshotEnabled': kvSnapshotEnabled,
     'kvSnapshotMaxMb': kvSnapshotMaxMb,
@@ -523,6 +530,7 @@ class AppSettings {
       updateRetryAttempts: whole('updateRetryAttempts', d.updateRetryAttempts),
       updateStallSeconds: whole('updateStallSeconds', d.updateStallSeconds),
       downloadConnections: whole('downloadConnections', d.downloadConnections),
+      updateUseDelta: flag('updateUseDelta', d.updateUseDelta),
       localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),
       kvSnapshotEnabled: flag('kvSnapshotEnabled', d.kvSnapshotEnabled),
       kvSnapshotMaxMb: whole('kvSnapshotMaxMb', d.kvSnapshotMaxMb),
