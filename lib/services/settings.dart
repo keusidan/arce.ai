@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/chat_controller.dart';
+import '../core/coding_plan.dart';
 import '../core/engine.dart';
 import '../core/settings_spec.dart';
 import '../mcp/mcp_server.dart';
@@ -53,6 +54,14 @@ class AppSettings {
     this.onlineTopP = -1,
     this.onlineMaxTokens = 0,
     this.onlinePrompt = '',
+    this.codingPlanEnabled = false,
+    this.plannerModel = '',
+    this.developerModel = '',
+    this.codingMaxTasks = 4,
+    this.codingParallel = 3,
+    this.codingReviewRounds = 1,
+    this.codingPlannerMaxTokens = 2048,
+    this.codingDeveloperMaxTokens = 4096,
   });
 
   static const defaultRepo = 'keusidan/arce.ai';
@@ -108,6 +117,33 @@ class AppSettings {
   final int onlineMaxTokens;
   final String onlinePrompt;
 
+  // ---- coding mode: a design model and a developer model share the work ----
+
+  /// Split the coding agent's work between [plannerModel] and [developerModel].
+  final bool codingPlanEnabled;
+
+  /// `provider|model` of the model that designs and reviews (`local|` is the model on the device).
+  final String plannerModel;
+
+  /// `provider|model` of the model that writes the code.
+  final String developerModel;
+  final int codingMaxTasks;
+  final int codingParallel;
+  final int codingReviewRounds;
+  final int codingPlannerMaxTokens;
+  final int codingDeveloperMaxTokens;
+
+  CodingSettings get coding => CodingSettings(
+    enabled: codingPlanEnabled,
+    planner: plannerModel,
+    developer: developerModel,
+    maxTasks: codingMaxTasks.clamp(1, 8),
+    parallel: codingParallel.clamp(1, 8),
+    reviewRounds: codingReviewRounds.clamp(0, 3),
+    plannerMaxTokens: codingPlannerMaxTokens.clamp(256, 32768),
+    developerMaxTokens: codingDeveloperMaxTokens.clamp(256, 32768),
+  );
+
   /// The MCP servers the chat may use (Streamable HTTP). Tokens live in secure storage.
   final List<McpServerConfig> mcpServers;
 
@@ -148,6 +184,14 @@ class AppSettings {
     double? onlineTopP,
     int? onlineMaxTokens,
     String? onlinePrompt,
+    bool? codingPlanEnabled,
+    String? plannerModel,
+    String? developerModel,
+    int? codingMaxTasks,
+    int? codingParallel,
+    int? codingReviewRounds,
+    int? codingPlannerMaxTokens,
+    int? codingDeveloperMaxTokens,
   }) => AppSettings(
     thinking: thinking ?? this.thinking,
     searchEnabled: searchEnabled ?? this.searchEnabled,
@@ -185,6 +229,14 @@ class AppSettings {
     onlineTopP: onlineTopP ?? this.onlineTopP,
     onlineMaxTokens: onlineMaxTokens ?? this.onlineMaxTokens,
     onlinePrompt: onlinePrompt ?? this.onlinePrompt,
+    codingPlanEnabled: codingPlanEnabled ?? this.codingPlanEnabled,
+    plannerModel: plannerModel ?? this.plannerModel,
+    developerModel: developerModel ?? this.developerModel,
+    codingMaxTasks: codingMaxTasks ?? this.codingMaxTasks,
+    codingParallel: codingParallel ?? this.codingParallel,
+    codingReviewRounds: codingReviewRounds ?? this.codingReviewRounds,
+    codingPlannerMaxTokens: codingPlannerMaxTokens ?? this.codingPlannerMaxTokens,
+    codingDeveloperMaxTokens: codingDeveloperMaxTokens ?? this.codingDeveloperMaxTokens,
   );
 
   Map<String, Object?> toJson() => {
@@ -224,6 +276,14 @@ class AppSettings {
     'onlineTopP': onlineTopP,
     'onlineMaxTokens': onlineMaxTokens,
     'onlinePrompt': onlinePrompt,
+    'codingPlanEnabled': codingPlanEnabled,
+    'plannerModel': plannerModel,
+    'developerModel': developerModel,
+    'codingMaxTasks': codingMaxTasks,
+    'codingParallel': codingParallel,
+    'codingReviewRounds': codingReviewRounds,
+    'codingPlannerMaxTokens': codingPlannerMaxTokens,
+    'codingDeveloperMaxTokens': codingDeveloperMaxTokens,
   };
 
   /// Unknown, missing or wrongly typed values fall back to the defaults, so older or damaged
@@ -287,6 +347,14 @@ class AppSettings {
       onlineTopP: decimal('onlineTopP', d.onlineTopP),
       onlineMaxTokens: whole('onlineMaxTokens', d.onlineMaxTokens),
       onlinePrompt: text('onlinePrompt', d.onlinePrompt),
+      codingPlanEnabled: flag('codingPlanEnabled', d.codingPlanEnabled),
+      plannerModel: text('plannerModel', d.plannerModel),
+      developerModel: text('developerModel', d.developerModel),
+      codingMaxTasks: whole('codingMaxTasks', d.codingMaxTasks),
+      codingParallel: whole('codingParallel', d.codingParallel),
+      codingReviewRounds: whole('codingReviewRounds', d.codingReviewRounds),
+      codingPlannerMaxTokens: whole('codingPlannerMaxTokens', d.codingPlannerMaxTokens),
+      codingDeveloperMaxTokens: whole('codingDeveloperMaxTokens', d.codingDeveloperMaxTokens),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {
         final parsed = McpServers.decode(json['mcpServers']);

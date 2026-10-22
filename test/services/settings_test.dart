@@ -68,6 +68,27 @@ void main() {
     expect(local.applyTo(base).topP, base.topP);
   });
 
+  test('the coding mode settings round-trip, and are kept inside their limits', () {
+    const s = AppSettings(
+      codingPlanEnabled: true,
+      plannerModel: 'openai|gpt-4o',
+      developerModel: 'local|',
+      codingMaxTasks: 99,
+      codingParallel: 0,
+      codingReviewRounds: -3,
+      codingDeveloperMaxTokens: 8192,
+    );
+    final back = AppSettings.fromJson(s.toJson());
+    expect(back.coding.enabled, isTrue);
+    expect(back.coding.planner, 'openai|gpt-4o');
+    expect(back.coding.developer, 'local|');
+    expect(back.coding.maxTasks, 8, reason: 'too many tasks is cut to the limit');
+    expect(back.coding.parallel, 1);
+    expect(back.coding.reviewRounds, 0);
+    expect(back.coding.developerMaxTokens, 8192);
+    expect(const AppSettings().coding.isReady, isFalse, reason: 'off until the user turns it on');
+  });
+
   test('threads and GPU layers follow HyperLoad and the offload setting', () {
     expect(const AppSettings().effectiveThreads(8), 4);
     expect(const AppSettings(hyperLoad: true).effectiveThreads(8), 8);

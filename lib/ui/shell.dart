@@ -346,6 +346,7 @@ class _Sidebar extends StatelessWidget {
                 children: [
                   _NavItem(label: 'オンラインモデル', svg: ArceSvg.globe, onTap: () => app.openSettings(SettingsSection.online)),
                   _NavItem(label: 'ローカルモデル', svg: ArceSvg.cube, onTap: () => app.openSettings(SettingsSection.local)),
+                  _NavItem(label: 'コーディングモード', svg: ArceSvg.codeEdit, onTap: () => app.openSettings(SettingsSection.coding)),
                   _NavItem(label: '基本設定', svg: ArceSvg.settings, onTap: () => app.openSettings(SettingsSection.basic)),
                   _NavItem(label: '回答の設定', svg: ArceSvg.compass, onTap: () => app.openSettings(SettingsSection.answer)),
                   _NavItem(label: '表示・プライバシー', svg: ArceSvg.moon, onTap: () => app.openSettings(SettingsSection.display)),

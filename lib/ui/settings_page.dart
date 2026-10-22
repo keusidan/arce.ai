@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/agents.dart';
+import '../core/coding_plan.dart';
 import '../core/engine.dart';
 import '../services/app_controller.dart';
 import '../services/settings.dart';
@@ -26,6 +27,7 @@ const _groups = [
   _Group(SettingsSection.providers, ArceSvg.cube, 'オンライン接続（プロバイダ）', 'API の接続先と、使うモデル'),
   _Group(SettingsSection.online, ArceSvg.globe, 'オンラインモデルの設定', 'temperature・最大トークン・追加プロンプト'),
   _Group(SettingsSection.local, ArceSvg.sliders, 'ローカルモデルの設定', 'サンプリング・コンテキスト長・スレッド・GPU'),
+  _Group(SettingsSection.coding, ArceSvg.codeEdit, 'コーディングモード', '設計モデルが開発モデルに指示して、安く実装する'),
   _Group(SettingsSection.mcp, ArceSvg.bolt, 'MCP サーバー', '外部の道具（GitHub など）をつなぐ'),
   _Group(SettingsSection.basic, ArceSvg.settings, '基本設定', '思考・検索'),
   _Group(SettingsSection.answer, ArceSvg.compass, '回答', '口調・速度と精度・エージェント・返信の長さ'),
@@ -140,6 +142,8 @@ class _SettingsPageState extends State<SettingsPage> {
         return _onlineModel(s, set);
       case SettingsSection.local:
         return _localModel(s, set);
+      case SettingsSection.coding:
+        return _codingMode(app, s, set);
       case SettingsSection.basic:
         return ArceCard(
           child: Column(
@@ -400,6 +404,122 @@ class _SettingsPageState extends State<SettingsPage> {
       onChanged(parsed == null ? 0 : parsed.clamp(0, max));
     },
   );
+
+  Widget _codingMode(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
+    final c = context.c;
+    // every model of every provider, and the one on the device
+    final choices = <String, String>{
+      '': '未選択',
+      CodingSettings.ref(CodingSettings.localProvider, ''): '端末のモデル',
+      for (final provider in app.providers.providers)
+        for (final model in provider.models) CodingSettings.ref(provider.id, model.id): '${provider.label} · ${model.name}',
+    };
+    final coding = s.coding;
+    final String? problem;
+    if (!coding.enabled) {
+      problem = null;
+    } else if (coding.planner.isEmpty || coding.developer.isEmpty) {
+      problem = '設計モデルと開発モデルの両方を選ぶと、分担が始まります。';
+    } else if ((coding.planner.startsWith('${CodingSettings.localProvider}|') ||
+            coding.developer.startsWith('${CodingSettings.localProvider}|')) &&
+        !app.models.isLoaded) {
+      problem = '端末のモデルを選んでいますが、まだ読み込まれていません。読み込むまで、いつもどおり1つのモデルで答えます。';
+    } else {
+      problem = null;
+    }
+    Widget pick(String icon, String title, String subtitle, String value, void Function(String) onPick) => SettingRow(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      trailing: _Dropdown<String>(value: value, items: choices, width: 168, onChanged: onPick),
+    );
+    return ArceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              'Coding エージェントのとき、高性能な「設計モデル」が依頼をタスクに分け、安い「開発モデル」が同時に実装します。'
+              '設計モデルは短い計画とレビューだけを書くので、長いコードの費用を抑えられます。端末のモデルも選べます（その役は1つずつ動きます）。',
+              style: ts(context, 10, color: c.muted, height: 1.6),
+            ),
+          ),
+          SettingRow(
+            icon: ArceSvg.codeEdit,
+            title: 'コーディングモード',
+            subtitle: '設計モデルと開発モデルで分担します',
+            trailing: ArceSwitch(value: s.codingPlanEnabled, onChanged: (v) => set((x) => x.copyWith(codingPlanEnabled: v))),
+          ),
+          if (problem != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(problem, style: ts(context, 10, color: c.amber, height: 1.6)),
+            ),
+          pick(ArceSvg.compass, '設計モデル', '依頼を分けて、結果をレビューします（高性能なモデル向き）', s.plannerModel,
+              (v) => set((x) => x.copyWith(plannerModel: v))),
+          pick(ArceSvg.bolt, '開発モデル', 'コードを書きます（安いモデル・端末のモデル向き）', s.developerModel,
+              (v) => set((x) => x.copyWith(developerModel: v))),
+          SettingRow(
+            icon: ArceSvg.grid,
+            title: 'タスクの最大数',
+            subtitle: '依頼をいくつまでに分けるか',
+            trailing: _Cycle<int>(
+              value: coding.maxTasks,
+              values: const [1, 2, 3, 4, 6, 8],
+              label: (v) => '$v',
+              onChanged: (v) => set((x) => x.copyWith(codingMaxTasks: v)),
+            ),
+          ),
+          SettingRow(
+            icon: ArceSvg.sliders2,
+            title: '同時に走らせる数',
+            subtitle: '開発モデルへの同時リクエスト数（端末のモデルは常に1）',
+            trailing: _Cycle<int>(
+              value: coding.parallel,
+              values: const [1, 2, 3, 4, 6, 8],
+              label: (v) => '$v',
+              onChanged: (v) => set((x) => x.copyWith(codingParallel: v)),
+            ),
+          ),
+          SettingRow(
+            icon: ArceSvg.retry,
+            title: 'レビューの回数',
+            subtitle: '設計モデルが書き直しを指示できる回数。0 ならレビューしません',
+            trailing: _Cycle<int>(
+              value: coding.reviewRounds,
+              values: const [0, 1, 2, 3],
+              label: (v) => '$v',
+              onChanged: (v) => set((x) => x.copyWith(codingReviewRounds: v)),
+            ),
+          ),
+          SettingRow(
+            icon: ArceSvg.file,
+            title: '設計モデルの最大トークン',
+            subtitle: '計画とレビューの長さ',
+            trailing: _Cycle<int>(
+              value: coding.plannerMaxTokens,
+              values: const [1024, 2048, 4096, 8192],
+              label: (v) => '$v',
+              onChanged: (v) => set((x) => x.copyWith(codingPlannerMaxTokens: v)),
+            ),
+          ),
+          SettingRow(
+            icon: ArceSvg.file,
+            title: '開発モデルの最大トークン',
+            subtitle: '1つのタスクのコードの長さ',
+            last: true,
+            trailing: _Cycle<int>(
+              value: coding.developerMaxTokens,
+              values: const [2048, 4096, 8192, 16384],
+              label: (v) => '$v',
+              onChanged: (v) => set((x) => x.copyWith(codingDeveloperMaxTokens: v)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _onlineModel(AppSettings s, void Function(AppSettings Function(AppSettings)) set) => ArceCard(
     child: Column(
@@ -776,15 +896,19 @@ class _Dropdown<T> extends StatelessWidget {
     required this.value,
     required this.items,
     required this.onChanged,
+    this.width,
   });
   final T value;
   final Map<T, String> items;
   final ValueChanged<T> onChanged;
 
+  /// A fixed width, for long labels: the text is then cut with an ellipsis instead of overflowing.
+  final double? width;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Container(
+    final field = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: c.surface2,
@@ -795,12 +919,16 @@ class _Dropdown<T> extends StatelessWidget {
         child: DropdownButton<T>(
           value: items.containsKey(value) ? value : items.keys.first,
           isDense: true,
+          isExpanded: width != null,
           dropdownColor: c.surface,
           icon: ArceIcon(ArceSvg.chevronDown, size: 14, color: c.muted),
           style: ts(context, 10, weight: FontWeight.w600),
           items: [
             for (final e in items.entries)
-              DropdownMenuItem(value: e.key, child: Text(e.value)),
+              DropdownMenuItem(
+                value: e.key,
+                child: Text(e.value, overflow: width == null ? null : TextOverflow.ellipsis),
+              ),
           ],
           onChanged: (v) {
             if (v != null) onChanged(v);
@@ -808,6 +936,7 @@ class _Dropdown<T> extends StatelessWidget {
         ),
       ),
     );
+    return width == null ? field : SizedBox(width: width, child: field);
   }
 }
 

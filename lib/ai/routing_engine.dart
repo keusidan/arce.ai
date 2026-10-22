@@ -1,5 +1,6 @@
 import '../core/engine.dart';
 import 'cloud_engine.dart';
+import 'coding_engine.dart';
 import 'provider.dart';
 
 /// Sends each request to either the device model or a cloud provider, so the chat never has to
@@ -13,6 +14,10 @@ class RoutingEngine implements InferenceEngine {
   /// The on-device model (native once loaded, demo answers until then).
   final InferenceEngine local;
   final CloudEngine cloud;
+
+  /// The coding mode: when it handles a request, two models share the work instead of the one
+  /// in use. Null until the app sets it up.
+  CodingEngine? coding;
 
   AiProvider? _cloudProvider;
 
@@ -33,13 +38,18 @@ class RoutingEngine implements InferenceEngine {
   Future<void> load(LoadParams params) => local.load(params);
 
   @override
-  Stream<GenerationEvent> generate(GenerateRequest request) => active.generate(request);
+  Stream<GenerationEvent> generate(GenerateRequest request) {
+    final split = coding;
+    if (split != null && split.handles(request)) return split.generate(request);
+    return active.generate(request);
+  }
 
   @override
   void cancel() {
     // Whichever is answering stops; the other one has nothing running.
     cloud.cancel();
     local.cancel();
+    coding?.cancel();
   }
 
   @override

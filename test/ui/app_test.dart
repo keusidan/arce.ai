@@ -141,6 +141,45 @@ void main() {
     expect(find.text('Context Length'), findsNothing);
   });
 
+  testWidgets('settings page: coding mode asks for both models before it can work', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.coding);
+    await tester.pumpAndSettle();
+    expect(find.text('設計モデル'), findsOneWidget);
+    expect(find.text('開発モデル'), findsOneWidget);
+    expect(find.textContaining('両方を選ぶと'), findsNothing, reason: 'no warning while the mode is off');
+
+    await app.settings.update((s) => s.copyWith(codingPlanEnabled: true));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('両方を選ぶと'), findsOneWidget);
+    expect(app.settings.value.coding.isReady, isFalse);
+
+    await app.settings.update((s) => s.copyWith(plannerModel: 'openai|gpt-4o', developerModel: 'local|'));
+    await tester.pumpAndSettle();
+    expect(app.settings.value.coding.isReady, isTrue);
+    expect(find.textContaining('両方を選ぶと'), findsNothing);
+    expect(find.textContaining('まだ読み込まれていません'), findsOneWidget, reason: 'the device model is not loaded in a test');
+  });
+
+  testWidgets('chat: the 分担 button turns the coding mode on and goes to its settings when it is not ready', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    expect(app.settings.value.codingPlanEnabled, isFalse);
+    await tester.tap(find.text('分担'));
+    await tester.pumpAndSettle();
+    expect(app.settings.value.codingPlanEnabled, isTrue);
+    expect(app.page, AppPage.settings, reason: 'it cannot work yet, so the settings open');
+    expect(find.text('設計モデル'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3)); // the toast's timer
+  });
+
   testWidgets('settings page: local and online model settings are kept apart', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);

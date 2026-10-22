@@ -60,9 +60,17 @@ class GenerateRequest {
     this.strictJsonSchema,
     this.tools = const [],
     this.images = const {},
+    this.agentId,
+    this.continuation = false,
   });
 
   final String prompt;
+
+  /// The agent this reply is for; null for the app's own short requests (choosing an agent).
+  final String? agentId;
+
+  /// The reply continues one that was cut off, so it must stay with the engine that began it.
+  final bool continuation;
 
   /// The pictures the prompt marks (see `ImageMarker`), by id. Only an engine whose model can see
   /// reads them; the device engine ignores them.

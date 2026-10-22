@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../ai/cloud_engine.dart';
+import '../ai/coding_engine.dart';
 import '../ai/provider.dart';
 import '../ai/provider_config.dart';
 import '../ai/routing_engine.dart';
 import '../core/chat_controller.dart';
+import '../core/coding_plan.dart';
 import '../core/http_get.dart';
 import '../core/protocol.dart';
 import '../core/search.dart';
@@ -36,6 +38,7 @@ enum SettingsSection {
   providers,
   online,
   local,
+  coding,
   mcp,
   basic,
   answer,
@@ -159,6 +162,10 @@ class AppController extends ChangeNotifier {
       ),
       preview: PreviewServer(),
     );
+    app.engine.coding = CodingEngine(
+      settings: () => settings.value.coding,
+      roleFor: app._roleFor,
+    );
     unawaited(app._start());
     return app;
   }
@@ -246,6 +253,24 @@ class AppController extends ChangeNotifier {
       models.restoreLastModel().catchError(
         (Object e) => debugPrint('could not restore the last model: $e'),
       ),
+    );
+  }
+
+  /// The model behind a `provider|model` reference of the coding mode, or null when it cannot be
+  /// used now: the provider was removed or is incomplete, or the device model is not loaded.
+  RoleModel? _roleFor(String ref) {
+    final parsed = CodingSettings.parseRef(ref);
+    if (parsed == null) return null;
+    final (providerId, modelId) = parsed;
+    if (providerId == CodingSettings.localProvider) {
+      return models.isLoaded
+          ? LocalRole(engine.local, name: models.loadedName ?? '端末のモデル')
+          : null;
+    }
+    final config = providers.byId(providerId);
+    if (config == null || !config.isComplete) return null;
+    return ProviderRole(
+      providers.build(config, model: config.modelById(modelId) ?? config.defaultModel),
     );
   }
 

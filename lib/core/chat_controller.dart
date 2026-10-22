@@ -698,6 +698,8 @@ class ChatController extends ChangeNotifier {
         toolCallSchema: schema,
         tools: tools,
         images: _images,
+        agentId: agent.id,
+        continuation: roundPrefill.isNotEmpty,
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
         sampling: config.applyTo(

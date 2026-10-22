@@ -214,6 +214,24 @@ class _ChatPageState extends State<ChatPage> {
                   app.showToast(!settings.searchEnabled ? 'Searchをオン' : 'Searchをオフ');
                 },
               ),
+              _ToolButton(
+                svg: ArceSvg.codeEdit,
+                label: '分担',
+                on: settings.codingPlanEnabled,
+                tooltip: 'コーディングモード：設計モデルが開発モデルに指示します',
+                onTap: () {
+                  app.settings.update((s) => s.copyWith(codingPlanEnabled: !s.codingPlanEnabled));
+                  if (settings.codingPlanEnabled) {
+                    app.showToast('コーディングモードをオフ');
+                  } else if (!app.settings.value.coding.isReady) {
+                    // on, but it cannot work until both models are chosen: take the user there
+                    app.showToast('設計モデルと開発モデルを選んでください');
+                    app.openSettings(SettingsSection.coding);
+                  } else {
+                    app.showToast('コーディングモードをオン');
+                  }
+                },
+              ),
               const Spacer(),
               _ToolButton(svg: ArceSvg.cube, onTap: () => app.goTo(AppPage.models), tooltip: 'モデル管理'),
               const SizedBox(width: 5),

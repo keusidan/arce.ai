@@ -191,6 +191,50 @@ abstract final class AgentSettings {
       kind: SettingKind.text,
       maxLength: 2000,
     ),
+    // Coding mode: a design model and a developer model share the coding agent's work. A model is
+    // written `providerId|modelId` (`local|` is the model on the device).
+    'codingPlanEnabled': SettingSpec(
+      key: 'codingPlanEnabled',
+      label: 'コーディングモード（設計＋開発の分担）',
+      kind: SettingKind.flag,
+    ),
+    'plannerModel': SettingSpec(key: 'plannerModel', label: '設計モデル（provider|model）', kind: SettingKind.text, maxLength: 120),
+    'developerModel': SettingSpec(key: 'developerModel', label: '開発モデル（provider|model）', kind: SettingKind.text, maxLength: 120),
+    'codingMaxTasks': SettingSpec(
+      key: 'codingMaxTasks',
+      label: 'コーディング: タスクの最大数',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 8,
+    ),
+    'codingParallel': SettingSpec(
+      key: 'codingParallel',
+      label: 'コーディング: 同時に走らせる数',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 8,
+    ),
+    'codingReviewRounds': SettingSpec(
+      key: 'codingReviewRounds',
+      label: 'コーディング: レビューの回数',
+      kind: SettingKind.whole,
+      min: 0,
+      max: 3,
+    ),
+    'codingPlannerMaxTokens': SettingSpec(
+      key: 'codingPlannerMaxTokens',
+      label: 'コーディング: 設計モデルの最大トークン',
+      kind: SettingKind.whole,
+      min: 256,
+      max: 32768,
+    ),
+    'codingDeveloperMaxTokens': SettingSpec(
+      key: 'codingDeveloperMaxTokens',
+      label: 'コーディング: 開発モデルの最大トークン',
+      kind: SettingKind.whole,
+      min: 256,
+      max: 32768,
+    ),
   };
 
   /// Sorted, so the grammar and the prompt show the same order every time.
