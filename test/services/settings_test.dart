@@ -29,6 +29,45 @@ void main() {
     expect(damaged.thinking, isTrue);
   });
 
+  test('the device model and the online models have their own settings', () {
+    const s = AppSettings(
+      maxTokens: 2048,
+      localTemperature: 0.3,
+      localTopK: 40,
+      localMaxTokens: 512,
+      localPrompt: ' 簡潔に ',
+      onlineTemperature: 1.2,
+      onlineTopP: 0.5,
+      onlineMaxTokens: 4096,
+    );
+    final back = AppSettings.fromJson(s.toJson());
+    expect(back.localTemperature, 0.3);
+    expect(back.onlineTemperature, 1.2);
+
+    final local = s.toGeneration(null);
+    expect(local.temperature, 0.3);
+    expect(local.topK, 40);
+    expect(local.maxTokens, 512);
+    expect(local.extraPrompt, '簡潔に');
+    expect(local.topP, isNull, reason: 'not set: the app value applies');
+
+    final online = s.toGeneration(null, cloud: true);
+    expect(online.temperature, 1.2);
+    expect(online.topP, 0.5);
+    expect(online.maxTokens, 4096);
+    expect(online.topK, isNull, reason: 'top_k is for the device engine only');
+    expect(online.extraPrompt, isEmpty, reason: 'the local prompt never reaches an online model');
+
+    // nothing set: every value is the app's own
+    final plain = const AppSettings().toGeneration(null);
+    expect(plain.temperature, isNull);
+    expect(plain.maxTokens, 2048);
+    const base = SamplingParams.qwen3Thinking;
+    expect(plain.applyTo(base).temperature, base.temperature);
+    expect(local.applyTo(base).temperature, 0.3);
+    expect(local.applyTo(base).topP, base.topP);
+  });
+
   test('threads and GPU layers follow HyperLoad and the offload setting', () {
     expect(const AppSettings().effectiveThreads(8), 4);
     expect(const AppSettings(hyperLoad: true).effectiveThreads(8), 8);

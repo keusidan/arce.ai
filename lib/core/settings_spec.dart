@@ -116,6 +116,81 @@ abstract final class AgentSettings {
       min: 1,
       max: 168,
     ),
+    'autoInstallUpdate': SettingSpec(
+      key: 'autoInstallUpdate',
+      label: '更新の自動インストール',
+      kind: SettingKind.flag,
+    ),
+    // The device model and the online models have their own set; -1 (0 for a token count, empty
+    // for a prompt) means "not set", and the app's own value applies.
+    'localTemperature': SettingSpec(
+      key: 'localTemperature',
+      label: 'ローカル: temperature（-1で既定）',
+      kind: SettingKind.decimal,
+      min: -1,
+      max: 2,
+    ),
+    'localTopP': SettingSpec(
+      key: 'localTopP',
+      label: 'ローカル: top_p（-1で既定）',
+      kind: SettingKind.decimal,
+      min: -1,
+      max: 1,
+    ),
+    'localTopK': SettingSpec(
+      key: 'localTopK',
+      label: 'ローカル: top_k（0で既定）',
+      kind: SettingKind.whole,
+      min: 0,
+      max: 200,
+    ),
+    'localMinP': SettingSpec(
+      key: 'localMinP',
+      label: 'ローカル: min_p（-1で既定）',
+      kind: SettingKind.decimal,
+      min: -1,
+      max: 1,
+    ),
+    'localMaxTokens': SettingSpec(
+      key: 'localMaxTokens',
+      label: 'ローカル: 最大トークン（0で共通の値）',
+      kind: SettingKind.whole,
+      min: 0,
+      max: 32768,
+    ),
+    'localPrompt': SettingSpec(
+      key: 'localPrompt',
+      label: 'ローカル: 追加プロンプト',
+      kind: SettingKind.text,
+      maxLength: 2000,
+    ),
+    'onlineTemperature': SettingSpec(
+      key: 'onlineTemperature',
+      label: 'オンライン: temperature（-1で既定）',
+      kind: SettingKind.decimal,
+      min: -1,
+      max: 2,
+    ),
+    'onlineTopP': SettingSpec(
+      key: 'onlineTopP',
+      label: 'オンライン: top_p（-1で既定）',
+      kind: SettingKind.decimal,
+      min: -1,
+      max: 1,
+    ),
+    'onlineMaxTokens': SettingSpec(
+      key: 'onlineMaxTokens',
+      label: 'オンライン: 最大トークン（0で共通の値）',
+      kind: SettingKind.whole,
+      min: 0,
+      max: 32768,
+    ),
+    'onlinePrompt': SettingSpec(
+      key: 'onlinePrompt',
+      label: 'オンライン: 追加プロンプト',
+      kind: SettingKind.text,
+      maxLength: 2000,
+    ),
   };
 
   /// Sorted, so the grammar and the prompt show the same order every time.

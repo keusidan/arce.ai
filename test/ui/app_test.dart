@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:arce_ai/core/chat_controller.dart';
 import 'package:arce_ai/core/releases.dart';
 import 'package:arce_ai/services/app_controller.dart';
 import 'package:arce_ai/services/settings.dart';
@@ -88,25 +89,149 @@ void main() {
     expect(Theme.of(context).brightness, Brightness.dark);
   });
 
-  testWidgets('settings page changes are saved', (tester) async {
+  testWidgets('settings page: a group opens under its row and shows only its own settings', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);
     await tester.pumpWidget(ArceApp(app: app));
     await tester.pump();
 
     app.goTo(AppPage.settings);
-    await tester.pump(const Duration(milliseconds: 300));
-    // 設定はいま一覧と詳細に分かれている: まず「基本設定」を開く
-    await tester.tap(find.text('基本設定').first);
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Thinking 表示'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('Thinking 表示'), findsNothing, reason: 'every group starts closed');
 
-    expect(app.settings.value.hyperLoad, isFalse);
-    await tester.tap(find.text('HyperLoad'));
-    // tapping the label does nothing; the switch is what toggles
+    await tester.tap(find.text('基本設定').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Thinking 表示'), findsOneWidget);
+    expect(find.text('HyperLoad'), findsNothing, reason: 'the local model group is not mixed in');
+    expect(find.text('Context Length'), findsNothing);
+    expect(find.text('口調'), findsNothing, reason: 'nor is the answer group');
+    expect(find.text('ローカルモデルの設定'), findsOneWidget, reason: 'the other rows are still listed');
+
+    // opening another group folds the first
+    await tester.tap(find.text('ローカルモデルの設定'));
+    await tester.pumpAndSettle();
+    expect(find.text('Thinking 表示'), findsNothing);
+    expect(find.text('HyperLoad'), findsOneWidget);
+    expect(find.text('Context Length'), findsOneWidget);
+
+    // and tapping the open row closes it
+    await tester.tap(find.text('ローカルモデルの設定'));
+    await tester.pumpAndSettle();
+    expect(find.text('HyperLoad'), findsNothing);
+
+    // a switch inside a group changes the settings
+    await tester.tap(find.text('ローカルモデルの設定'));
+    await tester.pumpAndSettle();
     expect(app.settings.value.hyperLoad, isFalse);
     await app.settings.update((s) => s.copyWith(hyperLoad: true));
     await tester.pump();
     expect(app.settings.value.hyperLoad, isTrue);
+  });
+
+  testWidgets('settings page: the sidebar can open a group directly', (tester) async {
+    setSize(tester, const Size(1280, 800));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.online);
+    await tester.pumpAndSettle();
+    expect(find.text('追加プロンプト'), findsOneWidget);
+    expect(find.text('top_k'), findsNothing, reason: 'top_k is a device model setting');
+    expect(find.text('Context Length'), findsNothing);
+  });
+
+  testWidgets('settings page: local and online model settings are kept apart', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.local);
+    await tester.pumpAndSettle();
+    expect(find.text('top_k'), findsOneWidget);
+    expect(find.text('min_p'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, '0.6 / 0.7（思考の有無で変わります）'), '0.3');
+    await tester.pump();
+    expect(app.settings.value.localTemperature, 0.3);
+    expect(app.settings.value.onlineTemperature, -1, reason: 'the online setting is untouched');
+
+    final local = app.settings.value.toGeneration(null);
+    final online = app.settings.value.toGeneration(null, cloud: true);
+    expect(local.temperature, 0.3);
+    expect(online.temperature, isNull);
+  });
+
+  testWidgets('phone: the hamburger opens a drawer where the history can be searched', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    Map<String, Object?> conversation(String text) => {
+          'messages': [
+            {'id': 0, 'role': 'user', 'text': text, 'thinking': '', 'question': null, 'finish': null, 'activities': const [], 'agent': null, 'attachments': const [], 'time': 1700000000000},
+            {'id': 1, 'role': 'assistant', 'text': '答え：$text', 'thinking': '', 'question': null, 'finish': 'eog', 'activities': const [], 'agent': null, 'attachments': const [], 'time': 1700000005000},
+          ],
+          'history': [
+            {'type': 'user', 'text': text, 'toolCallJson': null},
+            {'type': 'assistant', 'text': '答え：$text', 'toolCallJson': null},
+          ],
+          'nextId': 2,
+        };
+    await tester.runAsync(() async {
+      await app.history.save(null, ConversationSnapshot.fromJson(conversation('りんごの話をして')), generating: false);
+      await app.history.save(null, ConversationSnapshot.fromJson(conversation('明日の天気は？')), generating: false);
+      await app.refreshConversations();
+    });
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    expect(find.byType(Drawer), findsNothing);
+    await tester.tap(find.byTooltip('メニュー'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Drawer), findsOneWidget);
+    expect(find.text('りんごの話をして'), findsOneWidget);
+    expect(find.text('明日の天気は？'), findsOneWidget);
+
+    final search = find.descendant(of: find.byType(Drawer), matching: find.byType(TextField));
+    await tester.enterText(search, '天気');
+    await tester.pump();
+    expect(find.text('りんごの話をして'), findsNothing);
+    expect(find.text('明日の天気は？'), findsOneWidget);
+
+    // a word that is only in an answer finds the conversation too, with the matching line
+    await tester.enterText(search, 'りんご');
+    await tester.pump();
+    // the title, and the matching line under it with the match highlighted
+    expect(find.text('りんごの話をして'), findsWidgets);
+    expect(find.text('明日の天気は？'), findsNothing);
+    await tester.enterText(search, '答え');
+    await tester.pump();
+    expect(find.textContaining('答え：', findRichText: true), findsWidgets, reason: 'a word only in an answer still finds it');
+    expect(find.text('明日の天気は？'), findsOneWidget, reason: 'its title, listed because its answer matches');
+
+    await tester.enterText(search, 'ぶどう');
+    await tester.pump();
+    expect(find.textContaining('一致する会話はありません'), findsOneWidget);
+
+    await tester.enterText(search, 'りんご');
+    await tester.pump();
+    await tester.tap(find.text('りんごの話をして').first);
+    await tester.pumpAndSettle();
+    expect(find.byType(Drawer), findsNothing, reason: 'opening a conversation closes the drawer');
+    expect(app.chat.state.messages.first.text, 'りんごの話をして');
+  });
+
+  testWidgets('desktop: the hamburger hides and shows the sidebar', (tester) async {
+    setSize(tester, const Size(1280, 800));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    expect(find.text('ダークモード'), findsOneWidget);
+    await tester.tap(find.byTooltip('サイドバーを開閉'));
+    await tester.pump();
+    expect(find.text('ダークモード'), findsNothing);
+    await tester.tap(find.byTooltip('サイドバーを開閉'));
+    await tester.pump();
+    expect(find.text('ダークモード'), findsOneWidget);
   });
 }

@@ -46,8 +46,11 @@ class _ThinkingIconState extends State<ThinkingIcon> with SingleTickerProviderSt
     final c = context.c;
     final size = widget.size;
     final brain = ArceIcon(ArceSvg.brain, size: size * .72, color: c.accent);
+    // The two styles with dots are a group (the brain and its dots) that is as wide as it is, so
+    // it can sit in the middle of whatever holds it; the others are a square of [size].
+    final grouped = widget.style == ThinkingStyle.basic || widget.style == ThinkingStyle.dots;
     return SizedBox(
-      width: size,
+      width: grouped ? null : size,
       height: size,
       child: AnimatedBuilder(
         animation: _controller,
@@ -55,14 +58,21 @@ class _ThinkingIconState extends State<ThinkingIcon> with SingleTickerProviderSt
           final t = _controller.value;
           switch (widget.style) {
             case ThinkingStyle.basic:
-              return Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+              // the dots to the right of the brain, level with its lower half
+              return Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
                 brain,
-                Positioned(right: -size * .55, bottom: size * .28, child: _Dots(t: t, color: c.faint, active: c.accent)),
+                SizedBox(width: size * .16),
+                Padding(
+                  padding: EdgeInsets.only(top: size * .3),
+                  child: _Dots(t: t, color: c.faint, active: c.accent),
+                ),
               ]);
             case ThinkingStyle.dots:
-              return Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+              // the dots under the brain, in the middle
+              return Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
                 brain,
-                Positioned(right: -size * .3, bottom: size * .05, child: _Dots(t: t, color: c.faint, active: c.accent, size: 4)),
+                const SizedBox(height: 3),
+                _Dots(t: t, color: c.faint, active: c.accent, size: 4),
               ]);
             case ThinkingStyle.ring:
               return CustomPaint(
@@ -103,13 +113,14 @@ class _Dots extends StatelessWidget {
   Widget build(BuildContext context) {
     final lit = (t * 3).floor() % 3;
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      for (var i = 0; i < 3; i++)
+      for (var i = 0; i < 3; i++) ...[
+        if (i > 0) const SizedBox(width: 3),
         Container(
           width: size,
           height: size,
-          margin: const EdgeInsets.only(right: 3),
           decoration: BoxDecoration(shape: BoxShape.circle, color: i == lit ? active : color),
         ),
+      ],
     ]);
   }
 }

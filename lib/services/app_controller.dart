@@ -20,6 +20,7 @@ import '../mcp/mcp_tools.dart';
 import '../engine/hybrid_engine.dart';
 import '../engine/native_engine.dart';
 import 'conversation_database.dart';
+import 'conversation_search.dart';
 import 'device_info.dart';
 import 'foreground_service.dart';
 import 'model_manager.dart';
@@ -33,6 +34,8 @@ enum AppPage { chat, models, artifacts, settings, history }
 /// Anchors of the sections of the settings page, so the desktop sidebar can jump to one.
 enum SettingsSection {
   providers,
+  online,
+  local,
   mcp,
   basic,
   answer,
@@ -66,7 +69,10 @@ class AppController extends ChangeNotifier {
     chat = ChatController(
       engine,
       toolRuntime: _toolRuntime,
-      settings: () => settings.value.toGeneration(models.loadedParamsB),
+      settings: () => settings.value.toGeneration(
+        models.loadedParamsB,
+        cloud: engine.isCloud,
+      ),
       store: (snapshot, {required generating}) =>
           _persist(snapshot, generating),
       extraTools: _mcpDefinitions,
@@ -105,6 +111,9 @@ class AppController extends ChangeNotifier {
 
   /// Which part of the settings page to scroll to (set by the desktop sidebar).
   final settingsSection = ValueNotifier<SettingsSection?>(null);
+
+  /// Whether the desktop sidebar is shown (the hamburger button toggles it).
+  final sidebarOpen = ValueNotifier<bool>(true);
   String? conversationId;
   InterruptedConversation? interrupted;
   List<ConversationMeta> conversations = const [];
@@ -302,6 +311,12 @@ class AppController extends ChangeNotifier {
       const Duration(milliseconds: 2200),
       () => toast.value = null,
     );
+  }
+
+  /// The conversations that match [query] in their title or in any message; all of them, newest
+  /// first, when the query is empty.
+  List<ConversationHit> searchConversations(String query) {
+    return ConversationSearch.find(history, conversations, query);
   }
 
   Future<void> refreshConversations() async {

@@ -43,6 +43,16 @@ class AppSettings {
     this.autoInstallUpdate = true,
     this.mcpServers = const [],
     this.updateIntervalHours = 12,
+    this.localTemperature = -1,
+    this.localTopP = -1,
+    this.localTopK = 0,
+    this.localMinP = -1,
+    this.localMaxTokens = 0,
+    this.localPrompt = '',
+    this.onlineTemperature = -1,
+    this.onlineTopP = -1,
+    this.onlineMaxTokens = 0,
+    this.onlinePrompt = '',
   });
 
   static const defaultRepo = 'keusidan/arce.ai';
@@ -75,6 +85,29 @@ class AppSettings {
   final bool autoInstallUpdate;
   final int updateIntervalHours;
 
+  // ---- model settings, kept apart for the model on the device and for the online models ----
+  //
+  // For a number, -1 (0 for a token count, empty for a prompt) means "not set": the app's own value
+  // applies. An online model's own settings (see `ModelConfig`) win over the online ones here.
+
+  /// Sampling of the model on the device: temperature, top-p, top-k and min-p.
+  final double localTemperature;
+  final double localTopP;
+  final int localTopK;
+  final double localMinP;
+
+  /// The reply length the device model starts from, before "速度と精度" scales it.
+  final int localMaxTokens;
+
+  /// Extra instruction sent only to the device model.
+  final String localPrompt;
+
+  /// The same for online models that do not set their own.
+  final double onlineTemperature;
+  final double onlineTopP;
+  final int onlineMaxTokens;
+  final String onlinePrompt;
+
   /// The MCP servers the chat may use (Streamable HTTP). Tokens live in secure storage.
   final List<McpServerConfig> mcpServers;
 
@@ -105,6 +138,16 @@ class AppSettings {
     bool? autoInstallUpdate,
     int? updateIntervalHours,
     List<McpServerConfig>? mcpServers,
+    double? localTemperature,
+    double? localTopP,
+    int? localTopK,
+    double? localMinP,
+    int? localMaxTokens,
+    String? localPrompt,
+    double? onlineTemperature,
+    double? onlineTopP,
+    int? onlineMaxTokens,
+    String? onlinePrompt,
   }) => AppSettings(
     thinking: thinking ?? this.thinking,
     searchEnabled: searchEnabled ?? this.searchEnabled,
@@ -132,6 +175,16 @@ class AppSettings {
     autoInstallUpdate: autoInstallUpdate ?? this.autoInstallUpdate,
     updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
     mcpServers: mcpServers ?? this.mcpServers,
+    localTemperature: localTemperature ?? this.localTemperature,
+    localTopP: localTopP ?? this.localTopP,
+    localTopK: localTopK ?? this.localTopK,
+    localMinP: localMinP ?? this.localMinP,
+    localMaxTokens: localMaxTokens ?? this.localMaxTokens,
+    localPrompt: localPrompt ?? this.localPrompt,
+    onlineTemperature: onlineTemperature ?? this.onlineTemperature,
+    onlineTopP: onlineTopP ?? this.onlineTopP,
+    onlineMaxTokens: onlineMaxTokens ?? this.onlineMaxTokens,
+    onlinePrompt: onlinePrompt ?? this.onlinePrompt,
   );
 
   Map<String, Object?> toJson() => {
@@ -161,6 +214,16 @@ class AppSettings {
     'autoInstallUpdate': autoInstallUpdate,
     'updateIntervalHours': updateIntervalHours,
     'mcpServers': [for (final server in mcpServers) server.toJson()],
+    'localTemperature': localTemperature,
+    'localTopP': localTopP,
+    'localTopK': localTopK,
+    'localMinP': localMinP,
+    'localMaxTokens': localMaxTokens,
+    'localPrompt': localPrompt,
+    'onlineTemperature': onlineTemperature,
+    'onlineTopP': onlineTopP,
+    'onlineMaxTokens': onlineMaxTokens,
+    'onlinePrompt': onlinePrompt,
   };
 
   /// Unknown, missing or wrongly typed values fall back to the defaults, so older or damaged
@@ -173,6 +236,8 @@ class AppSettings {
         json[key] is num ? (json[key]! as num).toInt() : fallback;
     String text(String key, String fallback) =>
         json[key] is String ? json[key]! as String : fallback;
+    double decimal(String key, double fallback) =>
+        json[key] is num ? (json[key]! as num).toDouble() : fallback;
     T option<T extends Enum>(List<T> values, String key, T fallback) {
       for (final v in values) {
         if (v.name == json[key]) return v;
@@ -212,6 +277,16 @@ class AppSettings {
       autoUpdateCheck: flag('autoUpdateCheck', d.autoUpdateCheck),
       autoInstallUpdate: flag('autoInstallUpdate', d.autoInstallUpdate),
       updateIntervalHours: whole('updateIntervalHours', d.updateIntervalHours),
+      localTemperature: decimal('localTemperature', d.localTemperature),
+      localTopP: decimal('localTopP', d.localTopP),
+      localTopK: whole('localTopK', d.localTopK),
+      localMinP: decimal('localMinP', d.localMinP),
+      localMaxTokens: whole('localMaxTokens', d.localMaxTokens),
+      localPrompt: text('localPrompt', d.localPrompt),
+      onlineTemperature: decimal('onlineTemperature', d.onlineTemperature),
+      onlineTopP: decimal('onlineTopP', d.onlineTopP),
+      onlineMaxTokens: whole('onlineMaxTokens', d.onlineMaxTokens),
+      onlinePrompt: text('onlinePrompt', d.onlinePrompt),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {
         final parsed = McpServers.decode(json['mcpServers']);
@@ -230,10 +305,20 @@ class AppSettings {
     );
   }
 
-  GenerationSettings toGeneration(double? modelParamsB) => GenerationSettings(
+  /// The settings of one generation. [cloud] picks the online model settings instead of the
+  /// device model's: the two are separate, so a change to one never touches the other.
+  GenerationSettings toGeneration(double? modelParamsB, {bool cloud = false}) => GenerationSettings(
     tone: tone.trim().isEmpty ? null : tone,
     maxChars: maxChars,
-    maxTokens: maxTokens,
+    maxTokens: (cloud ? onlineMaxTokens : localMaxTokens) > 0
+        ? (cloud ? onlineMaxTokens : localMaxTokens)
+        : maxTokens,
+    temperature: _set(cloud ? onlineTemperature : localTemperature),
+    topP: _set(cloud ? onlineTopP : localTopP),
+    // top-k and min-p are the device engine's; a provider takes only temperature and top-p
+    topK: cloud || localTopK <= 0 ? null : localTopK,
+    minP: cloud ? null : _set(localMinP),
+    extraPrompt: (cloud ? onlinePrompt : localPrompt).trim(),
     searchEnabled: searchEnabled,
     retryLimit: retryLimit,
     maxToolRounds: maxToolRounds,
@@ -242,6 +327,8 @@ class AppSettings {
     agentOverride: agentOverride.isEmpty ? null : agentOverride,
     aiAgentSelection: aiAgentSelection,
   );
+
+  static double? _set(double value) => value < 0 ? null : value;
 
   /// Threads: explicit value, else all cores under HyperLoad, else half (spec §4 HyperLoad).
   int effectiveThreads(int cores) {

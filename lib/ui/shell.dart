@@ -5,6 +5,7 @@ import 'app_scope.dart';
 import 'artifacts_page.dart';
 import 'chat_page.dart';
 import 'history_page.dart';
+import 'history_panel.dart';
 import 'models_page.dart';
 import 'settings_page.dart';
 import 'svg_icons.dart';
@@ -24,6 +25,7 @@ class AppShell extends StatelessWidget {
     final wide = MediaQuery.sizeOf(context).width >= _wideBreakpoint;
     return Scaffold(
       resizeToAvoidBottomInset: true,
+      drawer: wide ? null : _MenuDrawer(app: app),
       body: Stack(children: [
         ListenableBuilder(
           listenable: app,
@@ -81,8 +83,16 @@ class _NarrowLayout extends StatelessWidget {
               SizedBox(
                 height: 48,
                 child: Row(children: [
-                  const BrandMark(),
-                  const SizedBox(width: 9),
+                  Builder(
+                    builder: (context) => IconTap(
+                      svg: ArceSvg.menu,
+                      size: 22,
+                      color: c.ink,
+                      tooltip: 'メニュー',
+                      onTap: () => Scaffold.of(context).openDrawer(),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('ARCE.AI', maxLines: 1, style: ts(context, 16, weight: FontWeight.w800, letterSpacing: .56, height: 1.1)),
@@ -233,14 +243,25 @@ class _WideLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Row(children: [
-      _Sidebar(app: app),
+      ValueListenableBuilder<bool>(
+        valueListenable: app.sidebarOpen,
+        builder: (context, open, _) => open ? _Sidebar(app: app) : const SizedBox.shrink(),
+      ),
       Expanded(
         child: Column(children: [
           Container(
             height: 56,
-            padding: const EdgeInsets.symmetric(horizontal: 22),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: BoxDecoration(color: c.surface, border: Border(bottom: BorderSide(color: c.line))),
             child: Row(children: [
+              IconTap(
+                svg: ArceSvg.menu,
+                size: 22,
+                color: c.ink,
+                tooltip: 'サイドバーを開閉',
+                onTap: () => app.sidebarOpen.value = !app.sidebarOpen.value,
+              ),
+              const SizedBox(width: 8),
               Expanded(child: ThreadTitle(app: app)),
               EnginePill(app: app),
               const SizedBox(width: 8),
@@ -294,20 +315,11 @@ class _Sidebar extends StatelessWidget {
                 svg: ArceSvg.chat,
                 initiallyOpen: true,
                 children: [
-                  if (app.conversations.isEmpty)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(padding: const EdgeInsets.fromLTRB(16, 4, 8, 10), child: Text('履歴はまだありません', style: ts(context, 11, color: c.navMuted))),
-                    ),
-                  for (final meta in app.conversations.take(6))
-                    _NavItem(
-                      label: meta.title,
-                      trailing: formatDate(meta.updatedAt),
-                      svg: ArceSvg.chat,
-                      active: meta.id == app.conversationId && app.page == AppPage.chat,
-                      onTap: () => app.openConversation(meta.id),
-                    ),
-                  if (app.conversations.length > 6)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: HistoryPanel(app: app, onDark: true, recentLimit: 8),
+                  ),
+                  if (app.conversations.length > 8)
                     _NavItem(label: 'すべて表示', svg: ArceSvg.history, active: app.page == AppPage.history, onTap: () => app.goTo(AppPage.history)),
                 ],
               ),
@@ -332,6 +344,8 @@ class _Sidebar extends StatelessWidget {
                 svg: ArceSvg.settings,
                 initiallyOpen: true,
                 children: [
+                  _NavItem(label: 'オンラインモデル', svg: ArceSvg.globe, onTap: () => app.openSettings(SettingsSection.online)),
+                  _NavItem(label: 'ローカルモデル', svg: ArceSvg.cube, onTap: () => app.openSettings(SettingsSection.local)),
                   _NavItem(label: '基本設定', svg: ArceSvg.settings, onTap: () => app.openSettings(SettingsSection.basic)),
                   _NavItem(label: '回答の設定', svg: ArceSvg.compass, onTap: () => app.openSettings(SettingsSection.answer)),
                   _NavItem(label: '表示・プライバシー', svg: ArceSvg.moon, onTap: () => app.openSettings(SettingsSection.display)),
@@ -365,6 +379,68 @@ class _Sidebar extends StatelessWidget {
             ]),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+/// The phone's menu: a new conversation, the searchable history and the other pages. It opens
+/// from the hamburger button at the top left.
+class _MenuDrawer extends StatelessWidget {
+  const _MenuDrawer({required this.app});
+  final AppController app;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    void close() => Scaffold.of(context).closeDrawer();
+    void go(AppPage page) {
+      close();
+      app.goTo(page);
+    }
+
+    return Drawer(
+      backgroundColor: c.nav,
+      child: SafeArea(
+        child: DefaultTextStyle(
+          style: ts(context, 12, color: c.navText),
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+              child: Row(children: [
+                ArceIcon(ArceSvg.brand, size: 32, color: Colors.white),
+                const SizedBox(width: 10),
+                Text('ARCE.AI', style: ts(context, 16, weight: FontWeight.w800, letterSpacing: .8, color: Colors.white)),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _SideButton(
+                label: '新しい会話',
+                svg: ArceSvg.plus,
+                onTap: () {
+                  close();
+                  app.newConversation();
+                },
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: HistoryPanel(app: app, onDark: true, scrollable: true, onOpen: close),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
+              decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.white.withValues(alpha: .06)))),
+              child: Column(children: [
+                _NavItem(label: 'モデル管理', svg: ArceSvg.cube, active: app.page == AppPage.models, onTap: () => go(AppPage.models)),
+                _NavItem(label: '生成されたアーティファクト', svg: ArceSvg.gridNav, active: app.page == AppPage.artifacts, onTap: () => go(AppPage.artifacts)),
+                _NavItem(label: '詳細設定', svg: ArceSvg.settings, active: app.page == AppPage.settings, onTap: () => go(AppPage.settings)),
+              ]),
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -441,11 +517,10 @@ class _NavGroupState extends State<_NavGroup> {
 }
 
 class _NavItem extends StatelessWidget {
-  const _NavItem({required this.label, required this.svg, required this.onTap, this.trailing, this.active = false});
+  const _NavItem({required this.label, required this.svg, required this.onTap, this.active = false});
   final String label;
   final String svg;
   final VoidCallback onTap;
-  final String? trailing;
   final bool active;
 
   @override
@@ -466,7 +541,6 @@ class _NavItem extends StatelessWidget {
           Expanded(
             child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(context, 11.5, color: active ? Colors.white : c.navText.withValues(alpha: .86))),
           ),
-          if (trailing != null) Text(trailing!, style: ts(context, 9.5, color: c.navMuted)),
         ]),
       ),
     );

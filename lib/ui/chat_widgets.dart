@@ -448,7 +448,7 @@ class _ThinkingCardState extends State<ThinkingCard> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           ThinkingIcon(style: widget.style),
-          SizedBox(width: widget.style == ThinkingStyle.basic ? 22 : 10),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(title, style: ts(context, 13, weight: FontWeight.w700)),

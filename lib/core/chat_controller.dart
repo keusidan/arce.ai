@@ -206,9 +206,42 @@ class GenerationSettings {
     this.modelParamsB,
     this.agentOverride,
     this.aiAgentSelection = false,
+    this.temperature,
+    this.topP,
+    this.topK,
+    this.minP,
+    this.extraPrompt = '',
   });
 
   final String? tone;
+
+  /// What the user set for the model that answers (the device's or the online ones'); null keeps
+  /// the app's own value for that mode.
+  final double? temperature;
+  final double? topP;
+  final int? topK;
+  final double? minP;
+
+  /// An extra instruction for the model that answers; empty for none.
+  final String extraPrompt;
+
+  static const extraPromptMaxChars = 2000;
+
+  /// [extraPrompt] without anything that could act as a control sequence (the ChatML markers), and
+  /// capped, so the user's own text can steer the answers but not rewrite the prompt's structure.
+  String cleanExtraPrompt() {
+    final t = extraPrompt.replaceAll(RegExp(r'<\|[^|]*\|>'), '').trim();
+    return t.length > extraPromptMaxChars ? t.substring(0, extraPromptMaxChars) : t;
+  }
+
+  /// [base] with the user's values written over it.
+  SamplingParams applyTo(SamplingParams base) => SamplingParams(
+    temperature: temperature ?? base.temperature,
+    topP: topP ?? base.topP,
+    topK: topK ?? base.topK,
+    minP: minP ?? base.minP,
+    dryMultiplier: base.dryMultiplier,
+  );
 
   /// 0 = no limit. Asked of the model in the system prompt.
   final int maxChars;
@@ -619,6 +652,7 @@ class ChatController extends ChangeNotifier {
       'Current role: ${agent.displayName}. ${agent.instructions}',
       if (config.maxChars > 0)
         'Keep each reply under ${config.maxChars} characters.',
+      if (config.extraPrompt.isNotEmpty) config.cleanExtraPrompt(),
     ];
     final modelB = config.modelParamsB;
     final sizeNotice = modelB != null && modelB < agent.minModelParamsB
@@ -666,9 +700,11 @@ class ChatController extends ChangeNotifier {
         images: _images,
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
-        sampling: thinking
-            ? SamplingParams.qwen3Thinking
-            : SamplingParams.qwen3NonThinking,
+        sampling: config.applyTo(
+          thinking
+              ? SamplingParams.qwen3Thinking
+              : SamplingParams.qwen3NonThinking,
+        ),
       );
 
       var attempts = 0;
