@@ -401,7 +401,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
         left: 16,
         right: 16,
         top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        bottom: sheetBottomPadding(context),
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -642,7 +642,7 @@ class _ModelsSheetState extends State<_ModelsSheet> {
         left: 16,
         right: 16,
         top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        bottom: sheetBottomPadding(context),
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -1078,7 +1078,7 @@ class _ModelEditorState extends State<ModelEditor> {
         left: 16,
         right: 16,
         top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        bottom: sheetBottomPadding(context),
       ),
       child: SingleChildScrollView(
         child: Column(

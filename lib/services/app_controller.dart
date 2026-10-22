@@ -49,9 +49,8 @@ enum SettingsSection {
   limits,
   mcp,
   basic,
-  answer,
+  search,
   display,
-  developer,
   update,
 }
 

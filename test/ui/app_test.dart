@@ -10,6 +10,7 @@ import 'package:arce_ai/services/update_service.dart';
 import 'package:arce_ai/app.dart';
 import 'package:arce_ai/ui/provider_widgets.dart';
 import 'package:arce_ai/ui/theme.dart';
+import 'package:arce_ai/ui/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -103,12 +104,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Thinking 表示'), findsNothing, reason: 'every group starts closed');
 
-    await tester.tap(find.text('基本設定').first);
+    await tester.tap(find.text('モデル全般設定').first);
     await tester.pumpAndSettle();
     expect(find.text('Thinking 表示'), findsOneWidget);
     expect(find.text('HyperLoad'), findsNothing, reason: 'the local model group is not mixed in');
     expect(find.text('Context Length'), findsNothing);
-    expect(find.text('口調'), findsNothing, reason: 'nor is the answer group');
+    expect(find.text('口調'), findsOneWidget, reason: 'the answer settings are common to both kinds of model, so they are here');
+    expect(find.text('最大トークン数（共通）'), findsOneWidget);
+    expect(find.text('SearXNG のアドレス'), findsNothing, reason: 'search has a group of its own');
     expect(find.text('ローカルモデルの設定'), findsOneWidget, reason: 'the other rows are still listed');
 
     // opening another group folds the first
@@ -334,7 +337,7 @@ void main() {
     app.openSettings(SettingsSection.limits);
     await tester.pumpAndSettle();
     expect(find.text('添付できるファイルの数'), findsOneWidget);
-    expect(find.text('検索結果の件数'), findsOneWidget);
+    expect(find.text('検索結果の件数'), findsNothing, reason: 'it moved to the search group');
     expect(find.text('オンラインモデルの応答のタイムアウト'), findsOneWidget);
 
     // a pill steps to the next value
@@ -342,6 +345,50 @@ void main() {
     await tester.tap(find.text('5').first);
     await tester.pump();
     expect(app.settings.value.attachMaxFiles, 10);
+  });
+
+  testWidgets('settings page: the search group has the server, the result count and the search APIs', (tester) async {
+    setSize(tester, const Size(411, 1200));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.search);
+    await tester.pumpAndSettle();
+    expect(find.text('SearXNG のアドレス'), findsOneWidget);
+    expect(find.text('検索結果の件数'), findsOneWidget);
+    expect(find.text('検索 API'), findsOneWidget);
+    expect(find.text('検索 API を追加'), findsOneWidget);
+    expect(find.text('Thinking 表示'), findsNothing);
+  });
+
+  testWidgets('settings page: the sidebar lists the search settings', (tester) async {
+    setSize(tester, const Size(1280, 800));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    expect(find.text('検索設定'), findsWidgets);
+    expect(find.text('モデル全般設定'), findsWidgets);
+    expect(find.text('回答の設定'), findsNothing);
+    expect(find.text('開発者設定'), findsNothing);
+  });
+
+  testWidgets('a bottom sheet keeps its buttons above the navigation bar and the keyboard', (tester) async {
+    late double plain, withBar, withKeyboard;
+    Widget probe(MediaQueryData data, void Function(double) out) => MediaQuery(
+          data: data,
+          child: Builder(builder: (context) {
+            out(sheetBottomPadding(context));
+            return const SizedBox();
+          }),
+        );
+    await tester.pumpWidget(probe(const MediaQueryData(), (v) => plain = v));
+    await tester.pumpWidget(probe(const MediaQueryData(viewPadding: EdgeInsets.only(bottom: 48)), (v) => withBar = v));
+    await tester.pumpWidget(probe(const MediaQueryData(viewPadding: EdgeInsets.only(bottom: 48), viewInsets: EdgeInsets.only(bottom: 300)), (v) => withKeyboard = v));
+    expect(plain, 16);
+    expect(withBar, 64, reason: 'above the three-button bar');
+    expect(withKeyboard, 316, reason: 'above the keyboard, which already covers the bar');
   });
 
   testWidgets('settings page: local and online model settings are kept apart', (tester) async {

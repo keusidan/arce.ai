@@ -249,7 +249,7 @@ class _ApiEditorState extends State<_ApiEditor> {
   Widget build(BuildContext context) {
     final c = context.c;
     return Padding(
-      padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: MediaQuery.of(context).viewInsets.bottom + 16),
+      padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: sheetBottomPadding(context)),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,

@@ -31,10 +31,9 @@ const _groups = [
   _Group(SettingsSection.coding, ArceSvg.codeEdit, 'コーディングモード', '設計モデルが開発モデルに指示して、安く実装する'),
   _Group(SettingsSection.limits, ArceSvg.sliders2, '上限とタイムアウト', '添付・検索・通信・更新の上限と待ち時間'),
   _Group(SettingsSection.mcp, ArceSvg.bolt, 'MCP サーバー', '外部の道具（GitHub など）をつなぐ'),
-  _Group(SettingsSection.basic, ArceSvg.settings, '基本設定', '思考・検索'),
-  _Group(SettingsSection.answer, ArceSvg.compass, '回答', '口調・速度と精度・エージェント・返信の長さ'),
+  _Group(SettingsSection.basic, ArceSvg.settings, 'モデル全般設定', 'ローカルとオンライン共通：思考・回答・最大トークン・再試行'),
+  _Group(SettingsSection.search, ArceSvg.search, '検索設定', '検索サーバー・検索 API・結果の件数'),
   _Group(SettingsSection.display, ArceSvg.moon, '表示・プライバシー', 'テーマ・思考中のアイコン'),
-  _Group(SettingsSection.developer, ArceSvg.sliders2, '開発者設定', '共通の最大トークン・再試行・ツールの上限'),
   _Group(SettingsSection.update, ArceSvg.retry, 'アップデート', '自動で更新する・確認の間隔'),
 ];
 
@@ -159,16 +158,44 @@ class _SettingsPageState extends State<SettingsPage> {
                     icon: ArceSvg.brainOutline,
                     title: 'Thinking 表示',
                     subtitle: '生成中の状態と思考プロセスを表示します',
+                    last: true,
                     trailing: ArceSwitch(value: s.thinking, onChanged: (v) => set((x) => x.copyWith(thinking: v))),
                   ),
+                ],
+              ),
+            ),
+            _subheading(context, '回答（口調・速度と精度・エージェント・返信の長さ）'),
+            _answerCard(context, app, s, set),
+            _subheading(context, '最大トークンと再試行（共通）'),
+            _developerCard(context, app, s, set),
+          ],
+        );
+      case SettingsSection.search:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ArceCard(
+              child: Column(
+                children: [
                   _TextRow(
                     icon: ArceSvg.globe,
                     title: 'SearXNG のアドレス',
                     subtitle: '自分の検索サーバー（先に使います）',
                     value: s.searxngUrl,
                     hint: 'http://192.168.0.10:8080',
-                    last: true,
                     onChanged: (v) => set((x) => x.copyWith(searxngUrl: v)),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.search,
+                    title: '検索結果の件数',
+                    subtitle: 'Web検索で使う結果の数',
+                    last: true,
+                    trailing: _Cycle<int>(
+                      value: s.searchResultCount,
+                      values: const [3, 5, 8, 10, 15],
+                      label: (v) => '$v',
+                      onChanged: (v) => set((x) => x.copyWith(searchResultCount: v)),
+                    ),
                   ),
                 ],
               ),
@@ -176,56 +203,6 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 14),
             const SearchApiSection(),
           ],
-        );
-      case SettingsSection.answer:
-        return ArceCard(
-          child: Column(
-            children: [
-              _TextRow(
-                icon: ArceSvg.chat,
-                title: '口調',
-                subtitle: '回答の話し方（200文字まで）。ルールは変えられません',
-                value: s.tone,
-                hint: '例: 丁寧で簡潔に',
-                onChanged: (v) => set((x) => x.copyWith(tone: v)),
-              ),
-              _SliderRow(
-                icon: ArceSvg.sliders,
-                title: '速度 ⇔ 精度',
-                subtitle: '左: 速い（思考を省略） / 右: 正確（長く考える）',
-                value: s.speedAccuracy,
-                onChanged: (v) => set((x) => x.copyWith(speedAccuracy: v)),
-              ),
-              SettingRow(
-                icon: ArceSvg.compass,
-                title: 'エージェント',
-                subtitle: '用途に合わせた役割。自動のときは内容から選びます',
-                trailing: _Dropdown<String>(
-                  value: s.agentOverride,
-                  items: {'': '自動', for (final a in Agents.all) a.id: a.displayName},
-                  onChanged: (v) => set((x) => x.copyWith(agentOverride: v)),
-                ),
-              ),
-              SettingRow(
-                icon: ArceSvg.brainOutline,
-                title: 'AIによるエージェント選択',
-                subtitle: '判断に迷うときだけ読み込み済みモデルに選ばせます',
-                trailing: ArceSwitch(value: s.aiAgentSelection, onChanged: (v) => set((x) => x.copyWith(aiAgentSelection: v))),
-              ),
-              SettingRow(
-                icon: ArceSvg.file,
-                title: '返信の最大文字数',
-                subtitle: '0 は制限なし',
-                last: true,
-                trailing: _Cycle<int>(
-                  value: s.maxChars,
-                  values: const [0, 300, 800, 1500, 3000],
-                  label: (v) => v == 0 ? '制限なし' : '$v',
-                  onChanged: (v) => set((x) => x.copyWith(maxChars: v)),
-                ),
-              ),
-            ],
-          ),
         );
       case SettingsSection.display:
         return ArceCard(
@@ -262,48 +239,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: '会話とモデルはこの端末内にだけ保存されます',
                 last: true,
                 trailing: StatusLabel('有効', color: context.c.green, background: context.c.greenSoft),
-              ),
-            ],
-          ),
-        );
-      case SettingsSection.developer:
-        return ArceCard(
-          child: Column(
-            children: [
-              SettingRow(
-                icon: ArceSvg.file,
-                title: '最大トークン数（共通）',
-                subtitle: '1回の返信の長さの目安（思考の分も含みます）。ローカル・オンラインで別に決めたとき、'
-                    'また DeepSeek V4・GLM-5 のように公式の推奨があるモデルでは、そちらが先です',
-                trailing: _Cycle<int>(
-                  value: s.maxTokens,
-                  values: const [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144],
-                  label: (v) => '$v',
-                  onChanged: (v) => set((x) => x.copyWith(maxTokens: v)),
-                ),
-              ),
-              SettingRow(
-                icon: ArceSvg.retry,
-                title: 'エラー再書き込み回数',
-                subtitle: '途中で切れたツール呼び出しを書き直す回数',
-                trailing: _Cycle<int>(
-                  value: s.retryLimit,
-                  values: const [0, 1, 2, 3],
-                  label: (v) => '$v',
-                  onChanged: (v) => set((x) => x.copyWith(retryLimit: v)),
-                ),
-              ),
-              SettingRow(
-                icon: ArceSvg.bolt,
-                title: 'ツール呼び出しの上限',
-                subtitle: '1回の返信の中で使えるツールの回数',
-                last: true,
-                trailing: _Cycle<int>(
-                  value: s.maxToolRounds,
-                  values: const [2, 4, 6, 8],
-                  label: (v) => '$v',
-                  onChanged: (v) => set((x) => x.copyWith(maxToolRounds: v)),
-                ),
               ),
             ],
           ),
@@ -367,6 +302,117 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
     }
+  }
+
+  Widget _subheading(BuildContext context, String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+        child: Text(text, style: ts(context, 11, weight: FontWeight.w700, color: context.c.muted)),
+      );
+
+  Widget _answerCard(
+    BuildContext context,
+    AppController app,
+    AppSettings s,
+    void Function(AppSettings Function(AppSettings)) set,
+  ) {
+        return ArceCard(
+          child: Column(
+            children: [
+              _TextRow(
+                icon: ArceSvg.chat,
+                title: '口調',
+                subtitle: '回答の話し方（200文字まで）。ルールは変えられません',
+                value: s.tone,
+                hint: '例: 丁寧で簡潔に',
+                onChanged: (v) => set((x) => x.copyWith(tone: v)),
+              ),
+              _SliderRow(
+                icon: ArceSvg.sliders,
+                title: '速度 ⇔ 精度',
+                subtitle: '左: 速い（思考を省略） / 右: 正確（長く考える）',
+                value: s.speedAccuracy,
+                onChanged: (v) => set((x) => x.copyWith(speedAccuracy: v)),
+              ),
+              SettingRow(
+                icon: ArceSvg.compass,
+                title: 'エージェント',
+                subtitle: '用途に合わせた役割。自動のときは内容から選びます',
+                trailing: _Dropdown<String>(
+                  value: s.agentOverride,
+                  items: {'': '自動', for (final a in Agents.all) a.id: a.displayName},
+                  onChanged: (v) => set((x) => x.copyWith(agentOverride: v)),
+                ),
+              ),
+              SettingRow(
+                icon: ArceSvg.brainOutline,
+                title: 'AIによるエージェント選択',
+                subtitle: '判断に迷うときだけ読み込み済みモデルに選ばせます',
+                trailing: ArceSwitch(value: s.aiAgentSelection, onChanged: (v) => set((x) => x.copyWith(aiAgentSelection: v))),
+              ),
+              SettingRow(
+                icon: ArceSvg.file,
+                title: '返信の最大文字数',
+                subtitle: '0 は制限なし',
+                last: true,
+                trailing: _Cycle<int>(
+                  value: s.maxChars,
+                  values: const [0, 300, 800, 1500, 3000],
+                  label: (v) => v == 0 ? '制限なし' : '$v',
+                  onChanged: (v) => set((x) => x.copyWith(maxChars: v)),
+                ),
+              ),
+            ],
+          ),
+        );
+  }
+
+  Widget _developerCard(
+    BuildContext context,
+    AppController app,
+    AppSettings s,
+    void Function(AppSettings Function(AppSettings)) set,
+  ) {
+        return ArceCard(
+          child: Column(
+            children: [
+              SettingRow(
+                icon: ArceSvg.file,
+                title: '最大トークン数（共通）',
+                subtitle: '1回の返信の長さの目安（思考の分も含みます）。ローカル・オンラインで別に決めたとき、'
+                    'また DeepSeek V4・GLM-5 のように公式の推奨があるモデルでは、そちらが先です',
+                trailing: _Cycle<int>(
+                  value: s.maxTokens,
+                  values: const [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144],
+                  label: (v) => '$v',
+                  onChanged: (v) => set((x) => x.copyWith(maxTokens: v)),
+                ),
+              ),
+              SettingRow(
+                icon: ArceSvg.retry,
+                title: 'エラー再書き込み回数',
+                subtitle: '途中で切れたツール呼び出しを書き直す回数',
+                trailing: _Cycle<int>(
+                  value: s.retryLimit,
+                  values: const [0, 1, 2, 3],
+                  label: (v) => '$v',
+                  onChanged: (v) => set((x) => x.copyWith(retryLimit: v)),
+                ),
+              ),
+              SettingRow(
+                icon: ArceSvg.bolt,
+                title: 'ツール呼び出しの上限',
+                subtitle: '1回の返信の中で使えるツールの回数',
+                last: true,
+                trailing: _Cycle<int>(
+                  value: s.maxToolRounds,
+                  values: const [2, 4, 6, 8],
+                  label: (v) => '$v',
+                  onChanged: (v) => set((x) => x.copyWith(maxToolRounds: v)),
+                ),
+              ),
+            ],
+          ),
+        );
   }
 
   /// A decimal field that reads "not set" as -1, so an empty box means "the app's own value".
@@ -453,8 +499,6 @@ class _SettingsPageState extends State<SettingsPage> {
               (x, v) => x.copyWith(attachTotalChars: v)),
           cycle(ArceSvg.eye, '送る画像の大きさ', '画像に対応するモデルへ送る1枚の上限', s.attachImageMb, const [1, 2, 4, 8, 16],
               (x, v) => x.copyWith(attachImageMb: v), unit: ' MB'),
-          cycle(ArceSvg.search, '検索結果の件数', 'Web検索で使う結果の数', s.searchResultCount, const [3, 5, 8, 10, 15],
-              (x, v) => x.copyWith(searchResultCount: v)),
           cycle(ArceSvg.clock, '検索・天気のタイムアウト', 'この秒数で通信をあきらめます', s.httpTimeoutSeconds, const [10, 20, 30, 60],
               (x, v) => x.copyWith(httpTimeoutSeconds: v), unit: ' 秒'),
           cycle(ArceSvg.bolt, 'MCPサーバーのタイムアウト', '道具の呼び出しを待つ時間', s.mcpTimeoutSeconds, const [20, 40, 60, 120],

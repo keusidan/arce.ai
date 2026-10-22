@@ -389,3 +389,11 @@ String two(int n) => n.toString().padLeft(2, '0');
 String formatTime(DateTime t) => '${two(t.hour)}:${two(t.minute)}';
 
 String formatDate(DateTime t) => '${two(t.month)}/${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
+
+/// Bottom padding for the content of a bottom sheet: above the keyboard, or, with no keyboard, above
+/// the system navigation bar (the three buttons or the gesture bar), so the last buttons stay reachable.
+double sheetBottomPadding(BuildContext context) {
+  final media = MediaQuery.of(context);
+  final inset = media.viewInsets.bottom > media.viewPadding.bottom ? media.viewInsets.bottom : media.viewPadding.bottom;
+  return inset + 16;
+}
