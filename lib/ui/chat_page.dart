@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../ai/thinking_config.dart';
 import '../core/attachments.dart';
 import '../services/app_controller.dart';
 import 'app_scope.dart';
@@ -204,7 +205,10 @@ class _ChatPageState extends State<ChatPage> {
                 on: settings.thinking,
                 onTap: () {
                   app.settings.update((s) => s.copyWith(thinking: !s.thinking));
-                  app.showToast(!settings.thinking ? 'Thinking表示をオン' : 'Thinking表示をオフ');
+                  final label = !settings.thinking ? 'Thinking表示をオン' : 'Thinking表示をオフ';
+                  // an online model only hears about it when a thinking format is chosen for it
+                  final unheard = app.engine.isCloud && (app.providers.activeModel?.thinking.format ?? ThinkingFormat.none) == ThinkingFormat.none;
+                  app.showToast(unheard ? '$label（このモデルは思考の送り方が未設定で、表示だけが変わります）' : label);
                 },
               ),
               _ToolButton(

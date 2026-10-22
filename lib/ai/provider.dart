@@ -95,6 +95,7 @@ class AiRequest {
     this.maxTokens = 2048,
     this.temperature = 0.7,
     this.topP = 0.95,
+    this.extraBody = const {},
   });
 
   final List<AiMessage> messages;
@@ -105,6 +106,10 @@ class AiRequest {
   final int maxTokens;
   final double temperature;
   final double topP;
+
+  /// Fields the model needs in the request body (its thinking settings), merged in after the
+  /// generated ones and before the provider's own override.
+  final Map<String, Object?> extraBody;
 }
 
 /// What a provider can do, so the screen can show only what works (a text-only model cannot take

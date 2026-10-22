@@ -198,6 +198,8 @@ class OpenAiCompatibleProvider implements AiProvider {
             },
           },
       ],
+    // what the model needs (its thinking settings) goes before the provider's own override
+    ...request.extraBody,
     // the user's overrides come last, so a provider that needs different field names wins
     ...body,
   };

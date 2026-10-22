@@ -349,6 +349,29 @@ void main() {
     });
   });
 
+  group('思考の項目', () {
+    test('モデルの項目は本体に入り、提供元の上書きがそれより強い', () async {
+      Map<String, Object?>? sent;
+      final provider = providerWith(
+        [textEvent('ok'), 'data: [DONE]\n\n'],
+        body: jsonEncode({'reasoning_effort': 'low', 'top_k': 5}),
+        onRequest: (r) => sent = jsonDecode((r as http.Request).body) as Map<String, Object?>,
+      );
+      await provider
+          .stream(const AiRequest(
+            messages: [AiMessage(AiRole.user, text: 'こんにちは')],
+            extraBody: {
+              'thinking': {'type': 'enabled'},
+              'reasoning_effort': 'max',
+            },
+          ))
+          .toList();
+      expect(sent!['thinking'], {'type': 'enabled'});
+      expect(sent!['reasoning_effort'], 'low', reason: 'the provider\'s own override comes last');
+      expect(sent!['top_k'], 5);
+    });
+  });
+
   group('モデル一覧', () {
     test('上限と画像対応を、提供元の一覧から読む。IDの順に並べる', () async {
       final provider = providerWith([

@@ -63,9 +63,33 @@
 - 確認：`flutter analyze`、`flutter test`（356 件）。優先順位、上限での丸め、各社の応答の形（公開ドキュメントの形の例で）、Hub の読み取り、値の保存、設定の移行。
 - **未確認**：実際の各社の `/models` の応答（DeepInfra・Groq の欄名は、公式ドキュメントで確認できなかった。読めなければ「分からない」のままで、Hub か手入力になる）。DeepSeek API・Z.ai の **HTTP の引数名**（`api-docs.deepseek.com` と `docs.z.ai` は、この環境から開けなかった）。これは 0.8.3 で、追加リクエスト項目として利用者が決められる形にする。
 
-## 5. 次
-- 0.8.3：思考（thinking）・推論の強さを、provider に届ける。DeepSeek と GLM には専用の項目（公式の値：DeepSeek の 1〜100 または low/high/max、GLM の low/high/max と `clear_thinking`）。
-- 0.8.4：ツールの会話を、provider のネイティブの形（`tool_calls`／`tool` ロール）で送り、`reasoning_content` を捨てずに返す。
+## 5. 0.8.3 の変更：思考（推論）を provider に届ける
+
+### 5.1 何を、どう送るか
+- モデルごとに **「思考の送り方」** を選ぶ（モデルの編集 →「思考（推論）」）。**既定は「送らない」**＝提供元の既定で動く（DeepSeek も GLM も、既定で思考する）。この間、チャットの思考スイッチはこのモデルに**届かない**（トーストでそう伝える）。
+- 送り方は 5 つ：
+
+| 送り方 | 足す項目 |
+|---|---|
+| DeepSeek の API | `thinking: {type: enabled/disabled}`、思考オンなら `reasoning_effort` |
+| Z.ai の API（GLM） | `thinking: {type, clear_thinking}`、思考オンなら `reasoning_effort` |
+| chat template のサーバー（vLLM・SGLang・Together・DeepInfra など） | `chat_template_kwargs: {thinking, enable_thinking, thinking_mode, reasoning_effort, clear_thinking}`（テンプレートが読まない名前は無視される） |
+| OpenAI の形 | `reasoning_effort`（low/medium/high。max は high にする。オフは表せないので足さない） |
+| 送らない | なし |
+
+- 思考のオン/オフ：**自動**（チャットの思考スイッチと、速度⇔精度のスライダーに従う。速い側の端はオフ）／常にオン／常にオフ。
+- 推論の強さ：入れた値が先（`low`/`high`/`max`、または 1〜100。数字は数字のまま）。空欄はスライダーから（0.5 未満 `low`、0.85 未満 `high`、それ以上 `max`）。
+- GLM：`clear_thinking`（指定しない／true／false）。**GLM-5.3 のモデルカードが「チャットでは true を明示」と書いている**ので、GLM の「おすすめの送り方を入れる」は true を入れる。
+- 「おすすめの送り方を入れる」：名前の付き方から選ぶ。`owner/name`（Hugging Face の名前）は vLLM 系の提供元なので chat template、素の名前（`deepseek-v4-flash`、`glm-5.3`）はメーカー自身の API。**ボタンを押したときだけ**入る。
+- 項目は、リクエストの本体に、**生成した項目のあと・プロバイダの「追加のリクエスト項目」より前**に入る。同じ名前は、プロバイダの上書きが勝つ。
+- コーディングモードの設計/開発の役は、思考のスイッチを持たないので、「自動」を「思考オン（スライダーは中ほど）」として扱う。
+
+### 5.2 公式に確認できたこと／できていないこと
+- **確認（公式モデルカード）**：DeepSeek V4.1 の推論の強さ＝1〜100（low=50・high=75・max=100）、`thinking`／`chat` のモード。GLM-5.3 の `reasoning_effort`（low/high/max、既定 max）と `clear_thinking`（既定 false、チャットでは true）。
+- **未確認**：DeepSeek API・Z.ai の API・各ホストの **HTTP の項目名そのもの**。`api-docs.deepseek.com` と `docs.z.ai` はこの環境から開けなかった。そのため、送り方は**選ぶ形**にして、既定を「送らない」にした。選んだ形で 400 が返るときは、提供元のドキュメントに合わせて、プロバイダの「追加のリクエスト項目」で上書きできる。DeepSeek の API が、数字の推論の強さと、`high`/`max` の文字のどちらを受けるかも未確認（入れた値をそのまま送る）。
+
+## 6. 次
+- 0.8.4：ツールの会話を、provider のネイティブの形（`tool_calls`／`tool` ロール）で送り、`reasoning_content` を捨てずに返す（公式の `encoding`：ツールを宣言すると、過去の思考を全部残す）。ツール定義の二重送信も整理する。
 
 ## 出典
 - DeepSeek-V4.1-Flash-1017 モデルカード：https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017

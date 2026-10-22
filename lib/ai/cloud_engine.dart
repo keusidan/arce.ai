@@ -3,6 +3,7 @@ import '../core/generation.dart';
 import 'chatml_bridge.dart';
 import 'model_hints.dart';
 import 'provider.dart';
+import 'thinking_config.dart';
 
 /// Answers through a cloud provider (or a local server that speaks the same protocol) while
 /// looking like one more inference engine, so the chat, the agents and the retry policy stay as
@@ -67,6 +68,11 @@ class CloudEngine implements InferenceEngine {
         promptTokens: ModelHints.estimateTokens(
           [for (final m in allMessages) m.text].join('\n') + [for (final t in request.tools) '${t.name}${t.description}${t.parameters}'].join(),
         ),
+      ),
+      extraBody: ThinkingRequest.fields(
+        model?.thinking ?? ThinkingConfig.none,
+        appThinking: request.thinking,
+        speedAccuracy: request.user.speedAccuracy,
       ),
       temperature: model?.param('temperature') ?? request.user.temperature ?? hint?.temperature ?? request.sampling.temperature,
       topP: model?.param('topP') ?? request.user.topP ?? hint?.topP ?? request.sampling.topP,

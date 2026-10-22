@@ -7,6 +7,7 @@ import '../core/generation.dart';
 import 'chatml_bridge.dart';
 import 'model_hints.dart';
 import 'provider.dart';
+import 'thinking_config.dart';
 
 /// One model that can be given a job: an online provider's model, or the model on the device.
 abstract interface class RoleModel {
@@ -71,6 +72,8 @@ class ProviderRole implements RoleModel {
       // want the low temperature that suits a plain one)
       temperature: model?.param('temperature') ?? hint?.temperature ?? temperature,
       topP: model?.param('topP') ?? hint?.topP ?? 0.95,
+      // a role has no thinking switch of its own: "auto" means thinking on, at the middle of the slider
+      extraBody: ThinkingRequest.fields(model?.thinking ?? ThinkingConfig.none, appThinking: true, speedAccuracy: 0.6),
     );
     try {
       await for (final delta in provider.stream(request).takeWhile((_) => !cancelled())) {

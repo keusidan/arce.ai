@@ -7,6 +7,7 @@ import '../ai/model_info.dart';
 import '../ai/openai_compatible.dart';
 import '../ai/provider.dart';
 import '../ai/provider_config.dart';
+import '../ai/thinking_config.dart';
 import '../services/app_controller.dart';
 import '../services/provider_store.dart';
 import 'app_scope.dart';
@@ -610,7 +611,7 @@ class _ModelsSheetState extends State<_ModelsSheet> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (context) =>
-          _ModelEditor(app: widget.app, provider: _config, model: model),
+          ModelEditor(app: widget.app, provider: _config, model: model),
     );
     if (mounted) setState(() {});
   }
@@ -771,9 +772,10 @@ class _ModelsSheetState extends State<_ModelsSheet> {
   }
 }
 
-/// The sampling overrides and the extra prompt of one model.
-class _ModelEditor extends StatefulWidget {
-  const _ModelEditor({
+/// The sampling overrides, limits, thinking settings and extra prompt of one model.
+class ModelEditor extends StatefulWidget {
+  const ModelEditor({
+    super.key,
     required this.app,
     required this.provider,
     required this.model,
@@ -784,10 +786,10 @@ class _ModelEditor extends StatefulWidget {
   final ModelConfig model;
 
   @override
-  State<_ModelEditor> createState() => _ModelEditorState();
+  State<ModelEditor> createState() => _ModelEditorState();
 }
 
-class _ModelEditorState extends State<_ModelEditor> {
+class _ModelEditorState extends State<ModelEditor> {
   late final TextEditingController _name = TextEditingController(
     text: widget.model.name,
   );
@@ -809,6 +811,10 @@ class _ModelEditorState extends State<_ModelEditor> {
   late final TextEditingController _maxOutput = TextEditingController(
     text: widget.model.maxOutputTokens?.toString() ?? '',
   );
+  late final TextEditingController _effort = TextEditingController(
+    text: widget.model.thinking.effort,
+  );
+  late ThinkingConfig _thinking = widget.model.thinking;
   String? _note;
   bool _busy = false;
 
@@ -827,6 +833,7 @@ class _ModelEditorState extends State<_ModelEditor> {
       _prompt,
       _context,
       _maxOutput,
+      _effort,
     ]) {
       controller.dispose();
     }
@@ -852,6 +859,7 @@ class _ModelEditorState extends State<_ModelEditor> {
           prompt: _prompt.text.trim(),
           vision: _vision,
         )
+        .copyWith(thinking: _thinking.copyWith(effort: _effort.text.trim()))
         .withLimits(contextTokens: _positive(_context.text), maxOutputTokens: _positive(_maxOutput.text));
     final provider =
         widget.app.providers.byId(widget.provider.id) ?? widget.provider;
@@ -901,6 +909,117 @@ class _ModelEditorState extends State<_ModelEditor> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// The thinking format that suits this model's name (a suggestion; nothing is sent until saved).
+  void _suggestThinking() {
+    final family = ModelHints.familyOf(widget.model.id);
+    final format = ThinkingRequest.suggestedFormat(
+      widget.model.id,
+      deepseek: family == ModelFamily.deepseek,
+      glm: family == ModelFamily.glm,
+    );
+    setState(() {
+      _thinking = _thinking.copyWith(
+        format: format,
+        // the GLM-5.3 card: "for chat scenarios, explicitly pass clear_thinking=true"
+        clearThinking: family == ModelFamily.glm ? true : null,
+      );
+      _note = format == ThinkingFormat.none
+          ? 'このモデルには、おすすめの送り方がありません'
+          : '「${_formatLabel(format)}」を選びました。提供元のドキュメントで、この名前の項目を確かめてください。保存すると反映されます';
+    });
+  }
+
+  static String _formatLabel(ThinkingFormat format) => switch (format) {
+        ThinkingFormat.none => '送らない（提供元の既定）',
+        ThinkingFormat.deepseekApi => 'DeepSeek の API（thinking / reasoning_effort）',
+        ThinkingFormat.zaiApi => 'Z.ai の API（thinking / clear_thinking）',
+        ThinkingFormat.chatTemplate => 'chat template のサーバー（vLLM・SGLang・Together・DeepInfra など）',
+        ThinkingFormat.openaiEffort => 'OpenAI の形（reasoning_effort）',
+      };
+
+  static String _modeLabel(ThinkingMode mode) => switch (mode) {
+        ThinkingMode.auto => '自動（チャットの思考スイッチと、速度⇔精度に従う）',
+        ThinkingMode.on => '常にオン',
+        ThinkingMode.off => '常にオフ',
+      };
+
+  /// What the maker says about thinking, for the families that have a model card.
+  static String? _thinkingNote(ModelFamily family) => switch (family) {
+        ModelFamily.deepseek =>
+          'DeepSeek V4.1（公式モデルカード）：推論の強さは 1〜100 の数値で、low=50・high=75・max=100、既定は high。'
+              'ツールを使う会話では、過去のターンの思考を全部残します。',
+        ModelFamily.glm =>
+          'GLM-5.3（公式モデルカード）：reasoning_effort は low / high / max で、渡さなければ max。'
+              'clear_thinking は渡さなければ false で、チャットでは true にするよう書かれています。',
+        ModelFamily.other => null,
+      };
+
+  Widget _dropdown<T>(String label, T value, Map<T, String> items, ValueChanged<T> onChanged) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: DropdownButtonFormField<T>(
+          // the field reads its initial value once: a new value (the suggestion button) needs a new field
+          key: ValueKey<Object?>(value),
+          initialValue: value,
+          isExpanded: true,
+          isDense: true,
+          decoration: InputDecoration(labelText: label, isDense: true, border: const OutlineInputBorder()),
+          style: ts(context, 11.5),
+          items: [for (final e in items.entries) DropdownMenuItem(value: e.key, child: Text(e.value, overflow: TextOverflow.ellipsis))],
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
+      );
+
+  /// The thinking part of the editor: how it is asked for, and the maker's own settings for it.
+  List<Widget> _thinkingSection(BuildContext context) {
+    final c = context.c;
+    final family = ModelHints.familyOf(widget.model.id);
+    final sent = _thinking.format != ThinkingFormat.none;
+    final note = _thinkingNote(family);
+    return [
+      const SizedBox(height: 4),
+      Text('思考（推論）', style: ts(context, 12, weight: FontWeight.w700)),
+      const SizedBox(height: 4),
+      Text(
+        '「送らない」のあいだ、チャットの思考スイッチはこのモデルに届きません（提供元の既定で動きます）。'
+        '提供元によって項目の名前が違うので、送り方を選びます。',
+        style: ts(context, 9.5, color: c.muted, height: 1.5),
+      ),
+      if (note != null) ...[
+        const SizedBox(height: 4),
+        Text(note, style: ts(context, 9.5, color: c.accent, height: 1.5)),
+      ],
+      const SizedBox(height: 8),
+      _dropdown<ThinkingFormat>(
+        '思考の送り方',
+        _thinking.format,
+        {for (final f in ThinkingFormat.values) f: _formatLabel(f)},
+        (v) => setState(() => _thinking = _thinking.copyWith(format: v)),
+      ),
+      if (sent) ...[
+        _dropdown<ThinkingMode>(
+          '思考',
+          _thinking.mode,
+          {for (final m in ThinkingMode.values) m: _modeLabel(m)},
+          (v) => setState(() => _thinking = _thinking.copyWith(mode: v)),
+        ),
+        _field('推論の強さ', _effort, 'low / high / max、または 1〜100。空欄は速度⇔精度から決めます'),
+        if (family == ModelFamily.glm || _thinking.format == ThinkingFormat.zaiApi || _thinking.format == ThinkingFormat.chatTemplate)
+          _dropdown<bool?>(
+            'clear_thinking（GLM）',
+            _thinking.clearThinking,
+            const {null: '指定しない', true: 'true（過去の思考を捨てる・チャット向け）', false: 'false（過去の思考を残す）'},
+            (v) => setState(() => _thinking = _thinking.copyWith(clearThinking: v)),
+          ),
+      ],
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: SoftButton(label: 'おすすめの送り方を入れる', svg: ArceSvg.check, onTap: _suggestThinking),
+      ),
+    ];
   }
 
   /// Fills the fields with what the model's maker recommends.
@@ -966,6 +1085,7 @@ class _ModelEditorState extends State<_ModelEditor> {
                 child: Text(_note!, style: ts(context, 10, color: c.muted, height: 1.5)),
               ),
             _field('追加プロンプト', _prompt, 'このモデルにだけ送る指示（任意）', maxLines: 3),
+            ..._thinkingSection(context),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,

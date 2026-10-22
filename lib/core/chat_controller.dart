@@ -718,7 +718,7 @@ class ChatController extends ChangeNotifier {
         images: _images,
         agentId: agent.id,
         continuation: roundPrefill.isNotEmpty,
-        user: UserSampling(temperature: config.temperature, topP: config.topP, maxTokens: config.userMaxTokens),
+        user: UserSampling(temperature: config.temperature, topP: config.topP, maxTokens: config.userMaxTokens, speedAccuracy: config.speedAccuracy),
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
         sampling: config.applyTo(

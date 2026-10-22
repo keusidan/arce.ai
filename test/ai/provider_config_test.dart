@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:arce_ai/ai/model_info.dart';
 import 'package:arce_ai/ai/provider_config.dart';
+import 'package:arce_ai/ai/thinking_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _openai = ProviderConfig(
@@ -222,6 +224,30 @@ void main() {
       expect(back.supportsTools, isFalse);
       expect(ProviderExtras.parseBody(ProviderExtras.show(back.body)), back.body);
       expect(ProviderExtras.show(const {}), isEmpty);
+    });
+  });
+
+  group('思考の設定', () {
+    test('モデルの設定に保存して読み戻せる。既定なら書き出さない', () {
+      final config = _openai.copyWith(models: const [
+        ModelConfig(id: 'm', name: 'm', thinking: ThinkingConfig(format: ThinkingFormat.deepseekApi, effort: '75')),
+      ]);
+      final back = ProviderList.decode(ProviderList.encode([config])).single.models.single;
+      expect(back.thinking.format, ThinkingFormat.deepseekApi);
+      expect(back.thinking.effort, '75');
+      expect(ProviderList.encode([_openai]), isNot(contains('thinking')));
+    });
+
+    test('他の項目を編集しても、思考の設定と上限は消えない', () {
+      const m = ModelConfig(
+        id: 'm',
+        name: 'm',
+        contextTokens: 100,
+        thinking: ThinkingConfig(format: ThinkingFormat.zaiApi),
+      );
+      final edited = m.copyWith(name: 'n', vision: true).mergeInfo(const ModelInfo('m', maxOutputTokens: 5)).withLimits(contextTokens: 100, maxOutputTokens: 5);
+      expect(edited.thinking.format, ThinkingFormat.zaiApi);
+      expect(edited.contextTokens, 100);
     });
   });
 }

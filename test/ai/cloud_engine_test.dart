@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:arce_ai/ai/cloud_engine.dart';
 import 'package:arce_ai/ai/provider.dart';
 import 'package:arce_ai/ai/provider_config.dart';
+import 'package:arce_ai/ai/thinking_config.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
 import 'package:arce_ai/core/prompt.dart';
@@ -281,6 +282,31 @@ void main() {
       expect(r.temperature, 0.2);
       expect(r.topP, 0.7);
       expect(r.maxTokens, 12345);
+    });
+
+    test('思考の送り方を選んだモデルにだけ、思考の項目が付く。チャットのスイッチと速度⇔精度に従う', () async {
+      const plain = ModelConfig(id: 'zai-org/GLM-5.3', name: 'x');
+      expect((await sent('zai-org/GLM-5.3', plain, request())).extraBody, isEmpty, reason: 'nothing chosen, nothing sent');
+
+      const glm = ModelConfig(
+        id: 'zai-org/GLM-5.3',
+        name: 'x',
+        thinking: ThinkingConfig(format: ThinkingFormat.zaiApi, clearThinking: true),
+      );
+      GenerateRequest withThinking(bool on, double accuracy) => GenerateRequest(
+            prompt: ChatMlPromptBuilder.build(const [UserTurn('こんにちは')], const [], null, false),
+            toolCallSchema: null,
+            thinking: on,
+            maxTokens: 2048,
+            sampling: _sampling,
+            user: UserSampling(speedAccuracy: accuracy),
+          );
+      final on = await sent('zai-org/GLM-5.3', glm, withThinking(true, 0.9));
+      expect(on.extraBody['thinking'], {'type': 'enabled', 'clear_thinking': true});
+      expect(on.extraBody['reasoning_effort'], 'max');
+      final off = await sent('zai-org/GLM-5.3', glm, withThinking(false, 0.9));
+      expect(off.extraBody['thinking'], {'type': 'disabled', 'clear_thinking': true});
+      expect(off.extraBody.containsKey('reasoning_effort'), isFalse);
     });
 
     test('最大トークンは、モデルの最大出力と、文脈に残った分に収める', () async {

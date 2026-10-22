@@ -1,11 +1,15 @@
 import 'dart:io';
 
+import 'package:arce_ai/ai/provider_config.dart';
+import 'package:arce_ai/ai/thinking_config.dart';
 import 'package:arce_ai/core/chat_controller.dart';
 import 'package:arce_ai/core/releases.dart';
 import 'package:arce_ai/services/app_controller.dart';
 import 'package:arce_ai/services/settings.dart';
 import 'package:arce_ai/services/update_service.dart';
 import 'package:arce_ai/app.dart';
+import 'package:arce_ai/ui/provider_widgets.dart';
+import 'package:arce_ai/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -173,6 +177,97 @@ void main() {
     await tester.enterText(find.widgetWithText(TextField, '2048'), '262144');
     await tester.pump();
     expect(app.settings.value.onlineMaxTokens, 262144, reason: 'the old 32768 ceiling is gone');
+  });
+
+  testWidgets('model editor: limits, the maker\'s note and a thinking format can be set and saved', (tester) async {
+    setSize(tester, const Size(500, 2600));
+    final app = await makeApp(tester);
+    const config = ProviderConfig(
+      id: 'host',
+      label: 'ホスト',
+      baseUrl: 'https://host.example/v1',
+      models: [ModelConfig(id: 'zai-org/GLM-5.3', name: 'GLM')],
+    );
+    await app.providers.save(config);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => ModelEditor(app: app, provider: config, model: config.models.single),
+              ),
+              child: const Text('開く'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('開く'));
+    await tester.pumpAndSettle();
+
+    // the maker's recommendation is shown, and the empty fields show what applies
+    expect(find.textContaining('GLM-5 の推奨（公式モデルカード）'), findsOneWidget);
+    expect(find.textContaining('GLM-5.3（公式モデルカード）：reasoning_effort'), findsOneWidget);
+    expect(find.text('送らない（提供元の既定）'), findsWidgets);
+    expect(find.text('clear_thinking（GLM）'), findsNothing, reason: 'no format chosen yet');
+
+    await tester.tap(find.text('おすすめの送り方を入れる'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('を選びました'), findsOneWidget);
+    expect(find.text('clear_thinking（GLM）'), findsOneWidget);
+    expect(find.text('true（過去の思考を捨てる・チャット向け）'), findsWidgets, reason: 'the GLM-5.3 card says to pass true for chat');
+
+    // the empty context field shows the maker's 1M as its placeholder
+    await tester.enterText(find.widgetWithText(TextField, '1048576'), '900000');
+    await tester.enterText(find.widgetWithText(TextField, '例: 65536'), '131072');
+    await tester.ensureVisible(find.text('保存'));
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3)); // the toast's timer
+
+    final saved = app.providers.byId('host')!.models.single;
+    expect(saved.thinking.format, ThinkingFormat.chatTemplate, reason: 'a Hugging Face name is served by a vLLM-like host');
+    expect(saved.thinking.clearThinking, isTrue);
+    expect(saved.contextTokens, 900000);
+    expect(saved.maxOutputTokens, 131072);
+  });
+
+  testWidgets('chat: the thinking switch says when an online model does not hear about it', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await app.providers.save(const ProviderConfig(
+      id: 'host',
+      label: 'ホスト',
+      baseUrl: 'https://host.example/v1',
+      models: [ModelConfig(id: 'deepseek-v4-flash', name: 'ds')],
+    ));
+    await app.providers.setActive('host');
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+    expect(app.engine.isCloud, isTrue);
+
+    await tester.tap(find.text('思考'));
+    await tester.pump();
+    expect(find.textContaining('思考の送り方が未設定'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+
+    // once a format is chosen the model does hear it: the plain message
+    await app.providers.save(const ProviderConfig(
+      id: 'host',
+      label: 'ホスト',
+      baseUrl: 'https://host.example/v1',
+      models: [ModelConfig(id: 'deepseek-v4-flash', name: 'ds', thinking: ThinkingConfig(format: ThinkingFormat.deepseekApi))],
+    ));
+    await tester.tap(find.text('思考'));
+    await tester.pump();
+    expect(find.textContaining('思考の送り方が未設定'), findsNothing);
+    expect(find.text('Thinking表示をオン'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('settings page: coding mode asks for both models before it can work', (tester) async {

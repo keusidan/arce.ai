@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'model_info.dart';
+import 'thinking_config.dart';
 
 /// One model of a provider, with the sampling settings and the extra prompt it needs.
 ///
@@ -16,6 +17,7 @@ class ModelConfig {
     this.vision,
     this.contextTokens,
     this.maxOutputTokens,
+    this.thinking = ThinkingConfig.none,
   });
 
   /// The name the API expects (`gpt-4o-mini`, `openai/gpt-oss-120b`, ...).
@@ -39,6 +41,9 @@ class ModelConfig {
   /// Null means not known; the maker's recommendation (`ModelHints`) fills in where it has one.
   final int? contextTokens;
   final int? maxOutputTokens;
+
+  /// How thinking is asked for in the request (see [ThinkingConfig]); nothing is sent by default.
+  final ThinkingConfig thinking;
 
   /// What the chat acts on: the user's answer, or a guess from the model's name.
   bool get supportsImages => vision ?? guessVision(id);
@@ -66,6 +71,7 @@ class ModelConfig {
     Map<String, double>? params,
     String? prompt,
     bool? vision,
+    ThinkingConfig? thinking,
   }) => ModelConfig(
     id: id,
     name: name ?? this.name,
@@ -74,6 +80,7 @@ class ModelConfig {
     vision: vision ?? this.vision,
     contextTokens: contextTokens,
     maxOutputTokens: maxOutputTokens,
+    thinking: thinking ?? this.thinking,
   );
 
   /// The same model with exactly these limits; null clears one (copyWith cannot).
@@ -85,6 +92,7 @@ class ModelConfig {
     vision: vision,
     contextTokens: contextTokens,
     maxOutputTokens: maxOutputTokens,
+    thinking: thinking,
   );
 
   /// What [info] adds to this model. Values the model already has stay, unless [overwrite]
@@ -97,6 +105,7 @@ class ModelConfig {
     vision: overwrite ? (info.vision ?? vision) : (vision ?? info.vision),
     contextTokens: overwrite ? (info.contextTokens ?? contextTokens) : (contextTokens ?? info.contextTokens),
     maxOutputTokens: overwrite ? (info.maxOutputTokens ?? maxOutputTokens) : (maxOutputTokens ?? info.maxOutputTokens),
+    thinking: thinking,
   );
 
   Map<String, Object?> toJson() => {
@@ -107,6 +116,7 @@ class ModelConfig {
     if (vision != null) 'vision': vision,
     if (contextTokens != null) 'contextTokens': contextTokens,
     if (maxOutputTokens != null) 'maxOutputTokens': maxOutputTokens,
+    if (!thinking.isDefault) 'thinking': thinking.toJson(),
   };
 
   factory ModelConfig.fromJson(Map<String, Object?> json) {
@@ -128,6 +138,7 @@ class ModelConfig {
       vision: json['vision'] is bool ? json['vision']! as bool : null,
       contextTokens: _positive(json['contextTokens']),
       maxOutputTokens: _positive(json['maxOutputTokens']),
+      thinking: ThinkingConfig.fromJson(json['thinking']),
     );
   }
 }
