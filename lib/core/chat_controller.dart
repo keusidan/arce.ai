@@ -383,6 +383,11 @@ class ChatController extends ChangeNotifier {
   ChatState get state => _state;
 
   final List<ChatMessage> _history = [];
+
+  /// The pictures the history marks, by id. They live only as long as the conversation is open:
+  /// a saved conversation keeps the marker, and a model that is asked about it later sees the
+  /// file name instead.
+  final Map<String, ImageData> _images = {};
   int _nextId = 0;
   AgentDefinition? _agent;
 
@@ -408,6 +413,7 @@ class ChatController extends ChangeNotifier {
     _history
       ..clear()
       ..addAll(snapshot.history);
+    _images.clear();
     _nextId = snapshot.nextId;
     // Choose the agent again for the restored conversation, from its last request.
     _agent = null;
@@ -436,6 +442,10 @@ class ChatController extends ChangeNotifier {
         _state.isGenerating ||
         _busy) {
       return Future.value();
+    }
+    for (final a in attachments.take(AttachmentPolicy.maxFiles)) {
+      final image = a.image;
+      if (image != null) _images[image.id] = image;
     }
     _history.add(UserTurn(AttachmentPolicy.compose(text, attachments)));
     _append(
@@ -653,6 +663,7 @@ class ChatController extends ChangeNotifier {
         prompt: prompt,
         toolCallSchema: schema,
         tools: tools,
+        images: _images,
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
         sampling: thinking

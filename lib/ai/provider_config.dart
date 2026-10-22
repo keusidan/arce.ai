@@ -11,6 +11,7 @@ class ModelConfig {
     required this.name,
     this.params = const {},
     this.prompt = '',
+    this.vision,
   });
 
   /// The name the API expects (`gpt-4o-mini`, `openai/gpt-oss-120b`, ...).
@@ -26,6 +27,21 @@ class ModelConfig {
   /// Added as a system message in front of every request for this model.
   final String prompt;
 
+  /// Whether the model takes images; null while the user has not said, then [guessVision] decides.
+  final bool? vision;
+
+  /// What the chat acts on: the user's answer, or a guess from the model's name.
+  bool get supportsImages => vision ?? guessVision(id);
+
+  /// A guess from well-known model families, only for a model the user has not set. A wrong guess
+  /// costs one error from the provider and is fixed with the switch in the model's settings.
+  static bool guessVision(String id) => _visionNames.hasMatch(id.toLowerCase());
+
+  static final _visionNames = RegExp(
+    r'gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-5|claude|gemini|gemma-?3|llava|vision|pixtral|llama-?4|'
+    r'minicpm-v|internvl|molmo|qwen.*omni|(^|[-_/:.])vl([-_/:.]|$)',
+  );
+
   double? param(String key) => params[key];
 
   int? intParam(String key) {
@@ -37,11 +53,13 @@ class ModelConfig {
     String? name,
     Map<String, double>? params,
     String? prompt,
+    bool? vision,
   }) => ModelConfig(
     id: id,
     name: name ?? this.name,
     params: params ?? this.params,
     prompt: prompt ?? this.prompt,
+    vision: vision ?? this.vision,
   );
 
   Map<String, Object?> toJson() => {
@@ -49,6 +67,7 @@ class ModelConfig {
     'name': name,
     if (params.isNotEmpty) 'params': params,
     if (prompt.trim().isNotEmpty) 'prompt': prompt,
+    if (vision != null) 'vision': vision,
   };
 
   factory ModelConfig.fromJson(Map<String, Object?> json) {
@@ -67,6 +86,7 @@ class ModelConfig {
               entry.key as String: (entry.value! as num).toDouble(),
       },
       prompt: json['prompt'] is String ? json['prompt']! as String : '',
+      vision: json['vision'] is bool ? json['vision']! as bool : null,
     );
   }
 }

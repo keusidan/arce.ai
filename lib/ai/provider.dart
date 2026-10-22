@@ -1,3 +1,4 @@
+import '../core/attachments.dart';
 import '../core/generation.dart';
 import 'provider_config.dart';
 
@@ -55,10 +56,14 @@ class AiMessage {
     this.text = '',
     this.toolCalls = const [],
     this.toolCallId = '',
+    this.images = const [],
   });
 
   final AiRole role;
   final String text;
+
+  /// Pictures sent with a user message. Only set for a provider that can see them.
+  final List<ImageData> images;
 
   /// Calls the assistant made in this turn, kept so the provider sees its own request again.
   final List<ToolCallDelta> toolCalls;

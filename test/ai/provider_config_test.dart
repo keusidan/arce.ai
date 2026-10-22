@@ -163,4 +163,28 @@ void main() {
       );
     });
   });
+
+  group('画像への対応', () {
+    test('選んだ値は書き出して読み戻せ、選んでいなければ書き出さない', () {
+      final set = _openai.copyWith(models: const [ModelConfig(id: 'm', name: 'm', vision: true)]);
+      expect(ProviderList.decode(ProviderList.encode([set])).single.models.single.vision, isTrue);
+      expect(ProviderList.encode([_openai]), isNot(contains('vision')));
+      expect(ProviderList.decode(ProviderList.encode([_openai])).single.models.single.vision, isNull);
+    });
+
+    test('名前からの推測は、有名な系統だけ当てる', () {
+      for (final id in ['gpt-4o', 'gpt-4.1-mini', 'claude-sonnet-4', 'gemini-2.5-flash', 'llava:13b', 'qwen2.5-vl-7b', 'meta-llama/llama-4-scout']) {
+        expect(ModelConfig.guessVision(id), isTrue, reason: id);
+      }
+      for (final id in ['gpt-3.5-turbo', 'deepseek-chat', 'openai/gpt-oss-120b', 'qwen3-8b', 'llama-3.1-70b', 'o3-mini']) {
+        expect(ModelConfig.guessVision(id), isFalse, reason: id);
+      }
+    });
+
+    test('壊れた値は無かったことにして、推測に戻る', () {
+      final m = ModelConfig.fromJson({'id': 'gpt-4o', 'name': 'x', 'vision': 'yes'});
+      expect(m.vision, isNull);
+      expect(m.supportsImages, isTrue);
+    });
+  });
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -80,12 +79,17 @@ class _ChatPageState extends State<ChatPage> {
         break;
       }
       try {
-        final bytes = await File(path).readAsBytes();
-        // text only: a file that is not valid UTF-8 would fill the context with garbage
-        final text = const Utf8Decoder(allowMalformed: false).convert(bytes);
-        setState(() => _attachments.add(Attachment(file.name, text)));
+        // a picture for a model that can see, text for any other file
+        final attachment = AttachmentReader.read(
+          file.name,
+          await File(path).readAsBytes(),
+          acceptImages: app.acceptsImages,
+        );
+        setState(() => _attachments.add(attachment));
+      } on AttachmentException catch (e) {
+        app.showToast(e.message);
       } catch (_) {
-        app.showToast('${file.name} はテキストとして読めませんでした');
+        app.showToast('${file.name} を読み込めませんでした');
       }
     }
   }

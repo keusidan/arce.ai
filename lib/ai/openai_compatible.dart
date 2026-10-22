@@ -60,7 +60,12 @@ class OpenAiCompatibleProvider implements AiProvider {
 
   @override
   ProviderCapabilities get capabilities =>
-      ProviderCapabilities(tools: supportsTools, reasoning: true, usage: true);
+      ProviderCapabilities(
+        tools: supportsTools,
+        reasoning: true,
+        vision: modelConfig?.supportsImages ?? ModelConfig.guessVision(model),
+        usage: true,
+      );
 
   Uri _uri(String path) =>
       Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}/$path');
@@ -207,7 +212,18 @@ class OpenAiCompatibleProvider implements AiProvider {
       case AiRole.system:
         return {'role': 'system', 'content': message.text};
       case AiRole.user:
-        return {'role': 'user', 'content': message.text};
+        if (message.images.isEmpty) return {'role': 'user', 'content': message.text};
+        return {
+          'role': 'user',
+          'content': [
+            if (message.text.isNotEmpty) {'type': 'text', 'text': message.text},
+            for (final image in message.images)
+              {
+                'type': 'image_url',
+                'image_url': {'url': image.dataUrl},
+              },
+          ],
+        };
       case AiRole.assistant:
         if (message.toolCalls.isEmpty) {
           return {'role': 'assistant', 'content': message.text};

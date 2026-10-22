@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:arce_ai/ai/openai_compatible.dart';
 import 'package:arce_ai/ai/provider.dart';
+import 'package:arce_ai/ai/provider_config.dart';
+import 'package:arce_ai/core/attachments.dart';
 import 'package:arce_ai/core/generation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -343,6 +346,53 @@ void main() {
 
       await provider.verify();
       expect(seen.toString(), 'https://api.example/v1/models');
+    });
+  });
+
+  group('画像', () {
+    test('画像つきのメッセージは、本文と画像の並びとして送る', () async {
+      Map<String, Object?>? sent;
+      final provider = providerWith(
+        [textEvent('ok'), 'data: [DONE]\n\n'],
+        onRequest: (r) => sent = jsonDecode((r as http.Request).body) as Map<String, Object?>,
+      );
+      final image = ImageData('image/png', Uint8List.fromList([1, 2, 3]));
+      await provider
+          .stream(AiRequest(messages: [AiMessage(AiRole.user, text: 'これは何？', images: [image])]))
+          .toList();
+      final content = ((sent!['messages']! as List).single as Map)['content'] as List;
+      expect(content[0], {'type': 'text', 'text': 'これは何？'});
+      expect(content[1], {
+        'type': 'image_url',
+        'image_url': {'url': 'data:image/png;base64,AQID'},
+      });
+    });
+
+    test('画像のないメッセージは、これまでどおり文字列のまま送る', () async {
+      Map<String, Object?>? sent;
+      final provider = providerWith(
+        [textEvent('ok'), 'data: [DONE]\n\n'],
+        onRequest: (r) => sent = jsonDecode((r as http.Request).body) as Map<String, Object?>,
+      );
+      await provider.stream(request).toList();
+      expect(((sent!['messages']! as List).last as Map)['content'], 'こんにちは');
+    });
+
+    test('画像に対応するかは、モデルの設定、なければ名前から決まる', () {
+      OpenAiCompatibleProvider with_(String model, {ModelConfig? config}) => OpenAiCompatibleProvider(
+            id: 't',
+            label: 't',
+            baseUrl: 'https://x/v1',
+            model: model,
+            modelConfig: config,
+          );
+      expect(with_('gpt-4o-mini').capabilities.vision, isTrue);
+      expect(with_('qwen2.5-vl-7b').capabilities.vision, isTrue);
+      expect(with_('deepseek-chat').capabilities.vision, isFalse);
+      expect(with_('gpt-oss-120b').capabilities.vision, isFalse);
+      // the user's choice wins over the guess, both ways
+      expect(with_('gpt-4o', config: const ModelConfig(id: 'gpt-4o', name: 'x', vision: false)).capabilities.vision, isFalse);
+      expect(with_('my-model', config: const ModelConfig(id: 'my-model', name: 'x', vision: true)).capabilities.vision, isTrue);
     });
   });
 }

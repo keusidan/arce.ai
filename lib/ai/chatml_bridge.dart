@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../core/attachments.dart';
 import '../core/engine.dart';
 import '../core/stream_segmenter.dart' hide ToolCallDelta;
 import 'provider.dart';
@@ -24,7 +25,15 @@ abstract final class ChatMlBridge {
 
   /// The messages of [prompt]. The reply block at the end is usually empty (it only means
   /// "answer now") and is dropped; a non-empty one is a continuation.
-  static List<AiMessage> messages(String prompt) {
+  ///
+  /// A picture the user attached is marked in the text (see [ImageMarker]). When [vision] is true
+  /// and the bytes are in [images] it goes to the provider as a picture; otherwise the marker
+  /// becomes the file's name, so the model still knows something was attached.
+  static List<AiMessage> messages(
+    String prompt, {
+    Map<String, ImageData> images = const {},
+    bool vision = false,
+  }) {
     final out = <AiMessage>[];
     var cursor = 0;
 
@@ -56,12 +65,25 @@ abstract final class ChatMlBridge {
         case 'system':
           out.add(AiMessage(AiRole.system, text: text.trim()));
         case 'user':
-          out.add(AiMessage(AiRole.user, text: text.trim()));
+          out.add(_user(text.trim(), images, vision));
         case 'assistant':
           out.add(AiMessage(AiRole.assistant, text: _cleanAnswer(text)));
       }
     }
     return out;
+  }
+
+  static AiMessage _user(String text, Map<String, ImageData> images, bool vision) {
+    final attached = <ImageData>[];
+    final shown = text.replaceAllMapped(ImageMarker.pattern, (m) {
+      final image = vision ? images[m.group(1)] : null;
+      if (image != null) {
+        attached.add(image);
+        return '';
+      }
+      return '[画像: ${m.group(2)}]';
+    });
+    return AiMessage(AiRole.user, text: shown.trim(), images: attached);
   }
 
   /// Drops the empty thinking block the prompt starts a reply with, and the blank lines around it.

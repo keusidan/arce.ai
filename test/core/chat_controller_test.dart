@@ -1,5 +1,7 @@
 import 'dart:collection';
+import 'dart:typed_data';
 
+import 'package:arce_ai/core/attachments.dart';
 import 'package:arce_ai/core/chat_controller.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
@@ -48,6 +50,25 @@ class _Runtime implements ToolRuntime {
 void main() {
   const askJson =
       '{"name":"ask_user","arguments":{"title":"どの言語？","options":["Kotlin","Java"],"allow_free_input":true}}';
+
+  test('an attached image is marked in the prompt and its bytes go with the request', () async {
+    final engine = ScriptedEngine([('見えます', FinishReason.eog)]);
+    final chat = ChatController(engine);
+    final image = ImageData('image/png', Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]));
+
+    await chat.send('これは何？', attachments: [Attachment('a.png', '', image: image)]);
+
+    final request = engine.requests.single;
+    expect(request.prompt, contains(ImageMarker.of('a.png', image)));
+    expect(request.images[image.id], same(image));
+    expect(chat.state.messages.first.text, 'これは何？', reason: 'the screen shows what the user typed, not the marker');
+    expect(chat.state.messages.first.attachments, ['a.png']);
+
+    // a new conversation drops the bytes; the saved marker stays in the history only
+    chat.clear();
+    await chat.send('次');
+    expect(engine.requests.last.images, isEmpty);
+  });
 
   test('separates thinking from the answer', () async {
     final chat = ChatController(

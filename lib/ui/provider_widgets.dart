@@ -750,6 +750,9 @@ class _ModelEditorState extends State<_ModelEditor> {
     text: widget.model.prompt,
   );
 
+  /// Starts from what the chat would do now (the saved choice, or the guess from the name).
+  late bool _vision = widget.model.supportsImages;
+
   @override
   void dispose() {
     for (final controller in [
@@ -780,6 +783,7 @@ class _ModelEditorState extends State<_ModelEditor> {
       name: _name.text.trim().isEmpty ? widget.model.id : _name.text.trim(),
       params: params,
       prompt: _prompt.text.trim(),
+      vision: _vision,
     );
     final provider =
         widget.app.providers.byId(widget.provider.id) ?? widget.provider;
@@ -823,6 +827,17 @@ class _ModelEditorState extends State<_ModelEditor> {
             _field('top_p', _topP, '0.95'),
             _field('最大トークン', _maxTokens, '2048'),
             _field('追加プロンプト', _prompt, 'このモデルにだけ送る指示（任意）', maxLines: 3),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: _vision,
+              onChanged: (value) => setState(() => _vision = value),
+              title: Text('画像を送る', style: ts(context, 12)),
+              subtitle: Text(
+                '添付した画像を画像のまま送ります。対応していないモデルでは、オフのままにしてください',
+                style: ts(context, 9.5, color: c.muted),
+              ),
+            ),
             const SizedBox(height: 10),
             PrimaryButton(label: '保存', onTap: _save),
           ],

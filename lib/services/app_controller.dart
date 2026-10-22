@@ -97,6 +97,10 @@ class AppController extends ChangeNotifier {
   final ForegroundService foreground;
   late final ChatController chat;
 
+  /// Whether the model that answers takes images, so attached pictures are read as pictures.
+  /// The device model never does: it reads text only.
+  bool get acceptsImages => engine.cloudProvider?.capabilities.vision ?? false;
+
   AppPage page = AppPage.chat;
 
   /// Which part of the settings page to scroll to (set by the desktop sidebar).

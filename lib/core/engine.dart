@@ -1,3 +1,4 @@
+import 'attachments.dart';
 import 'generation.dart';
 import 'protocol.dart';
 
@@ -58,9 +59,14 @@ class GenerateRequest {
     required this.sampling,
     this.strictJsonSchema,
     this.tools = const [],
+    this.images = const {},
   });
 
   final String prompt;
+
+  /// The pictures the prompt marks (see `ImageMarker`), by id. Only an engine whose model can see
+  /// reads them; the device engine ignores them.
+  final Map<String, ImageData> images;
 
   /// JSON Schema of an allowed tool call; null means the agent has no tools and no grammar is applied.
   final String? toolCallSchema;

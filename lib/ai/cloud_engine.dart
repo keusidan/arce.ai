@@ -34,7 +34,11 @@ class CloudEngine implements InferenceEngine {
   @override
   Stream<GenerationEvent> generate(GenerateRequest request) async* {
     _cancelled = false;
-    final messages = ChatMlBridge.messages(request.prompt);
+    final messages = ChatMlBridge.messages(
+      request.prompt,
+      images: request.images,
+      vision: provider.capabilities.vision,
+    );
     if (messages.isEmpty) {
       throw EngineException('送信する内容を組み立てられませんでした');
     }
