@@ -12,13 +12,18 @@ import android.os.IBinder
 
 /**
  * Keeps the process (and the HTTP request it is waiting on) alive while a reply is generated
- * and the screen is not in front. The notification is the only UI: it says a reply is running
- * and offers a stop button, which the app treats like its own stop button.
+ * or an update is downloaded and the screen is not in front. The notification is the only UI:
+ * it says what is running and offers a stop button, which the app treats like its own stop
+ * button for a reply.
  */
 class GenerationService : Service() {
     companion object {
         const val ACTION_START = "ai.arce.app.action.START_GENERATION"
         const val ACTION_STOP = "ai.arce.app.action.STOP_GENERATION"
+
+        /** What the service is kept alive for: [KIND_UPDATE] or anything else (a reply). */
+        const val EXTRA_KIND = "kind"
+        private const val KIND_UPDATE = "update"
 
         private const val CHANNEL_ID = "generation"
         private const val NOTIFICATION_ID = 4101
@@ -44,11 +49,12 @@ class GenerationService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        startForeground(NOTIFICATION_ID, notification())
+        startForeground(NOTIFICATION_ID, notification(intent?.getStringExtra(EXTRA_KIND)))
         return START_NOT_STICKY
     }
 
-    private fun notification(): Notification {
+    private fun notification(kind: String?): Notification {
+        val updating = kind == KIND_UPDATE
         val open = PendingIntent.getActivity(
             this,
             0,
@@ -68,8 +74,8 @@ class GenerationService : Service() {
             Notification.Builder(this)
         }
         return builder
-            .setContentTitle("ARCE.AI が生成中")
-            .setContentText("画面を閉じても返信を続けます")
+            .setContentTitle(if (updating) "ARCE.AI を更新中" else "ARCE.AI が生成中")
+            .setContentText(if (updating) "他のアプリを開いてもダウンロードを続けます" else "画面を閉じても返信を続けます")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentIntent(open)
             .setOngoing(true)

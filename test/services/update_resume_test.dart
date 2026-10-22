@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -22,6 +23,8 @@ class FakeGitHub {
     required this.checksum,
     this.honourRange = true,
     this.cutOff = false,
+    this.dropFirst = 0,
+    this.stallFirst = 0,
   });
 
   final List<int> payload;
@@ -32,6 +35,12 @@ class FakeGitHub {
 
   /// Stop the stream halfway through.
   final bool cutOff;
+
+  /// Cut the stream of the first this-many downloads halfway through, then behave.
+  final int dropFirst;
+
+  /// Make the first this-many downloads go silent halfway through (a frozen connection).
+  final int stallFirst;
 
   /// Every `Range` header the storage received, in order.
   final List<String?> ranges = [];
@@ -65,19 +74,32 @@ class FakeGitHub {
 
           final range = request.headers['Range'];
           ranges.add(range);
-          if (!honourRange || range == null) {
-            return cutOff ? reply(200, _halfThenBreak()) : reply(200, Stream.value(payload));
+          final attempt = ranges.length;
+          final from = range == null || !honourRange ? 0 : int.parse(RegExp(r'bytes=(\d+)-').firstMatch(range)!.group(1)!);
+          final Stream<List<int>> bytes;
+          if (cutOff || attempt <= dropFirst) {
+            bytes = _half(from, then: () => throw const SocketException('connection lost'));
+          } else if (attempt <= dropFirst + stallFirst) {
+            // a controller, not a generator: cancelling a generator that waits forever never returns
+            final silent = StreamController<List<int>>()..add(_firstHalf(from));
+            bytes = silent.stream;
+          } else {
+            bytes = Stream.value(payload.sublist(from));
           }
-          final from = int.parse(RegExp(r'bytes=(\d+)-').firstMatch(range)!.group(1)!);
-          return cutOff ? reply(206, _halfThenBreak(from)) : reply(206, Stream.value(payload.sublist(from)));
+          return reply(from > 0 ? 206 : 200, bytes);
         }
         return reply(404, const Stream.empty());
       });
 
-  Stream<List<int>> _halfThenBreak([int from = 0]) async* {
+  List<int> _firstHalf(int from) {
     final rest = payload.sublist(from);
-    yield rest.sublist(0, rest.length ~/ 2);
-    throw const SocketException('connection lost');
+    return rest.sublist(0, rest.length ~/ 2);
+  }
+
+  /// The first half of what is asked for, then [then] (an error).
+  Stream<List<int>> _half(int from, {required void Function() then}) async* {
+    yield _firstHalf(from);
+    then();
   }
 }
 
@@ -92,6 +114,8 @@ Future<(UpdateService, Directory)> serviceFor(MockClient client, {String current
     client: client,
     cacheDirectory: () async => dir,
     currentVersion: Version.parse(current),
+    retryDelay: Duration.zero,
+    stallTimeout: const Duration(milliseconds: 200),
   );
   addTearDown(service.dispose);
   return (service, dir);
@@ -120,6 +144,42 @@ void main() {
     final kept = await partFile(dir).length();
     expect(kept, greaterThan(0));
     expect(kept, lessThan(payload.length));
+  }, skip: canDownload ? false : 'this platform has no update files');
+
+  test('通信が切れても、続きから自動で取り直して最後まで届ける', () async {
+    final github = FakeGitHub(payload: payload, checksum: good, dropFirst: 2);
+    final (service, dir) = await serviceFor(github.client());
+
+    await service.check();
+    await service.download();
+
+    final ready = service.state as UpdateReady;
+    expect(await ready.file.readAsBytes(), payload);
+    expect(github.ranges, [null, 'bytes=20000-', 'bytes=30000-'], reason: 'each try continues where the last one stopped');
+    expect(await partFile(dir).exists(), isFalse);
+  }, skip: canDownload ? false : 'this platform has no update files');
+
+  test('無言になった接続は止まったものとして扱い、続きから取り直す', () async {
+    final github = FakeGitHub(payload: payload, checksum: good, stallFirst: 1);
+    final (service, _) = await serviceFor(github.client());
+
+    await service.check();
+    await service.download();
+
+    final ready = service.state as UpdateReady;
+    expect(await ready.file.readAsBytes(), payload);
+    expect(github.ranges, [null, 'bytes=20000-']);
+  }, skip: canDownload ? false : 'this platform has no update files');
+
+  test('切れ続けるときは、決めた回数で諦めて理由を出す', () async {
+    final github = FakeGitHub(payload: payload, checksum: good, cutOff: true);
+    final (service, _) = await serviceFor(github.client());
+
+    await service.check();
+    await service.download();
+
+    expect(github.ranges, hasLength(UpdateService.maxAttempts));
+    expect((service.state as UpdateFailed).reason, contains('通信が途切れました'));
   }, skip: canDownload ? false : 'this platform has no update files');
 
   test('残っていた分は Range で続きだけを取り、全体の SHA-256 で検証する', () async {

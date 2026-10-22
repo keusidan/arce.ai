@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/releases.dart';
 import 'desktop_installer.dart';
+import 'foreground_service.dart';
 import 'settings.dart';
 
 sealed class UpdateState {
@@ -64,14 +65,32 @@ class UpdateService extends ChangeNotifier {
     http.Client? client,
     Future<Directory> Function()? cacheDirectory,
     this.currentVersion,
+    this.foreground,
+    this.retryDelay = const Duration(seconds: 2),
+    this.stallTimeout = const Duration(seconds: 30),
   })  : _client = client ?? http.Client(),
         _cacheDirectory = cacheDirectory ?? getApplicationCacheDirectory;
 
   static const _system = MethodChannel('ai.arce.app/system');
 
+  /// How many times a download is tried before it is reported as failed. Every try after the
+  /// first continues from the part file, so a connection that dropped (the app was in the
+  /// background, the network switched) costs only the time it was down.
+  static const maxAttempts = 5;
+
   final SettingsStore _settings;
   final http.Client _client;
   final Future<Directory> Function() _cacheDirectory;
+
+  /// Kept running while a download is in progress, so Android does not freeze the process (and
+  /// the connection with it) when another app is opened. Null where there is no such service.
+  final ForegroundService? foreground;
+
+  /// Wait before try *n* is `retryDelay * n`.
+  final Duration retryDelay;
+
+  /// A response that sends nothing for this long is treated as a dropped connection.
+  final Duration stallTimeout;
 
   UpdateState _state = const UpdateIdle();
   UpdateState get state => _state;
@@ -182,7 +201,29 @@ class UpdateService extends ChangeNotifier {
     }
   }
 
-  String _explain(Object e) => e is StateError ? e.message : e.toString();
+  String _explain(Object e) {
+    if (e is StateError) return e.message;
+    if (_isTransient(e)) return '通信が途切れました。「更新を確認」から、続きの位置からやり直せます';
+    return e.toString();
+  }
+
+  /// A failure of the connection itself, as opposed to an answer GitHub gave (those are
+  /// [StateError]s with their own message). Trying again can succeed.
+  static bool _isTransient(Object e) =>
+      e is SocketException || e is HttpException || e is TimeoutException || e is http.ClientException || e is TlsException;
+
+  /// Runs [action] and, when the connection fails, tries again up to [maxAttempts] times.
+  Future<T> _retrying<T>(Future<T> Function() action) async {
+    for (var attempt = 1;; attempt++) {
+      try {
+        return await action();
+      } catch (e) {
+        if (!_isTransient(e) || attempt >= maxAttempts) rethrow;
+        debugPrint('update download interrupted ($e), retry $attempt/${maxAttempts - 1}');
+        await Future<void>.delayed(retryDelay * attempt);
+      }
+    }
+  }
 
   Map<String, String> _headers(String accept, {required bool withToken}) => {
         'Accept': accept,
@@ -211,8 +252,9 @@ class UpdateService extends ChangeNotifier {
       return;
     }
     _set(UpdateDownloading(release, 0, asset.sizeBytes));
+    await foreground?.start(ForegroundReason.update);
     try {
-      final expected = ReleaseParser.parseChecksum(utf8Text(await _assetBytes(checksum)));
+      final expected = ReleaseParser.parseChecksum(utf8Text(await _retrying(() => _assetBytes(checksum))));
       if (expected == null) throw StateError('チェックサムファイルを読み取れません');
       final cache = await _cacheDirectory();
       final dir = Directory('${cache.path}${Platform.pathSeparator}updates');
@@ -227,7 +269,9 @@ class UpdateService extends ChangeNotifier {
       }
       final file = File('${dir.path}${Platform.pathSeparator}${asset.name}');
       final part = File('${file.path}.part');
-      final digest = await _downloadAsset(asset, file, part, (done) => _set(UpdateDownloading(release, done, asset.sizeBytes)));
+      final digest = await _retrying(
+        () => _downloadAsset(asset, file, part, (done) => _set(UpdateDownloading(release, done, asset.sizeBytes))),
+      );
       if (digest.toLowerCase() != expected.toLowerCase()) {
         for (final f in [file, part]) {
           if (await f.exists()) await f.delete();
@@ -237,6 +281,8 @@ class UpdateService extends ChangeNotifier {
       _set(UpdateReady(release, file));
     } catch (e) {
       _set(UpdateFailed(_explain(e)));
+    } finally {
+      await foreground?.stop(ForegroundReason.update);
     }
   }
 
@@ -276,7 +322,7 @@ class UpdateService extends ChangeNotifier {
   Future<List<int>> _assetBytes(ReleaseAsset asset) async {
     final response = await _openAsset(asset);
     final bytes = <int>[];
-    await for (final chunk in response.stream) {
+    await for (final chunk in response.stream.timeout(stallTimeout)) {
       bytes.addAll(chunk);
     }
     return bytes;
@@ -323,7 +369,7 @@ class UpdateService extends ChangeNotifier {
     var lastReport = DateTime.fromMillisecondsSinceEpoch(0);
     onProgress(done);
     try {
-      await for (final chunk in response.stream) {
+      await for (final chunk in response.stream.timeout(stallTimeout)) {
         sink.add(chunk);
         input.add(chunk);
         done += chunk.length;

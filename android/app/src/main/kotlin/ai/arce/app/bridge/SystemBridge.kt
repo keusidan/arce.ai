@@ -48,6 +48,7 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                 "startForeground" -> {
                     val intent = Intent(context, GenerationService::class.java)
                         .setAction(GenerationService.ACTION_START)
+                        .putExtra(GenerationService.EXTRA_KIND, call.argument<String>("kind"))
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         context.startForegroundService(intent)
                     } else {

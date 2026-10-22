@@ -57,6 +57,7 @@ class AppController extends ChangeNotifier {
     required this.history,
     required this.models,
     required this.updates,
+    required this.foreground,
     required this.device,
     required this.cloud,
     required this.engine,
@@ -91,7 +92,9 @@ class AppController extends ChangeNotifier {
   /// Sends each request to the device model or to the chosen provider.
   final RoutingEngine engine;
   final PreviewServer preview;
-  final foreground = ForegroundService();
+
+  /// Shared with [updates]: a download keeps running when another app is in front.
+  final ForegroundService foreground;
   late final ChatController chat;
 
   AppPage page = AppPage.chat;
@@ -124,7 +127,8 @@ class AppController extends ChangeNotifier {
     final history = await ConversationDatabase.open(
       supportDirectory: supportDirectory,
     );
-    final updates = updateService ?? UpdateService(settings);
+    final foreground = ForegroundService();
+    final updates = updateService ?? UpdateService(settings, foreground: foreground);
     final cloud = CloudEngine(const _NoProvider());
     final app = AppController._(
       settings: settings,
@@ -132,6 +136,7 @@ class AppController extends ChangeNotifier {
       history: history,
       models: models,
       updates: updates,
+      foreground: foreground,
       device: device,
       cloud: cloud,
       // the device model answers until the user picks a provider
