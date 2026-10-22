@@ -3,7 +3,7 @@ import 'demo_engine.dart';
 import 'native_engine.dart';
 
 /// Uses the on-device model once one is loaded, and the demo answers until then.
-class HybridEngine implements InferenceEngine {
+class HybridEngine implements InferenceEngine, KvStatePersistence {
   HybridEngine(this.native, this.demo);
 
   final NativeEngine native;
@@ -27,4 +27,10 @@ class HybridEngine implements InferenceEngine {
 
   @override
   Future<void> unload() => native.unload();
+
+  @override
+  Future<int> saveKvState(String path, {required int minTokens}) => native.saveKvState(path, minTokens: minTokens);
+
+  @override
+  Future<int> loadKvState(String path) => native.loadKvState(path);
 }

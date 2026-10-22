@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener, WidgetsFlutterBinding;
 
 import '../ai/cloud_engine.dart';
 import '../ai/coding_engine.dart';
@@ -10,6 +11,7 @@ import '../ai/provider_config.dart';
 import '../ai/routing_engine.dart';
 import '../core/chat_controller.dart';
 import '../core/coding_plan.dart';
+import '../core/engine.dart';
 import '../core/http_get.dart';
 import '../core/protocol.dart';
 import '../core/search.dart';
@@ -25,6 +27,7 @@ import 'conversation_database.dart';
 import 'conversation_search.dart';
 import 'device_info.dart';
 import 'foreground_service.dart';
+import 'kv_snapshots.dart';
 import 'model_manager.dart';
 import 'preview_server.dart';
 import 'provider_store.dart';
@@ -113,6 +116,14 @@ class AppController extends ChangeNotifier {
 
   AppPage page = AppPage.chat;
 
+  /// Saves the device model's KV cache of a conversation to a file; null where the engine cannot.
+  KvSnapshotService? _kv;
+
+  /// The conversation whose prompt the engine's KV cache holds, set when the device model has
+  /// answered in it.
+  String? _kvOwner;
+  AppLifecycleListener? _lifecycle;
+
   /// Which part of the settings page to scroll to (set by the desktop sidebar).
   final settingsSection = ValueNotifier<SettingsSection?>(null);
 
@@ -163,6 +174,14 @@ class AppController extends ChangeNotifier {
       ),
       preview: PreviewServer(),
     );
+    final local = app.engine.local;
+    if (local is KvStatePersistence) {
+      app._kv = KvSnapshotService(
+        database: history,
+        engine: local as KvStatePersistence,
+        config: () => settings.value.kvSnapshot,
+      );
+    }
     app.engine.coding = CodingEngine(
       settings: () => settings.value.coding,
       roleFor: app._roleFor,
@@ -238,6 +257,13 @@ class AppController extends ChangeNotifier {
     settings.addListener(() => chat.setThinking(settings.value.thinking));
     // adding, removing or editing a provider changes which one answers
     providers.addListener(_applyProvider);
+    // the app going to the background may end with the system closing it: keep the cache now
+    try {
+      WidgetsFlutterBinding.ensureInitialized();
+      _lifecycle = AppLifecycleListener(onPause: () => unawaited(_saveKv()));
+    } catch (e) {
+      debugPrint('no lifecycle events: $e');
+    }
     // a changed timeout reaches the provider in use by building it again
     var timeout = settings.value.providerTimeoutSeconds;
     settings.addListener(() {
@@ -363,6 +389,7 @@ class AppController extends ChangeNotifier {
 
   void newConversation() {
     if (chat.state.isGenerating) return;
+    unawaited(_saveKv(leaving: true));
     conversationId = null;
     chat.clear();
     goTo(AppPage.chat);
@@ -373,13 +400,17 @@ class AppController extends ChangeNotifier {
     if (chat.state.isGenerating) return;
     final snapshot = await history.get(id);
     if (snapshot == null) return;
+    if (id != conversationId) unawaited(_saveKv(leaving: true));
     chat.restore(snapshot);
     conversationId = id;
     goTo(AppPage.chat);
     notifyListeners();
+    _restoreKv(id);
   }
 
   Future<void> deleteConversation(String id) async {
+    // its cache is deleted with it; saving it first would be for nothing
+    if (_kvOwner == id) _kvOwner = null;
     await history.delete(id);
     if (conversationId == id) newConversation();
     await refreshConversations();
@@ -398,10 +429,12 @@ class AppController extends ChangeNotifier {
     }
     final snapshot = await history.get(item.id);
     if (snapshot == null) return;
+    unawaited(_saveKv(leaving: true));
     chat.restore(snapshot);
     conversationId = item.id;
     goTo(AppPage.chat);
     notifyListeners();
+    _restoreKv(item.id);
     if (action == 'resume') {
       if (chat.state.canContinue) {
         unawaited(chat.continueReply());
@@ -426,6 +459,71 @@ class AppController extends ChangeNotifier {
   // One writer at a time, in order: the first save of a new chat must get its id before the next.
   Future<void> _writer = Future.value();
 
+  /// What a saved KV cache must match: the model in memory and how it was loaded. Null when there
+  /// is nothing to save (no llama.cpp model: LiteRT-LM keeps its own cache).
+  String? _kvFingerprint() {
+    final loaded = models.loadedWith;
+    if (loaded == null || models.backend != 'llama.cpp') return null;
+    final file = File(loaded.path);
+    final int size;
+    try {
+      size = file.lengthSync();
+    } on FileSystemException {
+      return null;
+    }
+    return KvSnapshotService.fingerprint(
+      modelName: file.uri.pathSegments.last,
+      modelBytes: size,
+      contextLength: loaded.contextLength,
+      kvCache: loaded.kvCache,
+      appVersion: '${updates.currentVersion ?? ''}',
+    );
+  }
+
+  /// Keeps the engine's cache of the conversation it last worked on. [leaving] is a switch to
+  /// another conversation: the cache then belongs to nobody any more.
+  Future<void> _saveKv({bool leaving = false}) async {
+    final owner = _kvOwner;
+    if (leaving) _kvOwner = null;
+    final kv = _kv;
+    final fingerprint = _kvFingerprint();
+    if (kv == null || owner == null || fingerprint == null || !settings.value.kvSnapshotEnabled) return;
+    // a running reply is changing the cache; its end saves it
+    if (chat.state.isGenerating) return;
+    await kv.save(owner, fingerprint);
+  }
+
+  /// Gives the engine the saved cache of [id], so its prompt is not evaluated again.
+  void _restoreKv(String id) {
+    final kv = _kv;
+    final fingerprint = _kvFingerprint();
+    if (kv == null || fingerprint == null || providers.isCloud || !settings.value.kvSnapshotEnabled) return;
+    final seen = chat.state.messages.length;
+    unawaited(
+      kv
+          .restore(
+            id,
+            fingerprint,
+            // once the user has written to the model, loading would only throw that work away
+            stillWanted: () => conversationId == id && !chat.state.isGenerating && chat.state.messages.length == seen,
+          )
+          .then((restored) {
+        if (restored) _kvOwner = id;
+      }),
+    );
+  }
+
+  /// Size of the saved caches, for the settings screen.
+  int get kvSnapshotBytes => _kv?.totalBytes ?? 0;
+
+  /// Whether this build can save caches at all (the device engine of the Android build).
+  bool get canSaveKv => _kv != null && NativeEngine.isSupportedPlatform;
+
+  Future<void> clearKvSnapshots() async {
+    await _kv?.clear();
+    notifyListeners();
+  }
+
   void _persist(ConversationSnapshot snapshot, bool generating) {
     if (snapshot.messages.isEmpty) return;
     final providerId = providers.activeId;
@@ -443,6 +541,8 @@ class AppController extends ChangeNotifier {
           conversationId = id;
           notifyListeners();
         }
+        // the device model has just worked on this conversation: its cache is the one to keep
+        if (!generating && !providers.isCloud && models.isLoaded) _kvOwner = id;
         await refreshConversations();
       } catch (e) {
         debugPrint('could not save the conversation: $e');
@@ -453,6 +553,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _toastTimer?.cancel();
+    _lifecycle?.dispose();
     chat.removeListener(_syncForeground);
     unawaited(foreground.stop());
     providers.removeListener(_applyProvider);

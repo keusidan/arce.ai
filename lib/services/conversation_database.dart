@@ -40,6 +40,26 @@ class ConversationDatabase {
   final ConversationSnapshotStore store;
   final Directory _support;
 
+  /// The app's data folder; the paths in the `assets` table are relative to it.
+  Directory get supportDirectory => _support;
+
+  /// The saved KV caches (see `KvSnapshotService`), oldest use first.
+  List<AssetRow> kvAssets() => _db.assetsByMime(LlmDatabase.kvMime);
+
+  String addKvAsset({required String relPath, required int byteSize, required String conversationId}) =>
+      _db.addAsset(
+        relPath: relPath,
+        mime: LlmDatabase.kvMime,
+        byteSize: byteSize,
+        // a KV cache is checked by the engine when it is loaded, not by a hash of its bytes
+        sha256: '',
+        conversationId: conversationId,
+      );
+
+  void deleteAsset(String id) => _db.deleteAsset(id);
+
+  void touchAsset(String id) => _db.touchAsset(id);
+
   /// [supportDirectory] replaces the platform's app-data folder (tests use a temporary one).
   static Future<ConversationDatabase> open({Directory? supportDirectory}) async {
     final support = supportDirectory ?? await getApplicationSupportDirectory();

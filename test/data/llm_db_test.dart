@@ -308,6 +308,35 @@ void main() {
     });
   });
 
+  group('KV キャッシュの索引', () {
+    test('mime で引け、使った順（古い順）に並ぶ。使うと新しくなる', () {
+      final id = conversation();
+      final first = db.addAsset(relPath: 'kv/a.kv', mime: LlmDatabase.kvMime, byteSize: 10, sha256: '', conversationId: id, now: DateTime(2026, 1, 1));
+      final second = db.addAsset(relPath: 'kv/b.kv', mime: LlmDatabase.kvMime, byteSize: 20, sha256: '', conversationId: id, now: DateTime(2026, 1, 2));
+      db.addAsset(relPath: 'assets/x.png', mime: 'image/png', byteSize: 5, sha256: 'x', conversationId: id);
+
+      expect([for (final a in db.assetsByMime(LlmDatabase.kvMime)) a.id], [first, second]);
+      db.touchAsset(first, now: DateTime(2026, 2, 1));
+      expect([for (final a in db.assetsByMime(LlmDatabase.kvMime)) a.id], [second, first]);
+      db.deleteAsset(second);
+      expect([for (final a in db.assetsByMime(LlmDatabase.kvMime)) a.id], [first]);
+    });
+
+    test('参照されない添付の掃除の対象にならない（別のサービスが上限を管理する）', () {
+      final id = conversation();
+      db.addAsset(relPath: 'kv/a.kv', mime: LlmDatabase.kvMime, byteSize: 10, sha256: '', conversationId: id);
+      final other = db.addAsset(relPath: 'assets/b.png', mime: 'image/png', byteSize: 10, sha256: 'b', conversationId: id);
+      expect([for (final a in db.unreferencedAssets()) a.id], [other]);
+    });
+
+    test('会話を消すと、その KV の行も消え、ファイルのパスは返る', () {
+      final id = conversation();
+      db.addAsset(relPath: 'kv/a.kv', mime: LlmDatabase.kvMime, byteSize: 10, sha256: '', conversationId: id);
+      expect(db.deleteConversation(id), ['kv/a.kv']);
+      expect(db.assetsByMime(LlmDatabase.kvMime), isEmpty, reason: 'no row is left pointing at a file that was deleted');
+    });
+  });
+
   group('添付', () {
     test('参照されている間は不要扱いにならない', () {
       final id = conversation();

@@ -320,6 +320,26 @@ abstract final class AgentSettings {
       min: -1,
       max: 5,
     ),
+    // Saving the device model's KV cache to files
+    'kvSnapshotEnabled': SettingSpec(
+      key: 'kvSnapshotEnabled',
+      label: 'ローカル: 会話のKVキャッシュをファイルに保存',
+      kind: SettingKind.flag,
+    ),
+    'kvSnapshotMaxMb': SettingSpec(
+      key: 'kvSnapshotMaxMb',
+      label: 'ローカル: 保存するKVキャッシュの合計の上限（MB）',
+      kind: SettingKind.whole,
+      min: 64,
+      max: 65536,
+    ),
+    'kvSnapshotMinTokens': SettingSpec(
+      key: 'kvSnapshotMinTokens',
+      label: 'ローカル: KVキャッシュを保存する最小のトークン数',
+      kind: SettingKind.whole,
+      min: 64,
+      max: 100000,
+    ),
   };
 
   /// Sorted, so the grammar and the prompt show the same order every time.

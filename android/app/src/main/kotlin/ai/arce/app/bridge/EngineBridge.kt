@@ -64,7 +64,8 @@ class EngineBridge(context: Context, messenger: BinaryMessenger) :
                             threads = call.argument<Int>("threads") ?: 4,
                             batchSize = call.argument<Int>("batchSize") ?: 0,
                             gpuLayers = call.argument<Int>("gpuLayers") ?: 0,
-                            kvCache = if (call.argument<Boolean>("kvQ8") == true) KvCacheType.Q8_0 else KvCacheType.F16,
+                            kvCache = KvCacheType.entries.firstOrNull { it.code == call.argument<Int>("kvType") }
+                                ?: KvCacheType.F16,
                         ),
                     )
                     result.success(mapOf("backend" to engine.activeName))
@@ -90,6 +91,17 @@ class EngineBridge(context: Context, messenger: BinaryMessenger) :
                 )
                 result.success(null)
                 scope.launch { runGeneration(id, request) }
+            }
+            "saveState" -> scope.launch {
+                // the file is only a cache: a failure is "nothing saved", never an error for the chat
+                val bytes = runCatching {
+                    engine.saveState(call.argument<String>("path")!!, call.argument<Int>("minTokens") ?: 0)
+                }.getOrDefault(0L)
+                result.success(bytes)
+            }
+            "loadState" -> scope.launch {
+                val tokens = runCatching { engine.loadState(call.argument<String>("path")!!) }.getOrDefault(0L)
+                result.success(tokens)
             }
             "cancel" -> {
                 engine.cancel()

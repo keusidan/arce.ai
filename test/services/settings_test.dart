@@ -124,6 +124,20 @@ void main() {
     expect(d.updateStallSeconds, 30);
   });
 
+  test('KV cache saving is off by default, and its limits stay in range', () {
+    const d = AppSettings();
+    expect(d.kvSnapshotEnabled, isFalse, reason: 'it costs disk space, so the user turns it on');
+    expect(d.kvSnapshot.enabled, isFalse);
+    expect(d.kvSnapshot.maxBytes, 1024 * 1024 * 1024);
+    expect(d.kvSnapshot.minTokens, 512);
+
+    final s = AppSettings.fromJson(const AppSettings(kvSnapshotEnabled: true, kvSnapshotMaxMb: 5, kvSnapshotMinTokens: 1).toJson());
+    expect(s.kvSnapshot.enabled, isTrue);
+    expect(s.kvSnapshot.maxBytes, 64 * 1024 * 1024, reason: 'too small a limit is raised to the smallest one');
+    expect(s.kvSnapshot.minTokens, 64);
+    expect(AppSettings.fromJson({'kvCache': 'q4_0'}).kvCache, KvCacheType.q4_0);
+  });
+
   test('threads and GPU layers follow HyperLoad and the offload setting', () {
     expect(const AppSettings().effectiveThreads(8), 4);
     expect(const AppSettings(hyperLoad: true).effectiveThreads(8), 8);

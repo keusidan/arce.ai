@@ -14,7 +14,10 @@ void main() {
     test('q8 kv cache roughly halves the cost', () {
       final f16 = MemoryEstimator.kvCacheBytes(qwen14b, 16384, KvCacheType.f16);
       final q8 = MemoryEstimator.kvCacheBytes(qwen14b, 16384, KvCacheType.q8_0);
+      final q4 = MemoryEstimator.kvCacheBytes(qwen14b, 16384, KvCacheType.q4_0);
       expect(q8, lessThan(f16 * 0.55));
+      expect(q4, lessThan(f16 * 0.30), reason: 'q4_0 takes 18 bytes where f16 takes 64 for the same 32 values');
+      expect(q4, lessThan(q8));
     });
 
     test('greys out a model that does not fit', () {

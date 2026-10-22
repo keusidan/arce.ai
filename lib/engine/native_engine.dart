@@ -9,7 +9,7 @@ import '../core/generation.dart';
 /// The on-device engines of the Android build (llama.cpp and LiteRT-LM), reached through a
 /// platform channel. The native side owns the model; this class only forwards calls and
 /// turns the event stream back into [GenerationEvent]s.
-class NativeEngine implements InferenceEngine {
+class NativeEngine implements InferenceEngine, KvStatePersistence {
   static const _method = MethodChannel('ai.arce.app/engine');
   static const _events = EventChannel('ai.arce.app/engine/events');
 
@@ -54,7 +54,7 @@ class NativeEngine implements InferenceEngine {
         'threads': params.threads,
         'batchSize': params.batchSize,
         'gpuLayers': params.gpuLayers,
-        'kvQ8': params.kvCache == KvCacheType.q8_0,
+        'kvType': params.kvCache.nativeCode,
       });
       _backend = result?['backend'] as String?;
       _loaded = true;
@@ -127,6 +127,27 @@ class NativeEngine implements InferenceEngine {
   @override
   void cancel() {
     _method.invokeMethod<void>('cancel').catchError((Object _) {});
+  }
+
+  /// A failure is "nothing saved": the file is only a cache, so it never reaches the chat.
+  @override
+  Future<int> saveKvState(String path, {required int minTokens}) async {
+    if (!_loaded) return 0;
+    try {
+      return (await _method.invokeMethod<int>('saveState', {'path': path, 'minTokens': minTokens})) ?? 0;
+    } on PlatformException {
+      return 0;
+    }
+  }
+
+  @override
+  Future<int> loadKvState(String path) async {
+    if (!_loaded) return 0;
+    try {
+      return (await _method.invokeMethod<int>('loadState', {'path': path})) ?? 0;
+    } on PlatformException {
+      return 0;
+    }
   }
 
   @override

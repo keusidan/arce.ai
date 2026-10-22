@@ -41,6 +41,9 @@ struct Engine {
     // Tokens currently held in the KV cache (sequence 0), in order. The next prompt reuses
     // the longest common prefix instead of re-evaluating the whole conversation.
     std::vector<llama_token> cached;
+    // How many of them are the last prompt (the rest is the reply). Only the prompt is worth
+    // saving: a later prompt carries the reply without its thinking, so it cannot reuse it.
+    size_t prompt_len = 0;
 
     ~Engine() {
         if (ctx) llama_free(ctx);
@@ -178,6 +181,7 @@ llama_sampler * make_sampler(const llama_model * model, const std::string & tool
 void forget_cache(Engine * engine) {
     llama_memory_clear(llama_get_memory(engine->ctx), true);
     engine->cached.clear();
+    engine->prompt_len = 0;
 }
 
 // Keeps the KV entries shared with the new prompt and drops the rest. Returns how many
@@ -243,7 +247,7 @@ Java_ai_arce_app_engine_LlamaNative_nativeSchemaToGrammar(JNIEnv * env, jobject,
 
 JNIEXPORT jlong JNICALL
 Java_ai_arce_app_engine_LlamaNative_nativeLoad(JNIEnv * env, jobject, jstring path, jint n_ctx, jint n_threads,
-                                              jint n_batch, jint n_gpu_layers, jboolean kv_q8) {
+                                              jint n_batch, jint n_gpu_layers, jint kv_type) {
     auto engine = std::make_unique<Engine>();
 
     auto mparams = llama_model_default_params();
@@ -264,10 +268,11 @@ Java_ai_arce_app_engine_LlamaNative_nativeLoad(JNIEnv * env, jobject, jstring pa
         cparams.n_batch = static_cast<uint32_t>(n_batch);
         cparams.n_ubatch = static_cast<uint32_t>(std::min(n_batch, 512));
     }
-    if (kv_q8) {
-        // a quantized V cache requires flash attention
-        cparams.type_k = GGML_TYPE_Q8_0;
-        cparams.type_v = GGML_TYPE_Q8_0;
+    // 0 = F16 (the default), 1 = Q8_0, 2 = Q4_0. A quantized V cache requires flash attention.
+    if (kv_type == 1 || kv_type == 2) {
+        const ggml_type type = kv_type == 1 ? GGML_TYPE_Q8_0 : GGML_TYPE_Q4_0;
+        cparams.type_k = type;
+        cparams.type_v = type;
         cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
     }
     engine->ctx = llama_init_from_model(engine->model, cparams);
@@ -350,6 +355,7 @@ Java_ai_arce_app_engine_LlamaNative_nativeStart(JNIEnv * env, jobject, jlong eng
     const size_t reused = reuse_prefix(engine, tokens);
     LOGI("prompt %d tokens, %zu reused from the KV cache", n_prompt, reused);
     if (!decode_prompt(engine, tokens, reused)) return 0;
+    engine->prompt_len = tokens.size();
     return reinterpret_cast<jlong>(session.release());
 }
 
@@ -408,6 +414,52 @@ Java_ai_arce_app_engine_LlamaNative_nativeNext(JNIEnv * env, jobject, jlong sess
 JNIEXPORT jint JNICALL
 Java_ai_arce_app_engine_LlamaNative_nativeFinishReason(JNIEnv *, jobject, jlong session_ptr) {
     return reinterpret_cast<Session *>(session_ptr)->finish;
+}
+
+// Writes the KV entries of the last prompt to a file, so the same conversation can continue later
+// without evaluating the prompt again (after the app was closed, or another conversation was
+// open). Returns the file's size in bytes, or 0 when nothing was written: no model state to keep,
+// fewer than min_tokens, or a model whose state cannot be cut back to the prompt (recurrent and
+// hybrid ones such as Qwen3.5, which could not reuse a prefix in memory either).
+// Must not run while a session is active; the Kotlin side runs it on the llama thread.
+JNIEXPORT jlong JNICALL
+Java_ai_arce_app_engine_LlamaNative_nativeSaveState(JNIEnv * env, jobject, jlong engine_ptr, jstring path,
+                                                   jint min_tokens) {
+    auto * engine = reinterpret_cast<Engine *>(engine_ptr);
+    const size_t keep = std::min(engine->prompt_len, engine->cached.size());
+    if (keep == 0 || keep < static_cast<size_t>(std::max(min_tokens, 1))) return 0;
+
+    if (keep < engine->cached.size()) {
+        if (!llama_memory_seq_rm(llama_get_memory(engine->ctx), 0, static_cast<llama_pos>(keep), -1)) return 0;
+        engine->cached.resize(keep);
+    }
+    const size_t written = llama_state_seq_save_file(engine->ctx, to_string(env, path).c_str(), 0,
+                                                     engine->cached.data(), engine->cached.size());
+    if (written == 0) set_error("could not save the KV state");
+    return static_cast<jlong>(written);
+}
+
+// Reads a file written by nativeSaveState into the (emptied) cache. Returns how many tokens it
+// holds, or 0 on failure (the cache is then empty and the next prompt is evaluated in full). A file
+// from another model, another context size or another llama.cpp build is refused by llama.cpp.
+JNIEXPORT jlong JNICALL
+Java_ai_arce_app_engine_LlamaNative_nativeLoadState(JNIEnv * env, jobject, jlong engine_ptr, jstring path) {
+    auto * engine = reinterpret_cast<Engine *>(engine_ptr);
+    forget_cache(engine);
+
+    std::vector<llama_token> tokens(llama_n_ctx(engine->ctx));
+    size_t count = 0;
+    const size_t read = llama_state_seq_load_file(engine->ctx, to_string(env, path).c_str(), 0, tokens.data(),
+                                                  tokens.size(), &count);
+    if (read == 0 || count == 0 || count > tokens.size()) {
+        forget_cache(engine);
+        set_error("could not load the KV state");
+        return 0;
+    }
+    tokens.resize(count);
+    engine->cached = std::move(tokens);
+    engine->prompt_len = engine->cached.size();
+    return static_cast<jlong>(count);
 }
 
 JNIEXPORT void JNICALL

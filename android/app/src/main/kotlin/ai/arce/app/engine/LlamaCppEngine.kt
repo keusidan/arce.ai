@@ -29,7 +29,7 @@ class LlamaCppEngine : InferenceEngine {
             params.threads,
             params.batchSize,
             params.gpuLayers,
-            params.kvCache == KvCacheType.Q8_0,
+            params.kvCache.code,
         )
         if (handle == 0L) throw EngineException(LlamaNative.nativeLastError())
         engine = handle
@@ -73,6 +73,15 @@ class LlamaCppEngine : InferenceEngine {
             LlamaNative.nativeEnd(session)
         }
     }.flowOn(dispatcher)
+
+    // Both run on the llama thread, after any generation that was queued before them.
+    override suspend fun saveState(path: String, minTokens: Int): Long = withContext(dispatcher) {
+        if (engine == 0L) 0L else LlamaNative.nativeSaveState(engine, path, minTokens)
+    }
+
+    override suspend fun loadState(path: String): Long = withContext(dispatcher) {
+        if (engine == 0L) 0L else LlamaNative.nativeLoadState(engine, path)
+    }
 
     /** Compute devices available to llama.cpp in this build. */
     fun devices(): List<String> = LlamaNative.nativeDevices().toList()

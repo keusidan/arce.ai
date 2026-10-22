@@ -2,12 +2,30 @@ import 'attachments.dart';
 import 'generation.dart';
 import 'protocol.dart';
 
+/// How the KV cache is stored. The same cache costs F16 → Q8_0 → Q4_0 about 1 : ½ : ⅓ of the memory
+/// (a block of 32 values takes 64, 34 and 18 bytes), at a growing cost in accuracy. llama.cpp
+/// supports more types; these are the useful steps.
 enum KvCacheType {
-  f16(2.0),
-  q8_0(1.0625);
+  f16(2.0, 0),
+  q8_0(1.0625, 1),
+  q4_0(0.5625, 2);
 
-  const KvCacheType(this.bytesPerElement);
+  const KvCacheType(this.bytesPerElement, this.nativeCode);
   final double bytesPerElement;
+
+  /// What the native side is told (`kv_type` of `nativeLoad`).
+  final int nativeCode;
+}
+
+/// An engine that can keep the work it did on a prompt in a file and read it back later, so a
+/// conversation that is opened again does not have to be evaluated from the start.
+abstract interface class KvStatePersistence {
+  /// Writes the KV entries of the last prompt to [path]; returns the bytes written, or 0 when
+  /// nothing was written (no model, too short, or a model that cannot do it).
+  Future<int> saveKvState(String path, {required int minTokens});
+
+  /// Reads a file written by [saveKvState]; returns the tokens restored, or 0 when it was refused.
+  Future<int> loadKvState(String path);
 }
 
 class LoadParams {

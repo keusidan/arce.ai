@@ -10,6 +10,7 @@ import '../core/coding_plan.dart';
 import '../core/engine.dart';
 import '../core/settings_spec.dart';
 import '../mcp/mcp_server.dart';
+import 'kv_snapshots.dart';
 
 enum GpuOffload { auto, cpuOnly, gpuPriority, maxGpu }
 
@@ -75,6 +76,9 @@ class AppSettings {
     this.updateRetryAttempts = 5,
     this.updateStallSeconds = 30,
     this.localDryMultiplier = -1,
+    this.kvSnapshotEnabled = false,
+    this.kvSnapshotMaxMb = 1024,
+    this.kvSnapshotMinTokens = 512,
   });
 
   static const defaultRepo = 'keusidan/arce.ai';
@@ -178,6 +182,23 @@ class AppSettings {
   /// DRY, the repetition penalty of the device model; -1 keeps the app's own value.
   final double localDryMultiplier;
 
+  // ---- saving the device model's KV cache to files ----
+
+  /// Keep the work done on a conversation's prompt in a file, so opening it again skips it.
+  final bool kvSnapshotEnabled;
+
+  /// All saved caches together stay under this many megabytes (the one used longest ago goes).
+  final int kvSnapshotMaxMb;
+
+  /// A prompt shorter than this is not saved.
+  final int kvSnapshotMinTokens;
+
+  KvSnapshotConfig get kvSnapshot => KvSnapshotConfig(
+    enabled: kvSnapshotEnabled,
+    maxBytes: kvSnapshotMaxMb.clamp(64, 65536) * 1024 * 1024,
+    minTokens: kvSnapshotMinTokens.clamp(64, 100000),
+  );
+
   AttachmentLimits get attachmentLimits => AttachmentLimits(
     maxFiles: attachMaxFiles.clamp(1, 20),
     maxCharsPerFile: attachCharsPerFile.clamp(500, 200000),
@@ -256,6 +277,9 @@ class AppSettings {
     int? updateRetryAttempts,
     int? updateStallSeconds,
     double? localDryMultiplier,
+    bool? kvSnapshotEnabled,
+    int? kvSnapshotMaxMb,
+    int? kvSnapshotMinTokens,
   }) => AppSettings(
     thinking: thinking ?? this.thinking,
     searchEnabled: searchEnabled ?? this.searchEnabled,
@@ -313,6 +337,9 @@ class AppSettings {
     updateRetryAttempts: updateRetryAttempts ?? this.updateRetryAttempts,
     updateStallSeconds: updateStallSeconds ?? this.updateStallSeconds,
     localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
+    kvSnapshotEnabled: kvSnapshotEnabled ?? this.kvSnapshotEnabled,
+    kvSnapshotMaxMb: kvSnapshotMaxMb ?? this.kvSnapshotMaxMb,
+    kvSnapshotMinTokens: kvSnapshotMinTokens ?? this.kvSnapshotMinTokens,
   );
 
   Map<String, Object?> toJson() => {
@@ -372,6 +399,9 @@ class AppSettings {
     'updateRetryAttempts': updateRetryAttempts,
     'updateStallSeconds': updateStallSeconds,
     'localDryMultiplier': localDryMultiplier,
+    'kvSnapshotEnabled': kvSnapshotEnabled,
+    'kvSnapshotMaxMb': kvSnapshotMaxMb,
+    'kvSnapshotMinTokens': kvSnapshotMinTokens,
   };
 
   /// Unknown, missing or wrongly typed values fall back to the defaults, so older or damaged
@@ -455,6 +485,9 @@ class AppSettings {
       updateRetryAttempts: whole('updateRetryAttempts', d.updateRetryAttempts),
       updateStallSeconds: whole('updateStallSeconds', d.updateStallSeconds),
       localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),
+      kvSnapshotEnabled: flag('kvSnapshotEnabled', d.kvSnapshotEnabled),
+      kvSnapshotMaxMb: whole('kvSnapshotMaxMb', d.kvSnapshotMaxMb),
+      kvSnapshotMinTokens: whole('kvSnapshotMinTokens', d.kvSnapshotMinTokens),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {
         final parsed = McpServers.decode(json['mcpServers']);

@@ -92,6 +92,10 @@ class ModelManager extends ChangeNotifier {
   String? loadedPath;
   String? loadedName;
   double? loadedParamsB;
+
+  /// What the model in memory was loaded with. The settings may have changed since; a saved KV
+  /// cache fits these values, not the current settings.
+  LoadParams? loadedWith;
   String? busy;
   String? error;
   MemoryWarning? memoryWarning;
@@ -160,14 +164,16 @@ class ModelManager extends ChangeNotifier {
     notifyListeners();
     try {
       final gpu = (await _engine.devices()).where((d) => !d.startsWith('CPU')).toList();
-      await _engine.load(LoadParams(
+      final params = LoadParams(
         path: file.path,
         contextLength: s.contextLength,
         threads: s.effectiveThreads(_device.cores),
         batchSize: s.batchSize,
         gpuLayers: s.gpuLayers(gpuAvailable: gpu.isNotEmpty),
         kvCache: s.kvCache,
-      ));
+      );
+      await _engine.load(params);
+      loadedWith = params;
       final name = file.uri.pathSegments.last;
       loadedPath = file.path;
       loadedName = name.contains('.') ? name.substring(0, name.lastIndexOf('.')) : name;
@@ -179,6 +185,7 @@ class ModelManager extends ChangeNotifier {
     } on EngineException catch (e) {
       loadedPath = null;
       loadedName = null;
+      loadedWith = null;
       busy = null;
       error = e.message;
     }
@@ -205,6 +212,7 @@ class ModelManager extends ChangeNotifier {
     loadedPath = null;
     loadedName = null;
     loadedParamsB = null;
+    loadedWith = null;
     backend = null;
     notifyListeners();
   }

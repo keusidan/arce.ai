@@ -15,7 +15,16 @@ internal object LlamaNative {
     external fun nativeSchemaToGrammar(schemaJson: String): String?
 
     /** Returns an engine handle, or 0 on failure (see [nativeLastError]). */
-    external fun nativeLoad(path: String, nCtx: Int, nThreads: Int, nBatch: Int, nGpuLayers: Int, kvQ8: Boolean): Long
+    external fun nativeLoad(path: String, nCtx: Int, nThreads: Int, nBatch: Int, nGpuLayers: Int, kvType: Int): Long
+
+    /**
+     * Saves the KV entries of the last prompt to [path]; returns the bytes written, or 0 when there
+     * was nothing worth keeping. Never while a generation runs.
+     */
+    external fun nativeSaveState(engine: Long, path: String, minTokens: Int): Long
+
+    /** Loads a file from [nativeSaveState]; returns the tokens restored, or 0 on failure. */
+    external fun nativeLoadState(engine: Long, path: String): Long
 
     /** Compute devices llama.cpp was built with, e.g. "CPU: CPU (...)". */
     external fun nativeDevices(): Array<String>

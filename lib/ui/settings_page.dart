@@ -142,7 +142,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case SettingsSection.online:
         return _onlineModel(s, set);
       case SettingsSection.local:
-        return _localModel(s, set);
+        return _localModel(app, s, set);
       case SettingsSection.coding:
         return _codingMode(app, s, set);
       case SettingsSection.limits:
@@ -632,7 +632,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ),
   );
 
-  Widget _localModel(AppSettings s, void Function(AppSettings Function(AppSettings)) set) => ArceCard(
+  Widget _localModel(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) => ArceCard(
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -753,14 +753,66 @@ class _SettingsPageState extends State<SettingsPage> {
         SettingRow(
           icon: ArceSvg.sliders,
           title: 'KV キャッシュ',
-          subtitle: 'Q8 にするとメモリが約半分になります',
+          subtitle: 'Q8_0 でメモリが約半分、Q4_0 で約3分の1。小さいほど精度は少し落ちます',
           trailing: _Cycle<KvCacheType>(
             value: s.kvCache,
             values: KvCacheType.values,
-            label: (v) => v == KvCacheType.f16 ? 'F16' : 'Q8_0',
+            label: (v) => switch (v) {
+              KvCacheType.f16 => 'F16',
+              KvCacheType.q8_0 => 'Q8_0',
+              KvCacheType.q4_0 => 'Q4_0',
+            },
             onChanged: (v) => set((x) => x.copyWith(kvCache: v)),
           ),
         ),
+        SettingRow(
+          icon: ArceSvg.file,
+          title: 'KV キャッシュをファイルに保存',
+          subtitle: '会話の途中までの計算結果を保存し、開き直したときの待ち時間を省きます'
+              '（Android の llama.cpp のみ。1つの会話で数百MBになることがあります）',
+          last: !s.kvSnapshotEnabled,
+          trailing: ArceSwitch(
+            value: s.kvSnapshotEnabled,
+            onChanged: (v) {
+              set((x) => x.copyWith(kvSnapshotEnabled: v));
+              // off means the files are not wanted any more
+              if (!v) app.clearKvSnapshots();
+            },
+          ),
+        ),
+        if (s.kvSnapshotEnabled) ...[
+          SettingRow(
+            icon: ArceSvg.file,
+            title: '保存の上限（合計）',
+            subtitle: '超えたら、いちばん長く使っていない会話の分から消します',
+            trailing: _Cycle<int>(
+              value: s.kvSnapshotMaxMb,
+              values: const [256, 512, 1024, 2048, 4096],
+              label: (v) => '$v MB',
+              onChanged: (v) => set((x) => x.copyWith(kvSnapshotMaxMb: v)),
+            ),
+          ),
+          SettingRow(
+            icon: ArceSvg.sliders,
+            title: '保存する最小の長さ',
+            subtitle: 'これより短いプロンプトは、計算し直すほうが速いので保存しません',
+            trailing: _Cycle<int>(
+              value: s.kvSnapshotMinTokens,
+              values: const [256, 512, 1024, 2048],
+              label: (v) => '$v トークン',
+              onChanged: (v) => set((x) => x.copyWith(kvSnapshotMinTokens: v)),
+            ),
+          ),
+          SettingRow(
+            icon: ArceSvg.close,
+            title: '保存済みのキャッシュ',
+            subtitle: app.canSaveKv
+                ? '合計 ${(app.kvSnapshotBytes / 1048576).toStringAsFixed(1)} MB'
+                : 'この端末（OS）では保存できません',
+            last: true,
+            trailing: SoftButton(label: 'すべて削除', onTap: app.clearKvSnapshots),
+          ),
+        ],
         SettingRow(
           icon: ArceSvg.alert,
           title: 'Force Execution',

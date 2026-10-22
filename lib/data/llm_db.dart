@@ -398,6 +398,9 @@ class LlmDatabase {
   List<String> deleteConversation(String id) {
     final assets = _db.select('SELECT rel_path FROM assets WHERE conversation_id = ?', [id]);
     final paths = [for (final a in assets) a['rel_path'] as String];
+    // a saved KV cache means nothing without its conversation: its row goes too (the caller
+    // deletes the file with the others)
+    _db.execute('DELETE FROM assets WHERE conversation_id = ? AND mime = ?', [id, kvMime]);
     _db.execute('DELETE FROM messages_fts WHERE conversation_id = ?', [id]);
     // Parts and messages go with the conversation through ON DELETE CASCADE.
     _db.execute('DELETE FROM conversations WHERE id = ?', [id]);
@@ -728,14 +731,34 @@ class LlmDatabase {
     return id;
   }
 
-  /// Assets nothing points at any more, so the caller can delete the files.
+  /// The `mime` of a saved KV cache (see `KvSnapshotService`). These files are an index of
+  /// something only the engine can read, not message attachments: no message points at them.
+  static const kvMime = 'application/x-llama-kv-state';
+
+  /// Assets nothing points at any more, so the caller can delete the files. A saved KV cache is
+  /// never listed: it is managed by its own service, which keeps its own limit.
   List<AssetRow> unreferencedAssets() {
     final rows = _db.select(
-      'SELECT a.* FROM assets a WHERE NOT EXISTS '
+      'SELECT a.* FROM assets a WHERE a.mime <> ? AND NOT EXISTS '
       '(SELECT 1 FROM parts p WHERE p.asset_id = a.id)',
+      [kvMime],
     );
     return [for (final r in rows) _asset(r)];
   }
+
+  /// Every asset of [mime], oldest first (the one used longest ago comes first).
+  List<AssetRow> assetsByMime(String mime) {
+    final rows = _db.select('SELECT * FROM assets WHERE mime = ? ORDER BY created_at, id', [mime]);
+    return [for (final r in rows) _asset(r)];
+  }
+
+  void deleteAsset(String id) => _db.execute('DELETE FROM assets WHERE id = ?', [id]);
+
+  /// Marks an asset as just used: `created_at` doubles as "last used" for the ones kept by size.
+  void touchAsset(String id, {DateTime? now}) => _db.execute(
+        'UPDATE assets SET created_at = ? WHERE id = ?',
+        [(now ?? DateTime.now()).millisecondsSinceEpoch, id],
+      );
 
   // ---------------------------------------------------------------- internals
 

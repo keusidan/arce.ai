@@ -141,6 +141,24 @@ void main() {
     expect(find.text('Context Length'), findsNothing);
   });
 
+  testWidgets('settings page: the KV cache file settings appear once the switch is on', (tester) async {
+    setSize(tester, const Size(411, 1200));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.local);
+    await tester.pumpAndSettle();
+    expect(find.text('KV キャッシュをファイルに保存'), findsOneWidget);
+    expect(find.text('保存の上限（合計）'), findsNothing, reason: 'hidden while it is off');
+
+    await app.settings.update((s) => s.copyWith(kvSnapshotEnabled: true));
+    await tester.pumpAndSettle();
+    expect(find.text('保存の上限（合計）'), findsOneWidget);
+    expect(find.text('保存する最小の長さ'), findsOneWidget);
+    expect(find.text('この端末（OS）では保存できません'), findsOneWidget, reason: 'there is no device engine in a test');
+  });
+
   testWidgets('settings page: coding mode asks for both models before it can work', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);

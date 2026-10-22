@@ -57,7 +57,7 @@
 ## 5. エンジンとAndroidの橋渡し
 
 - Dartの `NativeEngine` と、Kotlinの `EngineBridge` は、`ai.arce.app/engine`（メソッド）と `ai.arce.app/engine/events`（イベント）でつなぐ。
-- メソッド：`devices`、`load`、`generate`（`id` を渡す）、`cancel`、`unload`。
+- メソッド：`devices`、`load`（`kvType`＝0 F16 / 1 Q8_0 / 2 Q4_0）、`generate`（`id` を渡す）、`cancel`、`unload`、`saveState` / `loadState`（KV キャッシュのファイル保存。`docs/ARCE_AI_kv-cache_*.md`）。
 - イベント：`{id, type: piece|done|error, text/reason/message}`。1本のストリームを、`id` で振り分ける。
 - 端末情報とAPKのインストールは `ai.arce.app/system`（`memory`、`freeStorage`、`soc`、`canInstall`、`requestInstall`、`install`）。
 - llama.cpp のJNI（`arce_llama.cpp`）は Kotlin 版のまま。JNIの関数名がパッケージ名（`ai.arce.app.engine.LlamaNative`）に結びついているので、**このパッケージ名を変えない**。

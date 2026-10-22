@@ -35,6 +35,11 @@ class RoutingEngine(val llama: LlamaCppEngine, val liteRt: LiteRtEngine) : Infer
         active?.cancel()
     }
 
+    override suspend fun saveState(path: String, minTokens: Int): Long =
+        active?.saveState(path, minTokens) ?: 0L
+
+    override suspend fun loadState(path: String): Long = active?.loadState(path) ?: 0L
+
     override suspend fun unload() {
         active?.unload()
         active = null
