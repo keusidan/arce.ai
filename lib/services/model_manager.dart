@@ -66,6 +66,7 @@ class ModelManager extends ChangeNotifier {
       directory,
       connections: () => _settings.value.downloadConnections.clamp(1, 16),
       stall: () => Duration(seconds: _settings.value.updateStallSeconds.clamp(5, 600)),
+      attempts: () => _settings.value.updateRetryAttempts.clamp(1, 20),
     );
   }
 
@@ -306,7 +307,8 @@ class ModelManager extends ChangeNotifier {
       _setDownload(spec, DownloadPaused(await _downloader.downloadedBytes(spec), spec.fileBytes));
     } catch (e) {
       final kept = await _downloader.downloadedBytes(spec);
-      _setDownload(spec, kept > 0 ? DownloadPaused(kept, spec.fileBytes, '$e') : DownloadFailed('$e'));
+      final why = ModelDownloader.explainError(e);
+      _setDownload(spec, kept > 0 ? DownloadPaused(kept, spec.fileBytes, why) : DownloadFailed(why));
     } finally {
       _cancels.remove(spec.id);
     }

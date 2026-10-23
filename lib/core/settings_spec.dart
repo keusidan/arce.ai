@@ -301,7 +301,7 @@ abstract final class AgentSettings {
     ),
     'updateRetryAttempts': SettingSpec(
       key: 'updateRetryAttempts',
-      label: '更新ダウンロードの試行回数',
+      label: 'ダウンロードの試行回数',
       kind: SettingKind.whole,
       min: 1,
       max: 20,

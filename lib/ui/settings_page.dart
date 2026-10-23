@@ -507,7 +507,7 @@ class _SettingsPageState extends State<SettingsPage> {
               (x, v) => x.copyWith(providerTimeoutSeconds: v), unit: ' 秒'),
           cycle(ArceSvg.retry, 'ツールの繰り返しで止める回数', '同じ呼び出しがこの回数続いたら、ループとみなして止めます', s.toolRepeatLimit, const [2, 3, 4, 5],
               (x, v) => x.copyWith(toolRepeatLimit: v)),
-          cycle(ArceSvg.retry, '更新ダウンロードの試行回数', '通信が切れたとき、続きから取り直す回数', s.updateRetryAttempts, const [1, 3, 5, 10],
+          cycle(ArceSvg.retry, 'ダウンロードの試行回数', '通信が切れたとき、続きから取り直す回数（モデルも更新も）', s.updateRetryAttempts, const [1, 3, 5, 10],
               (x, v) => x.copyWith(updateRetryAttempts: v)),
           cycle(ArceSvg.clock, 'ダウンロードの無通信の判定', 'この秒数なにも届かなければ、切れたとみなします', s.updateStallSeconds, const [15, 30, 60, 120],
               (x, v) => x.copyWith(updateStallSeconds: v), unit: ' 秒'),
