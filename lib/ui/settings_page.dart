@@ -512,7 +512,14 @@ class _SettingsPageState extends State<SettingsPage> {
           cycle(ArceSvg.clock, 'ダウンロードの無通信の判定', 'この秒数なにも届かなければ、切れたとみなします', s.updateStallSeconds, const [15, 30, 60, 120],
               (x, v) => x.copyWith(updateStallSeconds: v), unit: ' 秒'),
           cycle(ArceSvg.bolt, 'ダウンロードの同時接続数', '大きなファイルを分けて同時に取ります。遅いときに増やします（1で分けない）', s.downloadConnections, const [1, 2, 4, 8, 16],
-              (x, v) => x.copyWith(downloadConnections: v), last: true),
+              (x, v) => x.copyWith(downloadConnections: v)),
+          SettingRow(
+            icon: ArceSvg.retry,
+            title: '止まったダウンロードを次の起動で続ける',
+            subtitle: 'アプリを閉じて止まったモデルのダウンロードを、起動したときに続きから取ります（モバイル回線でも始まります）',
+            last: true,
+            trailing: ArceSwitch(value: s.resumeDownloadsOnStart, onChanged: (v) => set((x) => x.copyWith(resumeDownloadsOnStart: v))),
+          ),
         ],
       ),
     );

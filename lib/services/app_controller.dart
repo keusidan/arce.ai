@@ -156,16 +156,17 @@ class AppController extends ChangeNotifier {
     final providers = await ProviderStore.load();
     final device = DeviceInfoService();
     final native = NativeEngine();
+    final foreground = ForegroundService();
     final models = await ModelManager.create(
       engine: native,
       settings: settings,
       device: device,
+      foreground: foreground,
       supportDirectory: supportDirectory,
     );
     final history = await ConversationDatabase.open(
       supportDirectory: supportDirectory,
     );
-    final foreground = ForegroundService();
     final updates = updateService ?? UpdateService(settings, foreground: foreground);
     final cloud = CloudEngine(const _NoProvider());
     final app = AppController._(
@@ -301,6 +302,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _start() async {
+    // a model download that the app was closed in the middle of carries on (a setting)
+    if (settings.value.resumeDownloadsOnStart) {
+      models.resumeInterrupted();
+    } else {
+      models.interrupted.clear();
+    }
     settings.addListener(() => chat.setThinking(settings.value.thinking));
     // adding, removing or editing a provider changes which one answers
     providers.addListener(_applyProvider);

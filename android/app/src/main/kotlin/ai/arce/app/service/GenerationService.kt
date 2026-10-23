@@ -21,9 +21,10 @@ class GenerationService : Service() {
         const val ACTION_START = "ai.arce.app.action.START_GENERATION"
         const val ACTION_STOP = "ai.arce.app.action.STOP_GENERATION"
 
-        /** What the service is kept alive for: [KIND_UPDATE] or anything else (a reply). */
+        /** What the service is kept alive for: [KIND_UPDATE], [KIND_MODEL] or anything else (a reply). */
         const val EXTRA_KIND = "kind"
         private const val KIND_UPDATE = "update"
+        private const val KIND_MODEL = "modelDownload"
 
         private const val CHANNEL_ID = "generation"
         private const val NOTIFICATION_ID = 4101
@@ -55,6 +56,7 @@ class GenerationService : Service() {
 
     private fun notification(kind: String?): Notification {
         val updating = kind == KIND_UPDATE
+        val model = kind == KIND_MODEL
         val open = PendingIntent.getActivity(
             this,
             0,
@@ -74,8 +76,20 @@ class GenerationService : Service() {
             Notification.Builder(this)
         }
         return builder
-            .setContentTitle(if (updating) "ARCE.AI を更新中" else "ARCE.AI が生成中")
-            .setContentText(if (updating) "他のアプリを開いてもダウンロードを続けます" else "画面を閉じても返信を続けます")
+            .setContentTitle(
+                when {
+                    updating -> "ARCE.AI を更新中"
+                    model -> "モデルをダウンロード中"
+                    else -> "ARCE.AI が生成中"
+                },
+            )
+            .setContentText(
+                when {
+                    updating -> "他のアプリを開いてもダウンロードを続けます"
+                    model -> "他のアプリを開いてもダウンロードを続けます"
+                    else -> "画面を閉じても返信を続けます"
+                },
+            )
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentIntent(open)
             .setOngoing(true)

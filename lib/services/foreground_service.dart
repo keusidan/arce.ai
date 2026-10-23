@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 /// What the foreground service is being kept alive for. It decides the text of the notification.
-enum ForegroundReason { generation, update }
+enum ForegroundReason { generation, update, modelDownload }
 
 /// Android's foreground service while the app has work that must survive leaving the screen:
-/// a reply being generated, or an update being downloaded.
+/// a reply being generated, an update being downloaded, or a model being downloaded.
 ///
 /// The service only keeps the process alive and shows a notification; the work itself is the
 /// same stream as before. Both kinds of work share one service, so it stops only when the last

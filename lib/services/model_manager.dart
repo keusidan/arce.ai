@@ -8,6 +8,7 @@ import '../core/engine.dart';
 import '../core/model_catalog.dart';
 import '../engine/native_engine.dart';
 import 'device_info.dart';
+import 'foreground_service.dart';
 import 'model_downloader.dart';
 import 'segmented_download.dart';
 import 'settings.dart';
@@ -61,7 +62,7 @@ String formatGb(int bytes) => '${(bytes / 1e9).toStringAsFixed(2)} GB';
 /// Everything here works only where [NativeEngine] exists (Android); other platforms list the
 /// catalog but cannot download or load.
 class ModelManager extends ChangeNotifier {
-  ModelManager._(this.directory, this._engine, this._settings, this._device) {
+  ModelManager._(this.directory, this._engine, this._settings, this._device, this._foreground) {
     _downloader = ModelDownloader(
       directory,
       connections: () => _settings.value.downloadConnections.clamp(1, 16),
@@ -74,13 +75,15 @@ class ModelManager extends ChangeNotifier {
     required NativeEngine engine,
     required SettingsStore settings,
     required DeviceInfoService device,
+    ForegroundService? foreground,
     Directory? supportDirectory,
   }) async {
     final support = supportDirectory ?? await getApplicationSupportDirectory();
     final dir = Directory('${support.path}${Platform.pathSeparator}models');
-    final manager = ModelManager._(dir, engine, settings, device);
+    final manager = ModelManager._(dir, engine, settings, device, foreground);
     manager._soc = await device.soc();
     await manager.refresh();
+    await manager.restoreDownloads();
     return manager;
   }
 
@@ -88,6 +91,9 @@ class ModelManager extends ChangeNotifier {
   final NativeEngine _engine;
   final SettingsStore _settings;
   final DeviceInfoService _device;
+
+  /// Keeps the process alive while a model is downloaded and the app is not in front (Android).
+  final ForegroundService? _foreground;
   late final ModelDownloader _downloader;
   String _soc = '';
   final _cancels = <String, CancelToken>{};
@@ -275,9 +281,49 @@ class ModelManager extends ChangeNotifier {
 
   // --- downloads (spec §19: user-driven pause/resume, capacity check, integrity check) ---
 
+  /// A marker next to the model while its download runs. It is removed when the download ends or is
+  /// paused; one that is still there at the next start means the app was closed in the middle of it.
+  File _runningMarker(ModelSpec spec) => File('${_downloader.target(spec).path}.running');
+
+  /// Puts back what a closed app left: a partly downloaded model shows as paused (with the bytes it
+  /// has), and a download that was running when the app was closed is the ones in [interrupted].
+  Future<void> restoreDownloads() async {
+    for (final spec in catalog) {
+      if (downloads.containsKey(spec.id) || await _downloader.target(spec).exists()) continue;
+      final bytes = await _downloader.downloadedBytes(spec);
+      final wasRunning = await _runningMarker(spec).exists();
+      if (bytes > 0 || wasRunning) {
+        downloads[spec.id] = DownloadPaused(bytes, spec.fileBytes);
+        if (wasRunning) interrupted.add(spec);
+      }
+    }
+    notifyListeners();
+  }
+
+  /// The downloads that were running when the app was last closed (see [restoreDownloads]).
+  final interrupted = <ModelSpec>[];
+
+  /// Carries on with the downloads the app was closed in the middle of; each continues from the
+  /// bytes it already has.
+  void resumeInterrupted() {
+    final specs = List.of(interrupted);
+    interrupted.clear();
+    for (final spec in specs) {
+      unawaited(startDownload(spec));
+    }
+  }
+
   Future<void> startDownload(ModelSpec spec, {bool loadWhenDone = false}) async {
     if (!supported || _cancels.containsKey(spec.id)) return;
     final cancel = _cancels[spec.id] = CancelToken();
+    await _foreground?.start(ForegroundReason.modelDownload);
+    final marker = _runningMarker(spec);
+    try {
+      await directory.create(recursive: true);
+      await marker.writeAsString('');
+    } catch (_) {
+      // without the marker the download still runs; it just is not resumed by itself after a close
+    }
     try {
       final remote = await _downloader.remote(spec);
       final already = await _downloader.downloadedBytes(spec);
@@ -311,6 +357,12 @@ class ModelManager extends ChangeNotifier {
       _setDownload(spec, kept > 0 ? DownloadPaused(kept, spec.fileBytes, why) : DownloadFailed(why));
     } finally {
       _cancels.remove(spec.id);
+      try {
+        if (await marker.exists()) await marker.delete();
+      } catch (_) {
+        // nothing to remove
+      }
+      if (_cancels.isEmpty) await _foreground?.stop(ForegroundReason.modelDownload);
     }
   }
 

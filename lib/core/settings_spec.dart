@@ -318,6 +318,11 @@ abstract final class AgentSettings {
       label: '更新は差分だけダウンロード（Android）',
       kind: SettingKind.flag,
     ),
+    'resumeDownloadsOnStart': SettingSpec(
+      key: 'resumeDownloadsOnStart',
+      label: '閉じたときに止まったモデルのダウンロードを、次の起動で続ける',
+      kind: SettingKind.flag,
+    ),
     'downloadConnections': SettingSpec(
       key: 'downloadConnections',
       label: 'ダウンロードの同時接続数（1で分けない）',
