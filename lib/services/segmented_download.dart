@@ -37,14 +37,19 @@ abstract final class SegmentedDownload {
 
   static String _prefix(File part) => '${part.path}.seg';
 
+  /// The file's own name. Parts are told apart by name, not by path: the same folder can be written
+  /// with `/` or with `\` (Windows), and a path that was listed need not read like the one it was
+  /// made from.
+  static String _name(File file) => file.uri.pathSegments.last;
+
   /// The part files that exist for [part], whatever number of parts they were made for.
   static Future<List<File>> segmentFiles(File part) async {
     final dir = part.parent;
     if (!await dir.exists()) return const [];
-    final prefix = _prefix(part);
+    final prefix = '${_name(part)}.seg';
     return [
       await for (final entity in dir.list())
-        if (entity is File && entity.path.startsWith(prefix)) entity,
+        if (entity is File && _name(entity).startsWith(prefix)) entity,
     ];
   }
 
@@ -83,8 +88,9 @@ abstract final class SegmentedDownload {
     final ranges = plan(total, count);
     String pathOf(int i) => '${_prefix(part)}${i}of$count';
     // files made for another number of parts hold other ranges, so they cannot be used
+    final names = [for (var i = 0; i < count; i++) '${_name(part)}.seg${i}of$count'];
     for (final file in await segmentFiles(part)) {
-      if (!List.generate(count, pathOf).contains(file.path)) await file.delete();
+      if (!names.contains(_name(file))) await file.delete();
     }
 
     final stored = List<int>.filled(count, 0);

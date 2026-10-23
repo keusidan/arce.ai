@@ -231,7 +231,7 @@ void main() {
       expect(await ready.file.readAsBytes(), built);
       expect(github.patchRequests, 1);
       expect(github.ranges, isEmpty, reason: 'the whole file was never asked for');
-      expect(await Directory(updates(dir).path).list().map((e) => e.path.split('/').last).toList(), [assetName()],
+      expect(await Directory(updates(dir).path).list().map((e) => e.uri.pathSegments.last).toList(), [assetName()],
           reason: 'the patch and the work files are removed');
     }, skip: canDownload ? false : 'this platform has no update files');
 
