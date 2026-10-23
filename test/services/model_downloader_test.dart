@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:arce_ai/core/model_catalog.dart';
+import 'package:arce_ai/services/download_errors.dart';
+import 'package:arce_ai/services/file_downloader.dart';
 import 'package:arce_ai/services/model_downloader.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -119,30 +121,30 @@ void main() {
   });
 
   test('which errors are worth trying again', () {
-    expect(ModelDownloader.isTransient(const SocketException('x')), isTrue);
-    expect(ModelDownloader.isTransient(TimeoutException('x')), isTrue);
-    expect(ModelDownloader.isTransient(http.ClientException('x')), isTrue);
-    expect(ModelDownloader.isTransient(const HttpException('HTTP 503')), isTrue);
-    expect(ModelDownloader.isTransient(const HttpException('HTTP 429')), isTrue);
-    expect(ModelDownloader.isTransient(const HttpException('HTTP 404')), isFalse);
-    expect(ModelDownloader.isTransient(const HttpException('HTTP 403')), isFalse);
-    expect(ModelDownloader.isTransient(StateError('x')), isFalse);
+    expect(DownloadErrors.isTransient(const SocketException('x')), isTrue);
+    expect(DownloadErrors.isTransient(TimeoutException('x')), isTrue);
+    expect(DownloadErrors.isTransient(http.ClientException('x')), isTrue);
+    expect(DownloadErrors.isTransient(const HttpException('HTTP 503')), isTrue);
+    expect(DownloadErrors.isTransient(const HttpException('HTTP 429')), isTrue);
+    expect(DownloadErrors.isTransient(const HttpException('HTTP 404')), isFalse);
+    expect(DownloadErrors.isTransient(const HttpException('HTTP 403')), isFalse);
+    expect(DownloadErrors.isTransient(StateError('x')), isFalse);
   });
 
   test('an error message never carries the signed link of the CDN', () {
     final signed = 'https://us.aws.cdn.hf.co/xet-bridge-us/68/0765?X-Amz-Signature=${'a' * 400}&Key-Pair-Id=K01';
-    final closed = ModelDownloader.explainError(http.ClientException('Connection closed while receiving data', Uri.parse(signed)));
+    final closed = DownloadErrors.explain(http.ClientException('Connection closed while receiving data', Uri.parse(signed)));
     expect(closed, contains('通信が途切れました'));
     expect(closed, isNot(contains('http')));
     expect(closed.length, lessThan(100));
 
-    final other = ModelDownloader.explainError(StateError('failed at $signed after a while'));
+    final other = DownloadErrors.explain(StateError('failed at $signed after a while'));
     expect(other, isNot(contains('Signature')));
     expect(other, contains('（URL）'));
   });
 
   test('the checksum is worked out for a file', () async {
     final file = File('${dir.path}/x.bin')..writeAsBytesSync(data);
-    expect(await ModelDownloader.sha256Of(file), sha256.convert(data).toString());
+    expect(await FileDownloader.sha256Of(file), sha256.convert(data).toString());
   });
 }

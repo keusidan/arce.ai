@@ -12,8 +12,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/releases.dart';
 import 'desktop_installer.dart';
 import 'bspatch.dart';
+import 'download_errors.dart';
+import 'file_downloader.dart';
 import 'foreground_service.dart';
-import 'segmented_download.dart';
 import 'settings.dart';
 
 sealed class UpdateState {
@@ -215,27 +216,18 @@ class UpdateService extends ChangeNotifier {
 
   String _explain(Object e) {
     if (e is StateError) return e.message;
-    if (_isTransient(e)) return '通信が途切れました。「更新を確認」から、続きの位置からやり直せます';
-    return e.toString();
+    if (e is FormatException) return e.message;
+    return DownloadErrors.explain(e, resume: '「更新を確認」から、続きの位置からやり直せます');
   }
 
-  /// A failure of the connection itself, as opposed to an answer GitHub gave (those are
-  /// [StateError]s with their own message). Trying again can succeed.
-  static bool _isTransient(Object e) =>
-      e is SocketException || e is HttpException || e is TimeoutException || e is http.ClientException || e is TlsException;
-
-  /// Runs [action] and, when the connection fails, tries again up to [maxAttempts] times.
-  Future<T> _retrying<T>(Future<T> Function() action) async {
-    for (var attempt = 1;; attempt++) {
-      try {
-        return await action();
-      } catch (e) {
-        if (!_isTransient(e) || attempt >= maxAttempts) rethrow;
-        debugPrint('update download interrupted ($e), retry $attempt/${maxAttempts - 1}');
-        await Future<void>.delayed(retryDelay * attempt);
-      }
-    }
-  }
+  /// The transfer that the model download shares: several connections, resuming from the part file,
+  /// trying again. Its settings are asked on every download, so a changed setting applies at once.
+  late final FileDownloader _fetcher = FileDownloader(
+    connections: () => _settings.value.downloadConnections,
+    stall: () => stallTimeout,
+    attempts: () => maxAttempts,
+    retryDelay: retryDelay,
+  );
 
   Map<String, String> _headers(String accept, {required bool withToken}) => {
         'Accept': accept,
@@ -266,7 +258,7 @@ class UpdateService extends ChangeNotifier {
     _set(UpdateDownloading(release, 0, asset.sizeBytes));
     await foreground?.start(ForegroundReason.update);
     try {
-      final expected = ReleaseParser.parseChecksum(utf8Text(await _retrying(() => _assetBytes(checksum))));
+      final expected = ReleaseParser.parseChecksum(utf8Text(await _fetcher.retrying(() => _assetBytes(checksum))));
       if (expected == null) throw StateError('チェックサムファイルを読み取れません');
       final cache = await _cacheDirectory();
       final dir = Directory('${cache.path}${Platform.pathSeparator}updates');
@@ -286,9 +278,7 @@ class UpdateService extends ChangeNotifier {
         _set(UpdateReady(release, file));
         return;
       }
-      final digest = await _retrying(
-        () => _downloadAsset(asset, file, part, (done) => _set(UpdateDownloading(release, done, asset.sizeBytes))),
-      );
+      final digest = await _fetchAsset(asset, file, part, (done) => _set(UpdateDownloading(release, done, asset.sizeBytes)));
       if (digest.toLowerCase() != expected.toLowerCase()) {
         for (final f in [file, part]) {
           if (await f.exists()) await f.delete();
@@ -320,9 +310,7 @@ class UpdateService extends ChangeNotifier {
     final patchPart = File('${patchFile.path}.part');
     final built = File('${file.path}.new');
     try {
-      await _retrying(
-        () => _downloadAsset(patch, patchFile, patchPart, (done) => _set(UpdateDownloading(release, done, patch.sizeBytes))),
-      );
+      await _fetchAsset(patch, patchFile, patchPart, (done) => _set(UpdateDownloading(release, done, patch.sizeBytes)));
       await BsPatch.applyFiles(base, patchFile.path, built.path);
       final digest = (await sha256.bind(built.openRead()).first).toString();
       if (digest.toLowerCase() != expected.toLowerCase()) {
@@ -360,8 +348,9 @@ class UpdateService extends ChangeNotifier {
   ///
   /// [from] asks for the rest of a download that stopped earlier; the storage honours it with
   /// `206 Partial Content`, and the range is repeated on the redirected request.
-  Future<http.StreamedResponse> _openAsset(ReleaseAsset asset, {int? from, int? to}) async {
-    final range = from == null ? null : {'Range': to == null ? 'bytes=$from-' : 'bytes=$from-$to'};
+  Future<http.StreamedResponse> _openAsset(ReleaseAsset asset, {int from = 0, int? to}) async {
+    final header = rangeHeader(from, to);
+    final range = header == null ? null : {'Range': header};
     final repo = _settings.value.updateRepo;
     final api = http.Request('GET', Uri.parse('https://api.github.com/repos/$repo/releases/assets/${asset.id}'))
       ..followRedirects = false
@@ -374,20 +363,17 @@ class UpdateService extends ChangeNotifier {
       if (location == null) throw StateError('リダイレクト先がありません');
       final storage = http.Request('GET', Uri.parse(location))..headers.addAll(_headers('application/octet-stream', withToken: false));
       if (range != null) storage.headers.addAll(range);
-      final second = await _client.send(storage).timeout(const Duration(seconds: 30));
-      if (second.statusCode < 200 || second.statusCode > 299) {
-        throw StateError('ダウンロードに失敗しました（HTTP ${second.statusCode}）');
-      }
-      return second;
-    }
-    if (first.statusCode < 200 || first.statusCode > 299) {
-      throw StateError('ダウンロードに失敗しました（HTTP ${first.statusCode}）');
+      return _client.send(storage).timeout(const Duration(seconds: 30));
     }
     return first;
   }
 
   Future<List<int>> _assetBytes(ReleaseAsset asset) async {
     final response = await _openAsset(asset);
+    if (response.statusCode < 200 || response.statusCode > 299) {
+      await response.stream.drain<void>().catchError((_) {});
+      throw HttpException('HTTP ${response.statusCode}');
+    }
     final bytes = <int>[];
     await for (final chunk in response.stream.timeout(stallTimeout)) {
       bytes.addAll(chunk);
@@ -395,94 +381,33 @@ class UpdateService extends ChangeNotifier {
     return bytes;
   }
 
-  /// Streams the asset into [part], continuing from what a stopped download already wrote, and
-  /// returns the SHA-256 of the whole file. The finished file is moved to [file].
-  ///
-  /// Keeping the partial file is what stops an interrupted update (app closed, background work
-  /// cut off, network lost) from starting over: the next attempt asks for the rest with a range
-  /// request. If the storage answers with the whole file instead, the partial file is dropped and
-  /// the checksum starts again.
-  Future<String> _downloadAsset(
+  /// Fetches the asset into [part] with the shared downloader (it continues from what a stopped
+  /// download already wrote, so an interrupted update does not start over), then moves the finished
+  /// file to [file] and returns its SHA-256.
+  Future<String> _fetchAsset(
     ReleaseAsset asset,
     File file,
     File part,
     void Function(int done) onProgress,
   ) async {
-    var have = await part.exists() ? await part.length() : 0;
-    if (have > asset.sizeBytes) {
-      await part.delete();
-      have = 0;
-    }
-
-    // A fresh download uses several connections (a setting); a partial file is finished as it was started.
-    final connections = _settings.value.downloadConnections.clamp(1, 16);
-    if (have == 0 && SegmentedDownload.parts(asset.sizeBytes, connections) >= 2) {
-      var lastReport = DateTime.fromMillisecondsSinceEpoch(0);
-      final joined = await SegmentedDownload.run(
-        part: part,
-        total: asset.sizeBytes,
-        connections: connections,
-        open: (from, to) => _openAsset(asset, from: from, to: to),
-        onProgress: (done) {
-          final now = DateTime.now();
-          if (now.difference(lastReport) > const Duration(milliseconds: 200)) {
-            lastReport = now;
-            onProgress(done);
-          }
-        },
-        stall: stallTimeout,
-      );
-      if (joined) {
-        final digest = await sha256.bind(part.openRead()).first;
-        if (await file.exists()) await file.delete();
-        await part.rename(file.path);
-        onProgress(asset.sizeBytes);
-        return digest.toString();
-      }
-    }
-
-    var response = await _openAsset(asset, from: have > 0 ? have : null);
-    if (have > 0 && response.statusCode != 206) {
-      await response.stream.drain<void>();
-      await part.delete();
-      have = 0;
-      response = await _openAsset(asset);
-    }
-
-    final hash = AccumulatorSink<Digest>();
-    final input = sha256.startChunkedConversion(hash);
-    if (have > 0) {
-      // the bytes already on disk count towards the checksum of the finished file
-      await for (final chunk in part.openRead()) {
-        input.add(chunk);
-      }
-    }
-
-    final sink = part.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
-    var done = have;
     var lastReport = DateTime.fromMillisecondsSinceEpoch(0);
-    onProgress(done);
-    try {
-      await for (final chunk in response.stream.timeout(stallTimeout)) {
-        sink.add(chunk);
-        input.add(chunk);
-        done += chunk.length;
+    await _fetcher.fetch(
+      part: part,
+      total: asset.sizeBytes,
+      open: (from, to) => _openAsset(asset, from: from, to: to),
+      onProgress: (done) {
         final now = DateTime.now();
         if (now.difference(lastReport) > const Duration(milliseconds: 200)) {
           lastReport = now;
           onProgress(done);
         }
-      }
-    } finally {
-      // The part file stays on disk even when the stream fails, so the next attempt resumes.
-      await sink.close();
-    }
-    input.close();
-
+      },
+    );
+    final digest = await FileDownloader.sha256Of(part);
     if (await file.exists()) await file.delete();
     await part.rename(file.path);
-    onProgress(done);
-    return hash.events.single.toString();
+    onProgress(asset.sizeBytes);
+    return digest;
   }
 
   /// Deletes update files this app no longer needs: the build it is already running (the update

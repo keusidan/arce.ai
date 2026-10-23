@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
-import 'model_downloader.dart' show DownloadCancelled;
+import 'download_errors.dart' show DownloadCancelled;
 
 /// Opens bytes [from]..[to] (both included) of the file being downloaded.
 typedef OpenRange = Future<http.StreamedResponse> Function(int from, int to);

@@ -8,6 +8,7 @@ import '../core/engine.dart';
 import '../core/model_catalog.dart';
 import '../engine/native_engine.dart';
 import 'device_info.dart';
+import 'download_errors.dart';
 import 'foreground_service.dart';
 import 'model_downloader.dart';
 import 'segmented_download.dart';
@@ -353,7 +354,7 @@ class ModelManager extends ChangeNotifier {
       _setDownload(spec, DownloadPaused(await _downloader.downloadedBytes(spec), spec.fileBytes));
     } catch (e) {
       final kept = await _downloader.downloadedBytes(spec);
-      final why = ModelDownloader.explainError(e);
+      final why = DownloadErrors.explain(e);
       _setDownload(spec, kept > 0 ? DownloadPaused(kept, spec.fileBytes, why) : DownloadFailed(why));
     } finally {
       _cancels.remove(spec.id);
