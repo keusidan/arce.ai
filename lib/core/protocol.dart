@@ -345,31 +345,23 @@ abstract final class ToolApproval {
 
   static bool isApproval(List<String> selected) => selected.contains(approve);
 
-  /// The tools that change something outside the device. Their names come from the server, so this
-  /// reads the verb: `create_or_update_file`, `push_files`, `merge_pull_request` ...
+  /// The words of a tool name that mean it changes something outside the device (create, delete,
+  /// submit, start ...). A tool name is read word by word, whatever its style (`create_or_update_file`,
+  /// `CreateBenchmarkTaskFromPrompt`): `ListDatasets` is a read although "datasets" contains "set".
+  static const writeVerbs = {
+    'create', 'update', 'delete', 'remove', 'push', 'merge', 'commit', 'write', 'edit', 'close', 'reopen',
+    'add', 'set', 'put', 'patch', 'fork', 'transfer', 'review', 'submit', 'start', 'cancel', 'stop', 'run',
+    'rerun', 'upload', 'publish', 'save', 'post', 'send', 'apply', 'execute', 'trigger', 'enable', 'disable',
+    'approve', 'assign', 'import', 'insert', 'rename', 'move', 'replace', 'restore', 'revert', 'invite',
+    'grant', 'kill',
+  };
+
+  /// Their names come from the server (`mcp_<server>__<tool>`); the server's own id is not read.
   static bool needsApproval(String name) {
-    const verbs = [
-      'create',
-      'update',
-      'delete',
-      'remove',
-      'push',
-      'merge',
-      'commit',
-      'write',
-      'edit',
-      'close',
-      'reopen',
-      'add',
-      'set',
-      'put',
-      'patch',
-      'fork',
-      'transfer',
-      'review',
-    ];
-    final lowered = name.toLowerCase();
-    return verbs.any(lowered.contains);
+    final at = name.lastIndexOf('__');
+    final tool = at >= 0 ? name.substring(at + 2) : name;
+    final words = RegExp(r'[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+').allMatches(tool).map((m) => m.group(0)!.toLowerCase());
+    return words.any(writeVerbs.contains);
   }
 }
 

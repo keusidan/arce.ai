@@ -229,6 +229,13 @@ class _ServerEditorState extends State<_ServerEditor> {
   late bool _enabled = widget.existing?.enabled ?? true;
   late bool _approveWrites = widget.existing?.approveWrites ?? true;
 
+  /// Ready-made servers: the address and what the token is. The tools a server offers (and which of
+  /// them write) are asked of the server itself.
+  static const _presets = <(String, String, String)>[
+    ('Kaggle', 'https://www.kaggle.com/mcp', 'Kaggle の設定 → API の「Generate New Token」で作ったトークン'),
+    ('GitHub', 'https://api.githubcopilot.com/mcp/', 'GitHub の個人用アクセストークン'),
+  ];
+
   @override
   void dispose() {
     for (final controller in [_name, _url, _token]) {
@@ -288,6 +295,23 @@ class _ServerEditorState extends State<_ServerEditor> {
               widget.existing == null ? 'MCP サーバーを追加' : 'MCP サーバーを編集',
               style: ts(context, 14, weight: FontWeight.w700),
             ),
+            if (widget.existing == null) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final preset in _presets)
+                    ActionChip(
+                      label: Text('${preset.$1} を入れる'),
+                      onPressed: () => setState(() {
+                        _name.text = preset.$1;
+                        _url.text = preset.$2;
+                        widget.app.showToast('トークン: ${preset.$3}');
+                      }),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             _field('名前', _name, 'GitHub / 自宅のサーバー'),
             _field('URL', _url, 'https://...', keyboard: TextInputType.url),
