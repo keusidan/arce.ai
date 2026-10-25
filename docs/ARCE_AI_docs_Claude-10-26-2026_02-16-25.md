@@ -465,7 +465,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | NDK 29 で proot（Termux の fork v5.1.107.101）を arm64 向けにビルドできる。`libproot` は約 270 KiB、loader は約 17 KiB。依存は `libc.so` と `libdl.so` だけ（libtalloc は静的に入れた）。16KB ページに揃っている | **確認済み**（`proot-build.yml` の実行。15.7） | CI の実行 |
 | Ubuntu の rootfs（aarch64）の配布元・URL・版・SHA-256 | **未確認**（この環境から配布元に届くか未検証。Alpine の公式サイトには届かなかった） | — |
 | proot が実機（Android 12 以降、各メーカーの seccomp 設定）で動くか | **未確認** | — |
-| `useLegacyPackaging = true` にしたときの APK サイズとインストールサイズ、llama.cpp の `.so` への影響 | **未確認**（ビルドして測る） | — |
+| `useLegacyPackaging = true`（`.so` を APK の中で圧縮し、インストール時に端末へ展開する）にしたときの APK サイズ・端末内のサイズ・差分更新のパッチの大きさ | **測定済み**（15.8。APK は 131 MB → 68 MB、端末内の合計は約 117 MB で今より小さい、パッチは 1.1 MB → 5.9 MB） | `proot-package.yml` の実行 |
 
 ### 15.3 設計
 
@@ -484,7 +484,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - **実行**：`proot --kill-on-exit --link2symlink -r <rootfs> -w <cwd> -b <home>:/workspace` の中で、`env -i` で環境を空にしてからシェルを起動する。標準出力・標準エラー・終了コードを別々に返す。127 は「proot または rootfs が使えない」。
 - **互換モード**：端末の seccomp で起動に失敗したとき `PROOT_NO_SECCOMP=1` で再試行する（設定で切り替え可）。
 - **proot の入手**：`termux/proot` の特定の版（タグ）を**サブモジュール `third_party/proot` に固定**し、CI で**ソースからビルド**して `.so` として APK に入れる（libtalloc は、apt が署名を確認する Ubuntu のソースパッケージからビルドする）。出所がソースまで辿れ、GPL のソース提供がリポジトリで済む。Termux の配布 `.deb` から取り出す案は、バイナリの出所が第三者になり、方針（公式の一次情報だけを土台にする）に合わないので採らない。
-- **パッケージングへの影響（要測定）**：`android/app/build.gradle.kts` は `useLegacyPackaging = false`（`.so` を無圧縮で APK に置き、APK から直接読み込む）。この設定だと `nativeLibraryDir` に実ファイルが展開されず、`execve()` できない。実行ファイルを使うには `useLegacyPackaging = true`（`extractNativeLibs`）が要るが、llama.cpp の `.so` も展開されて端末内の容量が増える。asset に入れて起動時にコピーする方法は、上の W^X の制限で `execve()` できないので使えない。ビルドして APK のサイズとインストールサイズを測ってから決める。
+- **パッケージングへの影響（測定済み。15.8）**：`android/app/build.gradle.kts` は `useLegacyPackaging = false`（`.so` を無圧縮で APK に置き、APK から直接読み込む）。この設定だと `nativeLibraryDir` に実ファイルが展開されず、`execve()` できない。実行ファイルを使うには `useLegacyPackaging = true`（`extractNativeLibs`）が要るが、llama.cpp の `.so` も展開されて端末内の容量が増える。asset に入れて起動時にコピーする方法は、上の W^X の制限で `execve()` できないので使えない。測定した（15.8）。
 
 ### 15.4 安全面
 
@@ -510,7 +510,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | 段階 | 内容 | 検証 |
 |---|---|---|
 | 1a | CI で proot をビルドする（`proot-build.yml`） | **完了**（15.7） |
-| 1b | `useLegacyPackaging` の影響（APK とインストールのサイズ）を測る。proot を APK に入れて、起動だけを確かめる（`proot --version`） | CI のログ。実機での起動は利用者の確認が要る |
+| 1b | `useLegacyPackaging` の影響を測る（**完了**、15.8）。Android のビルドで proot を `jniLibs` に入れ、`useLegacyPackaging` を有効にし、起動だけを確かめる（`proot --version`） | CI のログ。実機での起動は利用者の確認が要る |
 | 2 | rootfs（Ubuntu）のダウンロード・展開・仕上げ（Kotlin）と、設定画面の「Linux 環境」 | 展開のテストは単体で。実機での起動は利用者の確認が要る |
 | 3 | `run_command` ツール（確認カード、時間・出力の上限、設定項目、`AgentSettings` との対応） | Dart の単体テスト |
 | 4 | 対話ターミナル、`kaggle` の導入手順（`pip install kaggle`） | 実機 |
@@ -528,6 +528,22 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
   3. `src/extension/ashmem_memfd/ashmem_memfd.c` が `<string.h>` を読まずに `strcmp` / `memset` を使う。NDK 29 の clang は暗黙の関数宣言をエラーにする。→ `-Wno-error=implicit-function-declaration`（警告に戻す。リンク時に bionic の関数に解決される）。`-include string.h` を全体に付けると、自前で `basename()` を定義する loader が壊れる。
   4. `libandroid-shmem`（System V の共有メモリ）は使わない（任意の依存。無くてもビルドできる。`shmget` などは proot の中では動かない可能性がある。未確認）。
 - **まだ確認していないこと**：実機での起動（`libproot.so` を `nativeLibraryDir` から実行して `--version`）、seccomp の設定が厳しい端末での動き、proot を APK に入れたときの `useLegacyPackaging` の影響（1b）。
+
+
+### 15.8 段階 1b の測定：`.so` を展開する方式のコスト（`proot-package.yml`、2026-10-26）
+
+実行ファイルは、ディスク上の実ファイルからしか起動できない。そのため proot を入れるには `useLegacyPackaging = true`（`android:extractNativeLibs`）が要り、アプリの**すべての** `.so` が、APK の中で圧縮され、インストール時に端末へ展開される。`proot-package.yml`（手動。何もビルドせず、実際のリリース 2 つを使う）で測った。
+
+| 項目 | 今（`.so` を無圧縮で APK に置く） | 展開する方式 |
+|---|---|---|
+| APK のサイズ（ダウンロード） | 131.4 MB | **68.0 MB**（約半分） |
+| 端末内の合計（APK ＋ 展開した arm64 の `.so`） | 約 131 MB | 約 117 MB（68.0 ＋ 48.8）。x86_64 と armeabi-v7a の分は圧縮のまま APK の中にあるだけで、展開されない |
+| 差分更新のパッチ（0.8.17 → 0.8.18、UI の変更） | 1.1 MB | 5.9 MB（約 5 倍。圧縮された `libapp.so`（7.5 MB）の中の変更が、圧縮の流れ全体に広がるため。それでも全体の 68 MB の約 9% で、全体より十分に小さい） |
+| 0.8.18 → 0.8.19（コードの変更なし） | 10 KB | 3 KB |
+
+- arm64 の `.so` の内訳：`liblitertlm_jni.so` 20.8 MB、`libflutter.so` 11.2 MB、`libapp.so` 7.5 MB、`libarce_llama.so` 6.6 MB、`libsqlite3.so` 1.7 MB、`libomp.so` 0.9 MB。proot は約 0.3 MB を足す。
+- 結論：**展開する方式にしても、ダウンロードも端末内の合計も、今より小さくなる**。代わりに、差分更新のパッチが大きくなる（それでも全体より小さい）。**未確認**：端末での起動時間の変化（インストール時に展開するので、起動のたびの展開はない）、更新のインストールにかかる時間の変化。
+- 統合の方法（利用者の提案）：Android のビルドで、アプリのビルドの前に proot をビルドして（`.github/actions/proot`。サブモジュールの commit でキャッシュ）、できた `libproot.so` と `libproot_loader.so` を `android/app/src/main/jniLibs/arm64-v8a/` へ直接コピーし、`useLegacyPackaging` を有効にする。proot の成果物を別の場所に置いてあとで取りに行く形にはしない。
 
 ---
 
