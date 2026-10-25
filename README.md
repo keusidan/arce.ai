@@ -53,7 +53,7 @@ android/        ネイティブ側: llama.cpp の JNI（src/main/cpp）、エン
 `pubspec.yaml` の `version:` を上げて push すると、5つのワークフロー（Android・iOS・Windows・macOS・Linux）が別々に動き、プラットフォームごとの GitHub Release（`v0.4.0`、`ios-v0.4.0`、`windows-v0.4.0` …）にファイルが並びます。
 アプリは起動時（と起動中は一定間隔）にこのリリースを確認し、設定の「アップデート」から更新できます。
 
-手順と必要な Secrets は [docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md](docs/ARCE_AI_flutter-release_Claude-10-04-2026_08-46-00.md) を参照してください。
+手順と必要な Secrets は [docs/ARCE_AI_docs_Claude-10-26-2026_02-16-25.md](docs/ARCE_AI_docs_Claude-10-26-2026_02-16-25.md) の 12 章 を参照してください。
 
 ## 以前の Kotlin 版との関係
 

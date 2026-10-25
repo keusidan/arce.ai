@@ -5,7 +5,7 @@ plugins {
 }
 
 // Release signing comes from the environment (GitHub Actions secrets, see
-// docs/ARCE_AI_flutter-release_*.md). Without it a release build is signed with the debug key,
+// docs/ARCE_AI_docs_Claude-10-26-2026_02-16-25.md, section 12). Without it a release build is signed with the debug key,
 // which can run but cannot update an installed release build.
 val releaseKeystore: String? = System.getenv("ARCE_KEYSTORE_PATH")
 val releasePassword: String? = System.getenv("ARCE_KEYSTORE_PASSWORD")
