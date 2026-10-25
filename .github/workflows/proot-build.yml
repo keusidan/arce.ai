@@ -80,10 +80,16 @@ jobs:
           Checking for HAVE_WORKING_GETCWD: OK
           Checking for HAVE_IFACE_AIX: FAIL
           EOF
+          # A failure is also written as one annotation, so it can be read without the full log.
+          fail() {
+            { echo "$1"; tail -n 25 "$2"; } | python3 -c \
+              'import sys; print("::error::" + sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'
+            exit 1
+          }
           ./configure --prefix="$RUNNER_TEMP/talloc-out" --disable-rpath --disable-python \
-            --cross-compile --cross-answers=cross-answers.txt \
-            || { tail -60 bin/config.log; exit 1; }
-          make -j"$(nproc)" || { tail -60 bin/config.log; exit 1; }
+            --cross-compile --cross-answers=cross-answers.txt > configure.out 2>&1 \
+            || fail "talloc configure failed" configure.out
+          make -j"$(nproc)" > make.out 2>&1 || fail "talloc make failed" make.out
           mkdir -p "$RUNNER_TEMP/talloc-out/lib" "$RUNNER_TEMP/talloc-out/include"
           find bin -name '*.o' | sort
           "$AR" rcs "$RUNNER_TEMP/talloc-out/lib/libtalloc.a" $(find bin -path '*lib/talloc/*' -name '*.o')
