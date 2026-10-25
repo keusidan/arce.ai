@@ -34,7 +34,9 @@ import 'foreground_service.dart';
 import 'kv_snapshots.dart';
 import 'model_manager.dart';
 import 'preview_server.dart';
+import 'chat_handle.dart';
 import 'provider_store.dart';
+import 'session_engine.dart';
 import 'settings.dart';
 import 'update_service.dart';
 
@@ -76,22 +78,70 @@ class AppController extends ChangeNotifier {
     required this.engine,
     required this.preview,
   }) {
-    chat = ChatController(
-      engine,
+    _current = _newSession();
+    chat = ChatHandle(_current.chat);
+    chat.addListener(_syncForeground);
+    _applyProvider();
+  }
+
+  /// A chat of its own: its controller, its engine (see [SessionEngine]) and, once it is saved, the
+  /// id of its conversation. The one on the screen is [_current]; the others that are still
+  /// generating are in [_background].
+  _Session _newSession() {
+    final session = _Session();
+    session.chat = ChatController(
+      SessionEngine(engine, _lease),
       toolRuntime: _toolRuntime,
       settings: () => settings.value.toGeneration(
         models.loadedParamsB,
         cloud: engine.isCloud,
       ),
-      store: (snapshot, {required generating}) =>
-          _persist(snapshot, generating),
+      store: (snapshot, {required generating}) => _persist(session, snapshot, generating),
       extraTools: _mcpDefinitions,
       applySettings: _applySettings,
       addProvider: _addProvider,
       mcpApproval: _mcpApprovalRequired,
     )..setThinking(settings.value.thinking);
-    chat.addListener(_syncForeground);
-    _applyProvider();
+    session.chat.addListener(_syncForeground);
+    return session;
+  }
+
+  String _lastRunning = '';
+  final _lease = ExclusiveLease();
+  late _Session _current;
+  final _background = <_Session>[];
+
+  Iterable<_Session> get _sessions => [_current, ..._background];
+
+  bool get _anyGenerating => _sessions.any((s) => s.chat.isRunning);
+
+  /// The conversation on the screen; null for a new one that has not been saved yet.
+  String? get conversationId => _current.id;
+
+  /// Whether conversation [id] is being answered now (on the screen or in the background).
+  bool isRunning(String id) => _sessions.any((s) => s.id == id && s.chat.isRunning);
+
+  /// Puts the session that is on the screen aside if it is still generating (it goes on in the
+  /// background), and returns the session to fill: the same one when it was idle.
+  _Session _freeCurrent() {
+    if (_current.chat.isRunning) {
+      _background.add(_current);
+      _current = _newSession();
+    }
+    return _current;
+  }
+
+  /// Ends a background session that has finished: its conversation is saved, nothing is left to run.
+  void _reapBackground() {
+    final done = _background.where((s) => !s.chat.isRunning).toList();
+    for (final session in done) {
+      _background.remove(session);
+      // not inside its own notification
+      Timer.run(() {
+        session.chat.removeListener(_syncForeground);
+        session.chat.dispose();
+      });
+    }
   }
 
   final SettingsStore settings;
@@ -112,7 +162,7 @@ class AppController extends ChangeNotifier {
 
   /// Shared with [updates]: a download keeps running when another app is in front.
   final ForegroundService foreground;
-  late final ChatController chat;
+  late final ChatHandle chat;
 
   /// Whether the model that answers takes images, so attached pictures are read as pictures.
   /// The device model never does: it reads text only.
@@ -139,7 +189,6 @@ class AppController extends ChangeNotifier {
 
   /// Whether the desktop sidebar is shown (the hamburger button toggles it).
   final sidebarOpen = ValueNotifier<bool>(true);
-  String? conversationId;
   InterruptedConversation? interrupted;
   List<ConversationMeta> conversations = const [];
 
@@ -324,7 +373,11 @@ class AppController extends ChangeNotifier {
     } else {
       models.interrupted.clear();
     }
-    settings.addListener(() => chat.setThinking(settings.value.thinking));
+    settings.addListener(() {
+      for (final session in _sessions) {
+        session.chat.setThinking(settings.value.thinking);
+      }
+    });
     // adding, removing or editing a provider changes which one answers
     providers.addListener(_applyProvider);
     // the app going to the background may end with the system closing it: keep the cache now
@@ -393,7 +446,14 @@ class AppController extends ChangeNotifier {
 
   /// Keeps Android's foreground service in step with whether a reply is being generated.
   void _syncForeground() {
-    if (chat.state.isGenerating) {
+    _reapBackground();
+    // the history list marks the chats that are answering: tell it when that set changes
+    final running = [for (final s in _sessions) if (s.id != null && s.chat.isRunning) s.id!].join(',');
+    if (running != _lastRunning) {
+      _lastRunning = running;
+      notifyListeners();
+    }
+    if (_anyGenerating) {
       unawaited(foreground.start());
     } else {
       unawaited(foreground.stop());
@@ -525,7 +585,7 @@ class AppController extends ChangeNotifier {
 
   /// [ProviderList.localId] goes back to the device model.
   Future<void> setActiveProvider(String id) async {
-    if (chat.state.isGenerating) {
+    if (_anyGenerating) {
       showToast('生成中は切り替えられません');
       return;
     }
@@ -567,30 +627,58 @@ class AppController extends ChangeNotifier {
   }
 
   void newConversation() {
-    if (chat.state.isGenerating) return;
     unawaited(_saveKv(leaving: true));
-    conversationId = null;
-    chat.clear();
+    // a chat that is still answering goes on in the background; an idle one is emptied and reused
+    final session = _freeCurrent();
+    session.id = null;
+    session.chat.clear();
+    chat.show(session.chat);
     goTo(AppPage.chat);
     notifyListeners();
   }
 
   Future<void> openConversation(String id) async {
-    if (chat.state.isGenerating) return;
+    if (_current.id == id && _current.chat.isRunning) {
+      goTo(AppPage.chat);
+      return;
+    }
+    // it is answering in the background: bring that chat to the screen as it is
+    final running = _background.where((s) => s.id == id).firstOrNull;
+    if (running != null) {
+      final old = _current;
+      if (old.chat.isRunning) _background.add(old);
+      _background.remove(running);
+      _current = running;
+      chat.show(running.chat);
+      if (!old.chat.isRunning) {
+        old.chat.removeListener(_syncForeground);
+        Timer.run(old.chat.dispose);
+      }
+      goTo(AppPage.chat);
+      notifyListeners();
+      return;
+    }
     final snapshot = await history.get(id);
     if (snapshot == null) return;
-    if (id != conversationId) unawaited(_saveKv(leaving: true));
-    chat.restore(snapshot);
-    conversationId = id;
+    if (id != _current.id) unawaited(_saveKv(leaving: true));
+    final session = _freeCurrent();
+    session.chat.restore(snapshot);
+    session.id = id;
+    chat.show(session.chat);
     goTo(AppPage.chat);
     notifyListeners();
     _restoreKv(id);
   }
 
   Future<void> deleteConversation(String id) async {
+    // a reply still being written for it is stopped first
+    for (final session in _sessions.where((s) => s.id == id)) {
+      session.chat.stop();
+    }
     // its cache is deleted with it; saving it first would be for nothing
     if (_kvOwner == id) _kvOwner = null;
     await history.delete(id);
+    _background.removeWhere((s) => s.id == id);
     if (conversationId == id) newConversation();
     await refreshConversations();
   }
@@ -609,19 +697,21 @@ class AppController extends ChangeNotifier {
     final snapshot = await history.get(item.id);
     if (snapshot == null) return;
     unawaited(_saveKv(leaving: true));
-    chat.restore(snapshot);
-    conversationId = item.id;
+    final session = _freeCurrent();
+    session.chat.restore(snapshot);
+    session.id = item.id;
+    chat.show(session.chat);
     goTo(AppPage.chat);
     notifyListeners();
     _restoreKv(item.id);
     if (action == 'resume') {
-      if (chat.state.canContinue) {
-        unawaited(chat.continueReply());
+      if (session.chat.state.canContinue) {
+        unawaited(session.chat.continueReply());
       } else {
-        unawaited(chat.regenerate());
+        unawaited(session.chat.regenerate());
       }
     } else {
-      unawaited(chat.regenerate());
+      unawaited(session.chat.regenerate());
     }
   }
 
@@ -668,7 +758,7 @@ class AppController extends ChangeNotifier {
     final fingerprint = _kvFingerprint();
     if (kv == null || owner == null || fingerprint == null || !settings.value.kvSnapshotEnabled) return;
     // a running reply is changing the cache; its end saves it
-    if (chat.state.isGenerating) return;
+    if (_anyGenerating) return;
     await kv.save(owner, fingerprint);
   }
 
@@ -684,7 +774,7 @@ class AppController extends ChangeNotifier {
             id,
             fingerprint,
             // once the user has written to the model, loading would only throw that work away
-            stillWanted: () => conversationId == id && !chat.state.isGenerating && chat.state.messages.length == seen,
+            stillWanted: () => conversationId == id && !_anyGenerating && chat.state.messages.length == seen,
           )
           .then((restored) {
         if (restored) _kvOwner = id;
@@ -703,7 +793,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _persist(ConversationSnapshot snapshot, bool generating) {
+  void _persist(_Session session, ConversationSnapshot snapshot, bool generating) {
     if (snapshot.messages.isEmpty) return;
     if (generating) _noteModelUsed();
     final providerId = providers.activeId;
@@ -711,14 +801,14 @@ class AppController extends ChangeNotifier {
     _writer = _writer.then((_) async {
       try {
         final id = await history.save(
-          conversationId,
+          session.id,
           snapshot,
           generating: generating,
           providerId: providerId,
           modelId: modelId,
         );
-        if (conversationId == null) {
-          conversationId = id;
+        if (session.id == null) {
+          session.id = id;
           notifyListeners();
         }
         // the device model has just worked on this conversation: its cache is the one to keep
@@ -735,12 +825,22 @@ class AppController extends ChangeNotifier {
     _toastTimer?.cancel();
     _lifecycle?.dispose();
     chat.removeListener(_syncForeground);
+    chat.dispose();
+    for (final session in _sessions) {
+      session.chat.removeListener(_syncForeground);
+    }
     unawaited(foreground.stop());
     providers.removeListener(_applyProvider);
     unawaited(preview.dispose());
     updates.dispose();
     super.dispose();
   }
+}
+
+/// One chat: the controller that runs it, and the id of its saved conversation (null until it is saved).
+class _Session {
+  late final ChatController chat;
+  String? id;
 }
 
 /// Stands in until the user adds a provider: a request would reach nobody, so it says so.

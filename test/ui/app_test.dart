@@ -402,6 +402,52 @@ void main() {
     expect(find.text(full), findsWidgets, reason: 'the field now shows the choice');
   });
 
+  testWidgets('a chat can be left while it answers: it goes on in the background, is saved, and can be opened again', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField).first, 'こんにちは');
+    await tester.pump();
+    await tester.tap(find.text('送信'));
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(app.chat.state.isGenerating, isTrue, reason: 'the reply is being written');
+
+    // open a new chat while the first one is still answering: it is not refused any more
+    app.newConversation();
+    await tester.pump();
+    expect(app.chat.state.messages, isEmpty, reason: 'the screen shows the new chat');
+    expect(app.chat.state.isGenerating, isFalse);
+
+    // the first chat finishes by itself and is saved
+    await tester.pumpAndSettle(const Duration(seconds: 4));
+    await tester.runAsync(() async {
+      for (var i = 0; i < 60 && (app.conversations.isEmpty || app.conversations.single.generating); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await app.refreshConversations();
+      }
+    });
+    expect(app.conversations, hasLength(1));
+    final id = app.conversations.single.id;
+    expect(app.isRunning(id), isFalse);
+
+    // the writes are real file work: wait until the finished reply has been written
+    await tester.runAsync(() async {
+      for (var i = 0; i < 100; i++) {
+        final saved = await app.history.get(id);
+        if (saved != null && saved.messages.last.text.isNotEmpty) break;
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      }
+    });
+    // and it is the whole conversation that comes back
+    await tester.runAsync(() => app.openConversation(id));
+    await tester.pump();
+    expect(app.conversationId, id);
+    expect(app.chat.state.messages.length, 2, reason: 'the question and the finished reply');
+    expect(app.chat.state.messages.last.text, isNotEmpty);
+  });
+
   testWidgets('the text size is a setting and applies to the whole screen', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);

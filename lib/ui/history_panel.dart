@@ -107,6 +107,7 @@ class _HistoryPanelState extends State<HistoryPanel> {
             HistoryTile(
               hit: hit,
               active: hit.meta.id == widget.app.conversationId && widget.app.page == AppPage.chat,
+              running: widget.app.isRunning(hit.meta.id),
               onDark: widget.onDark,
               onTap: () => _open(hit),
             ),
@@ -129,12 +130,15 @@ class _HistoryPanelState extends State<HistoryPanel> {
 
 /// One conversation of the list: its title, the matching line when searching, and its date.
 class HistoryTile extends StatelessWidget {
-  const HistoryTile({super.key, required this.hit, required this.onTap, this.active = false, this.onDark = false});
+  const HistoryTile({super.key, required this.hit, required this.onTap, this.active = false, this.onDark = false, this.running = false});
 
   final ConversationHit hit;
   final VoidCallback onTap;
   final bool active;
   final bool onDark;
+
+  /// The conversation is being answered now (maybe in the background).
+  final bool running;
 
   @override
   Widget build(BuildContext context) {
@@ -163,6 +167,12 @@ class HistoryTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
+            if (running) ...[
+              SizedBox(width: 9, height: 9, child: CircularProgressIndicator(strokeWidth: 1.6, color: c.accent)),
+              const SizedBox(width: 4),
+              Text('生成中', style: ts(context, 9.5, color: c.accent, weight: FontWeight.w600)),
+              const SizedBox(width: 6),
+            ],
             Text(formatDate(hit.meta.updatedAt), style: ts(context, 9.5, color: muted)),
           ]),
           if (snippet != null) ...[

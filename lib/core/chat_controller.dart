@@ -452,6 +452,10 @@ class ChatController extends ChangeNotifier {
   ChatState _state = const ChatState();
   ChatState get state => _state;
 
+  /// A reply is being made or a tool is being run. Wider than [ChatState.isGenerating], which is
+  /// false for a moment between the steps of one reply (choosing the agent, asking an MCP server).
+  bool get isRunning => _busy || _state.isGenerating;
+
   final List<ChatMessage> _history = [];
 
   /// The pictures the history marks, by id. They live only as long as the conversation is open:
@@ -688,6 +692,8 @@ class ChatController extends ChangeNotifier {
       _fail(_nextId - 1, e.toString());
     } finally {
       _busy = false;
+      // the state may not have changed since the last notification, but "running" has
+      notifyListeners();
     }
   }
 

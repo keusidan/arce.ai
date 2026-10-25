@@ -105,7 +105,10 @@ class _HistoryItem extends StatelessWidget {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(meta.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(context, 11, weight: FontWeight.w700)),
                   const SizedBox(height: 4),
-                  Text('${formatDate(meta.updatedAt)} · ${meta.messageCount}メッセージ', style: ts(context, 9, color: c.muted)),
+                  Text(
+                    '${app.isRunning(meta.id) ? '生成中 · ' : ''}${formatDate(meta.updatedAt)} · ${meta.messageCount}メッセージ',
+                    style: ts(context, 9, color: app.isRunning(meta.id) ? c.accent : c.muted),
+                  ),
                 ]),
               ),
               IconTap(svg: ArceSvg.close, size: 16, tooltip: '削除', onTap: () => app.deleteConversation(meta.id)),
