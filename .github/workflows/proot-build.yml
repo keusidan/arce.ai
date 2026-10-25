@@ -108,8 +108,10 @@ jobs:
             }
           make -j"$(nproc)" > make.out 2>&1 || fail "talloc make failed" make.out
           mkdir -p "$RUNNER_TEMP/talloc-out/lib" "$RUNNER_TEMP/talloc-out/include"
-          find bin -name '*.o' | sort
-          "$AR" rcs "$RUNNER_TEMP/talloc-out/lib/libtalloc.a" $(find bin -path '*lib/talloc/*' -name '*.o')
+          objs=$(find bin/default -name '*.o' ! -name '*test*' ! -name '*pytalloc*' | sort)
+          echo "$objs"
+          "$AR" rcs "$RUNNER_TEMP/talloc-out/lib/libtalloc.a" $objs
+          "$TOOLBIN/llvm-nm" "$RUNNER_TEMP/talloc-out/lib/libtalloc.a" | grep -c ' T talloc' || true
           cp talloc.h "$RUNNER_TEMP/talloc-out/include/"
           "$RANLIB" "$RUNNER_TEMP/talloc-out/lib/libtalloc.a"
           ls -l "$RUNNER_TEMP/talloc-out/lib"
