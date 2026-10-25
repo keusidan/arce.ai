@@ -176,6 +176,26 @@ void main() {
     expect(chat.state.pendingQuestion, isNull);
   });
 
+  test('two tool calls in one reply (parallel calls): the first one is run, not the last and not a failure', () async {
+    final engine = ScriptedEngine([
+      (
+        '<tool_call>\n{"name":"web_search","arguments":{"query":"first"}}\n</tool_call>'
+            '<tool_call>\n{"name":"web_search","arguments":{"query":"second"}}\n</tool_call>',
+        FinishReason.eog,
+      ),
+      ('done', FinishReason.eog),
+    ]);
+    final queries = <String>[];
+    final runtime = _Runtime((call) {
+      queries.add((call as WebSearch).query);
+      return const ToolOutcome('result', ToolActivity('Search', 'found'));
+    });
+    final chat = ChatController(engine, toolRuntime: runtime, store: (_, {required generating}) {});
+    await chat.send('調べて');
+    expect(queries, ['first']);
+    expect(chat.state.messages.last.text, 'done');
+  });
+
   test(
     'a search tool call is run and the answer continues in the same message',
     () async {

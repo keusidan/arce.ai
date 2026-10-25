@@ -93,6 +93,7 @@ class OpenAiCompatibleProvider implements AiProvider {
     }
 
     final calls = <int, _PartialCall>{};
+    final slotOf = <int, int>{}; // the index a provider wrote -> the call it is for
     var finish = FinishReason.eog;
     var pending = '';
 
@@ -148,9 +149,19 @@ class OpenAiCompatibleProvider implements AiProvider {
           if (text is String && text.isNotEmpty) yield TextDelta(text);
           for (final call in (delta['tool_calls'] as List? ?? const [])) {
             if (call is! Map) continue;
-            final index = _int(call['index']) ?? 0;
-            final partial = calls.putIfAbsent(index, _PartialCall.new);
-            if (call['id'] is String) partial.id = call['id'] as String;
+            final wireIndex = _int(call['index']) ?? 0;
+            final id = call['id'] is String ? call['id'] as String : '';
+            // Gemini's OpenAI-compatible endpoint numbers every call 0 and tells them apart by id; taking
+            // them as one call glued their arguments into `{...}{...}` ("not JSON: Unexpected character")
+            var slot = slotOf[wireIndex];
+            final current = slot == null ? null : calls[slot];
+            if (current == null || (id.isNotEmpty && current.id.isNotEmpty && id != current.id)) {
+              slot = calls.length;
+              slotOf[wireIndex] = slot;
+              calls[slot] = _PartialCall()..wireIndex = wireIndex;
+            }
+            final partial = calls[slot]!;
+            if (id.isNotEmpty) partial.id = id;
             final function = call['function'];
             if (function is Map) {
               final name = function['name'];
@@ -167,16 +178,22 @@ class OpenAiCompatibleProvider implements AiProvider {
       }
     }
 
-    for (final index in calls.keys.toList()..sort()) {
+    // in the order the provider numbered them; calls that share a number keep the order they came in
+    final order = calls.keys.toList()
+      ..sort((a, b) => calls[a]!.wireIndex != calls[b]!.wireIndex ? calls[a]!.wireIndex.compareTo(calls[b]!.wireIndex) : a.compareTo(b));
+    for (final index in order) {
       final call = calls[index]!;
       if (call.name.isEmpty) continue;
-      yield ToolCallDelta(
-        id: call.id,
-        name: call.name,
-        argumentsJson: call.arguments.isEmpty
-            ? '{}'
-            : call.arguments.toString(),
-      );
+      final arguments = call.arguments.isEmpty ? '{}' : call.arguments.toString();
+      // several calls of one name that arrived as one (no ids to tell them apart): `{...}{...}`
+      final objects = splitObjects(arguments);
+      if (objects.length > 1) {
+        for (var n = 0; n < objects.length; n++) {
+          yield ToolCallDelta(id: call.id.isEmpty ? '' : '${call.id}_$n', name: call.name, argumentsJson: objects[n]);
+        }
+        continue;
+      }
+      yield ToolCallDelta(id: call.id, name: call.name, argumentsJson: arguments);
     }
     yield StopDelta(finish);
   }
@@ -333,7 +350,53 @@ class OpenAiCompatibleProvider implements AiProvider {
 }
 
 /// One tool call while its name and arguments are still arriving.
+/// The top-level JSON objects written one after the other in [text] (`{"a":1}{"b":2}`), when there are
+/// two or more and each one is valid; otherwise the text as the only element. Braces inside strings
+/// do not count.
+List<String> splitObjects(String text) {
+  final found = <String>[];
+  var depth = 0;
+  var start = 0;
+  var inString = false;
+  var escaped = false;
+  for (var i = 0; i < text.length; i++) {
+    final ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else if (ch == '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch == '"') {
+      inString = true;
+    } else if (ch == '{') {
+      if (depth == 0) start = i;
+      depth++;
+    } else if (ch == '}') {
+      depth--;
+      if (depth < 0) return [text];
+      if (depth == 0) found.add(text.substring(start, i + 1));
+    } else if (depth == 0 && ch.trim().isNotEmpty) {
+      return [text]; // something other than objects between or around them
+    }
+  }
+  if (depth != 0 || found.length < 2) return [text];
+  try {
+    for (final object in found) {
+      if (jsonDecode(object) is! Map) return [text];
+    }
+  } on FormatException {
+    return [text];
+  }
+  return found;
+}
+
 class _PartialCall {
+  int wireIndex = 0;
   String id = '';
   String name = '';
   final StringBuffer arguments = StringBuffer();

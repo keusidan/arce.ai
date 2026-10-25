@@ -158,6 +158,68 @@ void main() {
   });
 
   group('道具の呼び出し', () {
+    Map<String, Object?> callChunk(List<Map<String, Object?>> calls) => {
+          'choices': [
+            {
+              'delta': {'tool_calls': calls},
+            },
+          ],
+        };
+
+    test('Gemini: 同じ index 0 で id だけが違う複数の呼び出しは、別々の呼び出しになる', () async {
+      final provider = providerWith([
+        event(callChunk([
+          {'index': 0, 'id': 'call_a', 'function': {'name': 'web_search', 'arguments': '{"query":"arce.ai github"}'}},
+        ])),
+        event(callChunk([
+          {'index': 0, 'id': 'call_b', 'function': {'name': 'web_search', 'arguments': '{"query":"arce.ai リポジトリ"}'}},
+        ])),
+        event({
+          'choices': [
+            {'delta': <String, Object?>{}, 'finish_reason': 'tool_calls'},
+          ],
+        }),
+      ]);
+      final calls = (await provider.stream(request).toList()).whereType<ToolCallDelta>().toList();
+      expect(calls.map((c) => c.id), ['call_a', 'call_b']);
+      expect(calls.map((c) => c.argumentsJson), ['{"query":"arce.ai github"}', '{"query":"arce.ai リポジトリ"}']);
+    });
+
+    test('1 つの呼び出しの引数が分かれて届くときは、同じ id が続いても 1 つのまま', () async {
+      final provider = providerWith([
+        event(callChunk([
+          {'index': 0, 'id': 'call_a', 'function': {'name': 'web_search', 'arguments': '{"que'}},
+        ])),
+        event(callChunk([
+          {'index': 0, 'id': 'call_a', 'function': {'arguments': 'ry":"x"}'}},
+        ])),
+      ]);
+      final calls = (await provider.stream(request).toList()).whereType<ToolCallDelta>().toList();
+      expect(calls, hasLength(1));
+      expect(calls.single.argumentsJson, '{"query":"x"}');
+    });
+
+    test('id が無く、引数が {...}{...} とつながって届いた同じ道具の呼び出しは、分けて返す', () async {
+      final provider = providerWith([
+        event(callChunk([
+          {'index': 0, 'function': {'name': 'web_search', 'arguments': '{"query":"a}"}'}},
+        ])),
+        event(callChunk([
+          {'index': 0, 'function': {'arguments': '{"query":"b"}'}},
+        ])),
+      ]);
+      final calls = (await provider.stream(request).toList()).whereType<ToolCallDelta>().toList();
+      expect(calls.map((c) => c.argumentsJson), ['{"query":"a}"}', '{"query":"b"}']);
+    });
+
+    test('splitObjects: 文字列の中の括弧は数えず、オブジェクトでないものが混ざれば分けない', () {
+      expect(splitObjects('{"a":"}{"}'), ['{"a":"}{"}']);
+      expect(splitObjects('{"a":1} {"b":2}'), ['{"a":1}', '{"b":2}']);
+      expect(splitObjects('{"a":1}x{"b":2}'), ['{"a":1}x{"b":2}']);
+      expect(splitObjects('{"a":1'), ['{"a":1']);
+      expect(splitObjects('{}'), ['{}']);
+    });
+
     test('分割されて届いた引数を組み立て、完成した時点で1つ返す', () async {
       final provider = providerWith([
         event({

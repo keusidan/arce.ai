@@ -374,7 +374,9 @@ abstract final class ToolCallParser {
     try {
       decoded = jsonDecode(body);
     } on FormatException catch (e) {
-      return ParseInvalid('not JSON: ${e.message}');
+      // the start of the text is shown too: "Unexpected character" alone does not say what came
+      final preview = body.length > 120 ? '${body.substring(0, 120)}…' : body;
+      return ParseInvalid('not JSON: ${e.message.split('\n').first} ($preview)');
     }
     if (decoded is! Map) return const ParseInvalid('not a JSON object');
 

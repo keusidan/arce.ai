@@ -941,7 +941,8 @@ class ChatController extends ChangeNotifier {
             answer += text;
             task.moveTo(TaskState.generation);
           case ToolCallEnd(:final json):
-            toolCallJson = json;
+            // one call is run per round; of several calls in one reply (parallel calls) the first is the one
+            toolCallJson ??= json;
           case ToolCallStart() || ToolCallDelta():
             task.moveTo(TaskState.generation);
         }

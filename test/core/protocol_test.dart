@@ -44,4 +44,12 @@ void main() {
   test('an agent without tools has no tool call schema', () {
     expect(() => Protocol.toolCallSchema([]), throwsArgumentError);
   });
+
+  test('a tool call that is not JSON says what it looked like, so the cause can be read from the screen', () {
+    final result = ToolCallParser.parse('{"name":"web_search","arguments":{"query":"a"}}{"name":"web_search"', [Protocol.webSearch]);
+    expect(result, isA<ParseInvalid>());
+    final reason = (result as ParseInvalid).reason;
+    expect(reason, startsWith('not JSON: '));
+    expect(reason, contains('{"name":"web_search","arguments":{"query":"a"}}{'));
+  });
 }
