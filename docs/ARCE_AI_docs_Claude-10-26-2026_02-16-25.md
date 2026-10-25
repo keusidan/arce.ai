@@ -54,9 +54,10 @@
 | `lib/ui/` | 画面。トークンは `theme.dart`、アイコン（SVG）は `svg_icons.dart` |
 | `android/` | ネイティブ側。`src/main/cpp`（llama.cpp の JNI）、`kotlin/ai/arce/app/engine`（エンジン）、`bridge`（Flutter との橋渡し）、`service`（前面サービス）、`update`（APK インストーラー） |
 | `third_party/llama.cpp` | サブモジュール（Android のビルドにだけ必要） |
+| `third_party/proot` | サブモジュール（Termux の fork の proot、v5.1.107.101。15 章。`.github/workflows/proot-build.yml` だけが使う） |
 | `test/` | `core/`（Kotlin から移したテスト＋追加）、`ai/`、`data/`、`mcp/`、`services/`、`ui/`（約 460 件） |
 | `docs/` | この文書と、利用者の企画書・助言書 |
-| `.github/` | `ci.yml`、`release-<OS>.yml` ×5、共通の `actions/prepare`・`actions/publish` |
+| `.github/` | `ci.yml`、`release-<OS>.yml` ×5、共通の `actions/prepare`・`actions/publish`、`proot-build.yml`（リリースではない。proot をビルドして artifact に残すだけ） |
 | `assets/` | アイコン（`icon/`）、同梱フォント Noto Sans JP（`fonts/`、SIL OFL） |
 
 ---
@@ -447,7 +448,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 
 ## 15. 設計メモ：アプリ内の Linux 環境（proot）
 
-状態：**設計のみ**。コードは 1 行も入っていない（2026-10-26 時点で `lib/` と `android/` に proot・rootfs の記述は無い）。機能拡張の草案の P7「エージェント環境」の続き。利用者の決定（2026-10-26）：**rootfs は Ubuntu を使ってよい。このままの方針で進める。**
+状態：**段階 1 の前半（proot のビルド）まで**。アプリ（`lib/`・`android/`）には、まだ proot・rootfs のコードは入っていない。CI で proot が arm64 向けにビルドできることは確認した（15.7）。機能拡張の草案の P7「エージェント環境」の続き。利用者の決定（2026-10-26）：**rootfs は Ubuntu を使ってよい。このままの方針で進める。**
 
 ### 15.1 目的
 
@@ -461,6 +462,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | PRoot のライセンスは GPL-2.0-or-later。ビルドには libtalloc（と libarchive）が要る | 確認済み | [proot-me/proot](https://github.com/proot-me/proot) |
 | Termux は自前の fork（`termux/proot`、版 5.1.107.101、GPL-2.0）を、libtalloc と libandroid-shmem を付けてビルドしている。loader は実行のたびに展開せず別ファイルとして置く（`PROOT_UNBUNDLE_LOADER`） | 確認済み | [termux-packages の proot/build.sh](https://raw.githubusercontent.com/termux/termux-packages/master/packages/proot/build.sh) |
 | RikkaHub は proot の本体と loader を `.so` の名前で同梱し、rootfs をダウンロードして展開する。ライセンスは AGPL-3.0 | 前の調査で確認（GitHub の画面の要約） | [rikkahub/rikkahub](https://github.com/rikkahub/rikkahub) |
+| NDK 29 で proot（Termux の fork v5.1.107.101）を arm64 向けにビルドできる。`libproot` は約 270 KiB、loader は約 17 KiB。依存は `libc.so` と `libdl.so` だけ（libtalloc は静的に入れた）。16KB ページに揃っている | **確認済み**（`proot-build.yml` の実行。15.7） | CI の実行 |
 | Ubuntu の rootfs（aarch64）の配布元・URL・版・SHA-256 | **未確認**（この環境から配布元に届くか未検証。Alpine の公式サイトには届かなかった） | — |
 | proot が実機（Android 12 以降、各メーカーの seccomp 設定）で動くか | **未確認** | — |
 | `useLegacyPackaging = true` にしたときの APK サイズとインストールサイズ、llama.cpp の `.so` への影響 | **未確認**（ビルドして測る） | — |
@@ -481,7 +483,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - **仕上げ**：`/etc/resolv.conf`（公開 DNS）、`/etc/hosts`、`/etc/hostname`、ロケールを書き込む。
 - **実行**：`proot --kill-on-exit --link2symlink -r <rootfs> -w <cwd> -b <home>:/workspace` の中で、`env -i` で環境を空にしてからシェルを起動する。標準出力・標準エラー・終了コードを別々に返す。127 は「proot または rootfs が使えない」。
 - **互換モード**：端末の seccomp で起動に失敗したとき `PROOT_NO_SECCOMP=1` で再試行する（設定で切り替え可）。
-- **proot の入手**：CI で `termux/proot` の特定の版（タグ）を**ソースからビルド**して `.so` として APK に入れる。出所がソースまで辿れ、GPL のソース提供がリポジトリで済む。Termux の配布 `.deb` から取り出す案は、バイナリの出所が第三者になり、方針（公式の一次情報だけを土台にする）に合わないので採らない。
+- **proot の入手**：`termux/proot` の特定の版（タグ）を**サブモジュール `third_party/proot` に固定**し、CI で**ソースからビルド**して `.so` として APK に入れる（libtalloc は、apt が署名を確認する Ubuntu のソースパッケージからビルドする）。出所がソースまで辿れ、GPL のソース提供がリポジトリで済む。Termux の配布 `.deb` から取り出す案は、バイナリの出所が第三者になり、方針（公式の一次情報だけを土台にする）に合わないので採らない。
 - **パッケージングへの影響（要測定）**：`android/app/build.gradle.kts` は `useLegacyPackaging = false`（`.so` を無圧縮で APK に置き、APK から直接読み込む）。この設定だと `nativeLibraryDir` に実ファイルが展開されず、`execve()` できない。実行ファイルを使うには `useLegacyPackaging = true`（`extractNativeLibs`）が要るが、llama.cpp の `.so` も展開されて端末内の容量が増える。asset に入れて起動時にコピーする方法は、上の W^X の制限で `execve()` できないので使えない。ビルドして APK のサイズとインストールサイズを測ってから決める。
 
 ### 15.4 安全面
@@ -507,12 +509,25 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 
 | 段階 | 内容 | 検証 |
 |---|---|---|
-| 1 | CI で proot をビルドして、`useLegacyPackaging` の影響を測る。起動だけを確かめる（`proot --version`） | CI のログ。実機での起動は利用者の確認が要る |
+| 1a | CI で proot をビルドする（`proot-build.yml`） | **完了**（15.7） |
+| 1b | `useLegacyPackaging` の影響（APK とインストールのサイズ）を測る。proot を APK に入れて、起動だけを確かめる（`proot --version`） | CI のログ。実機での起動は利用者の確認が要る |
 | 2 | rootfs（Ubuntu）のダウンロード・展開・仕上げ（Kotlin）と、設定画面の「Linux 環境」 | 展開のテストは単体で。実機での起動は利用者の確認が要る |
 | 3 | `run_command` ツール（確認カード、時間・出力の上限、設定項目、`AgentSettings` との対応） | Dart の単体テスト |
 | 4 | 対話ターミナル、`kaggle` の導入手順（`pip install kaggle`） | 実機 |
 
 各段階は、1 つのバージョンとして出す。Android 以外は影響を受けない（他の OS は `run_command` を出さない）。
+
+
+### 15.7 段階 1a の結果：proot のビルド（`proot-build.yml`、2026-10-26）
+
+- 手順：NDK 29.0.13113456（sdkmanager）の clang（`aarch64-linux-android31`）で、①Ubuntu 24.04 のソースパッケージ `talloc`（2.4.2）を waf でクロスコンパイルして静的ライブラリにし、②サブモジュールの proot を、ソースフォルダのコピーの中でビルドする（`make proot loader/loader`）。結果は workflow の artifact `proot-arm64-v8a`（14 日）と、実行のアノテーションに出る。
+- 結果：`libproot.so`（proot 本体）280,368 バイト、`libproot_loader.so`（loader）17,632 バイト（どちらも strip 後）。proot の動的な依存は `libdl.so` と `libc.so` だけ。PIE、`BIND_NOW`、LOAD の整列は 0x4000（16KB ページ対応）。loader は proot の中に埋め込まず別ファイル（`PROOT_UNBUNDLE_LOADER`）。実行時は環境変数 `PROOT_LOADER` でその場所を教える（fork のソース `src/execve/enter.c` で確認。未設定なら、ビルド時に決めた固定のパスを見に行く）。
+- ビルドで必要だった回避（ソースは変えていない）：
+  1. libtalloc の configure は、クロスコンパイルでは実行できない検査の答えを `cross-answers.txt` で求める。答えを入れた検査：uname、rpath、`--version-script`（FAIL）、getconf の大きなファイル、`HAVE_SECURE_MKSTEMP`、`C99 vsnprintf`、`strptime`、`HAVE_IFACE_*`、mmap 系（`HAVE_SHARED_MMAP`・`HAVE_MMAP`・`HAVE_MREMAP`・`HAVE_INCOHERENT_MMAP`）、`HAVE_FCNTL_LOCK`、`HAVE_FTRUNCATE_EXTEND`、`HAVE_BROKEN_READDIR`、`HAVE_WORKING_GETCWD`、`strtoll`。bionic（Android の libc）に当てはまる答えを、私の理解で入れた（実機で talloc を動かしての確認はまだ）。
+  2. proot の makefile は、ソースフォルダの外でビルドすると VPATH のせいでパスが二重になる。→ ソースフォルダをコピーして、その中でビルドする。
+  3. `src/extension/ashmem_memfd/ashmem_memfd.c` が `<string.h>` を読まずに `strcmp` / `memset` を使う。NDK 29 の clang は暗黙の関数宣言をエラーにする。→ `-Wno-error=implicit-function-declaration`（警告に戻す。リンク時に bionic の関数に解決される）。`-include string.h` を全体に付けると、自前で `basename()` を定義する loader が壊れる。
+  4. `libandroid-shmem`（System V の共有メモリ）は使わない（任意の依存。無くてもビルドできる。`shmget` などは proot の中では動かない可能性がある。未確認）。
+- **まだ確認していないこと**：実機での起動（`libproot.so` を `nativeLibraryDir` から実行して `--version`）、seccomp の設定が厳しい端末での動き、proot を APK に入れたときの `useLegacyPackaging` の影響（1b）。
 
 ---
 
