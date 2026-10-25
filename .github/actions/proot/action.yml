@@ -45,7 +45,8 @@ runs:
       run: |
         if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses > /dev/null
+          # `yes` gets SIGPIPE when sdkmanager stops reading, which pipefail (shell: bash) counts as a failure
+          yes | "$sdkmanager" --licenses > /dev/null || true
           "$sdkmanager" "ndk;$NDK_VERSION" > /dev/null
         fi
         bin="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
