@@ -938,6 +938,7 @@ class _ModelEditorState extends State<ModelEditor> {
         ThinkingFormat.zaiApi => 'Z.ai の API（thinking / clear_thinking）',
         ThinkingFormat.chatTemplate => 'chat template のサーバー（vLLM・SGLang・Together・DeepInfra など）',
         ThinkingFormat.openaiEffort => 'OpenAI の形（reasoning_effort）',
+        ThinkingFormat.openRouter => 'OpenRouter の形（reasoning: {effort}）',
       };
 
   static String _toolStyleLabel(ToolStyle style) => switch (style) {

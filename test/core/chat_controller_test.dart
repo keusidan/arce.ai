@@ -298,8 +298,74 @@ void main() {
     );
     await chat.send('いま何時？');
     expect(chat.state.task, TaskState.error);
-    expect(chat.state.error, contains('同じ道具を繰り返し呼んでいます'));
+    expect(chat.state.error, contains('同じ道具を同じ引数で繰り返し呼んでいます'));
     expect(engine.requests, hasLength(3));
+  });
+
+  String timeCall(String zone) => '<tool_call>\n{"name":"get_time","arguments":{"timezone":"$zone"}}\n</tool_call>';
+
+  test('引数が違う呼び出しは、何回続いても止めない（以前は4回で「上限」になった）', () async {
+    final zones = ['Asia/Tokyo', 'Europe/London', 'America/New_York', 'Asia/Seoul', 'Europe/Paris', 'Asia/Dubai', 'Australia/Sydney'];
+    final engine = ScriptedEngine([
+      for (final zone in zones) (timeCall(zone), FinishReason.eog),
+      ('どこも調べました', FinishReason.eog),
+    ]);
+    final chat = ChatController(
+      engine,
+      toolRuntime: _Runtime((_) => const ToolOutcome('12:00', ToolActivity('Time', '12:00'))),
+    );
+    await chat.send('世界の時刻を調べて');
+    expect(chat.state.task, isNot(TaskState.error), reason: chat.state.error);
+    expect(chat.state.messages.last.text, contains('どこも調べました'));
+    expect(engine.requests, hasLength(zones.length + 1));
+  });
+
+  test('同じ呼び出しは、間に別の呼び出しをはさんでも、数えて止める', () async {
+    final engine = ScriptedEngine([
+      (timeCall('Asia/Tokyo'), FinishReason.eog),
+      (timeCall('Asia/Seoul'), FinishReason.eog),
+      (timeCall('Asia/Tokyo'), FinishReason.eog),
+      (timeCall('Asia/Seoul'), FinishReason.eog),
+      (timeCall('Asia/Tokyo'), FinishReason.eog),
+      ('ここには来ない', FinishReason.eog),
+    ]);
+    final chat = ChatController(
+      engine,
+      toolRuntime: _Runtime((_) => const ToolOutcome('12:00', ToolActivity('Time', '12:00'))),
+    );
+    await chat.send('時刻');
+    expect(chat.state.task, TaskState.error);
+    expect(chat.state.error, contains('同じ道具を同じ引数で繰り返し呼んでいます'));
+    expect(engine.requests, hasLength(5));
+  });
+
+  test('上限に達したときは日本語で、どこで増やせるかを言う。0なら上限なし', () async {
+    final engine = ScriptedEngine([
+      (timeCall('Asia/Tokyo'), FinishReason.eog),
+      (timeCall('Asia/Seoul'), FinishReason.eog),
+      (timeCall('Asia/Dubai'), FinishReason.eog),
+    ]);
+    final capped = ChatController(
+      engine,
+      toolRuntime: _Runtime((_) => const ToolOutcome('12:00', ToolActivity('Time', '12:00'))),
+      settings: () => const GenerationSettings(maxToolRounds: 2),
+    );
+    await capped.send('時刻');
+    expect(capped.state.error, contains('上限（2 回）'));
+    expect(capped.state.error, contains('ツール呼び出しの上限'));
+
+    final open = ChatController(
+      ScriptedEngine([
+        (timeCall('Asia/Tokyo'), FinishReason.eog),
+        (timeCall('Asia/Seoul'), FinishReason.eog),
+        (timeCall('Asia/Dubai'), FinishReason.eog),
+        ('終わり', FinishReason.eog),
+      ]),
+      toolRuntime: _Runtime((_) => const ToolOutcome('12:00', ToolActivity('Time', '12:00'))),
+      settings: () => const GenerationSettings(maxToolRounds: 0),
+    );
+    await open.send('時刻');
+    expect(open.state.task, isNot(TaskState.error), reason: open.state.error);
   });
 
   test('the thinking of each reply is kept in the history and goes back beside the next prompt, never inside it', () async {

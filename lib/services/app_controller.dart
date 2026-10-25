@@ -284,8 +284,24 @@ class AppController extends ChangeNotifier {
   /// Whether an MCP tool should wait for the user; a server can turn this off for itself.
   bool _mcpApprovalRequired(String name) => _mcpTools.approvalRequired(name);
 
-  /// Used by the settings screen: asks one server what it offers and says so in a toast.
-  Future<String> probeMcp(String id) => _mcpTools.describe(id);
+  /// Used by the settings screen: asks one server what it offers and says so, with what its tools
+  /// add to every request, and a warning when that is more than the model in use can take.
+  Future<String> probeMcp(String id) async {
+    final tools = _mcpTools;
+    final text = await tools.describe(id);
+    final tokens = await tools.overheadTokens(id);
+    final context = providers.activeModel?.contextTokens;
+    if (tokens == null || context == null) return text;
+    final ratio = settings.value.tokenOverheadPercent / 100;
+    if (tokens > context * ratio) {
+      return '$text\n注意: 使用中のモデル（${providers.activeModelId}）の文脈 $context トークンに対して、'
+          'ツール定義だけで約 $tokens トークンです。このままでは送る前にエラーになります';
+    }
+    if (tokens > context * 0.4) {
+      return '$text\n注意: ツール定義が、使用中のモデルの文脈の ${(tokens * 100 / context).round()}% を使います';
+    }
+    return text;
+  }
 
   /// Runs one search with the values of the editor (saved or not) and says what came back.
   Future<String> testSearchApi(SearchApiConfig config, String key) async {
@@ -321,10 +337,14 @@ class AppController extends ChangeNotifier {
     // a changed timeout reaches the provider in use by building it again
     var timeout = settings.value.providerTimeoutSeconds;
     settings.addListener(() {
+      _applyEngineSettings();
       if (settings.value.providerTimeoutSeconds == timeout) return;
       timeout = settings.value.providerTimeoutSeconds;
       _applyProvider();
     });
+    _applyEngineSettings();
+    // the model lists that are missing or old are read in the background
+    unawaited(autoReadModelLists().catchError((Object e) => debugPrint('could not read the model lists: $e')));
     try {
       await refreshConversations();
       final item = conversations.where((c) => c.generating).firstOrNull;
@@ -360,8 +380,14 @@ class AppController extends ChangeNotifier {
     }
     final config = providers.byId(providerId);
     if (config == null || !config.isComplete) return null;
+    // a model that is only in the provider's catalog works as it is, with what the list says of it
+    final provider = providers.build(config, model: config.resolveModel(modelId) ?? config.defaultModel);
+    final keep = settings.value.recentModelCount;
+    if (keep > 0) unawaited(providers.markUsed(providerId, provider.modelId, keep: keep));
     return ProviderRole(
-      providers.build(config, model: config.modelById(modelId) ?? config.defaultModel),
+      provider,
+      fallback: settings.value.fallbackEnabled ? providers.fallbackPlanFor(provider) : null,
+      onFallback: _announceFallback,
     );
   }
 
@@ -405,7 +431,81 @@ class AppController extends ChangeNotifier {
     final provider = providers.buildActive();
     if (provider != null) cloud.provider = provider;
     engine.target = provider;
+    _applyEngineSettings();
     notifyListeners();
+  }
+
+  /// What the settings say about the online engine: the fallback rules, and the check of a request
+  /// against the model's context before it is sent.
+  void _applyEngineSettings() {
+    final s = settings.value;
+    cloud.fallbackFor = s.fallbackEnabled ? providers.fallbackPlanFor : null;
+    cloud.onFallback = _announceFallback;
+    cloud.tokenPrecheck = s.tokenPrecheck;
+    cloud.overheadRatio = s.tokenOverheadPercent / 100;
+  }
+
+  void _announceFallback(AiProvider from, AiProvider to, String reason) {
+    showToast('${from.label} · ${from.modelId} が使えないため（$reason）、${to.label} · ${to.modelId} で答えます');
+  }
+
+  final _listBusy = <String>{};
+
+  /// True while the model list of provider [id] is being read.
+  bool isReadingModelList(String id) => _listBusy.contains(id);
+
+  /// Reads the model list of provider [id] and keeps it as the provider's catalog (the models the
+  /// user can pick). The models already set up only gain the limits they lacked. Returns what to
+  /// tell the user.
+  Future<String> refreshModelList(String id) async {
+    final config = providers.byId(id);
+    if (config == null) return 'プロバイダが見つかりません';
+    if (!(Uri.tryParse(config.baseUrl.trim())?.hasScheme ?? false)) return 'Base URL（https://…）を入れてください';
+    if (!_listBusy.add(id)) return 'いま読み込んでいます';
+    notifyListeners();
+    try {
+      final provider = providers.build(config);
+      if (provider is! OpenAiCompatibleProvider) return 'このプロバイダはモデル一覧を読めません';
+      final infos = await provider.fetchModelInfos();
+      final added = await providers.updateCatalog(id, infos);
+      final withLimits = infos.where((i) => i.hasLimits).length;
+      return '${infos.length} 件のモデルを読み込みました'
+          '${(added ?? 0) > 0 ? '（新しく ${added!} 件）' : ''}'
+          '${infos.isNotEmpty && withLimits == 0 ? '。この提供元は上限を返しません（モデルの編集の「取得」で Hugging Face から調べられます）' : ''}';
+    } on AiProviderException catch (e) {
+      return e.message;
+    } catch (e) {
+      return '取得できませんでした（$e）';
+    } finally {
+      _listBusy.remove(id);
+      notifyListeners();
+    }
+  }
+
+  /// Reads the model lists that are missing or older than the setting says, one provider at a time.
+  /// [only] limits it to one provider, and [force] reads it even when the list is recent (the
+  /// provider has just been saved, so its address or key may be new). A failure is not shown: a
+  /// provider that has no list, or whose key is not typed yet, simply has none.
+  Future<void> autoReadModelLists({String? only, bool force = false}) async {
+    final s = settings.value;
+    if (!s.modelListAutoFetch) return;
+    final maxAge = s.modelListRefreshHours * 3600 * 1000;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final config in providers.providers) {
+      if (only != null && config.id != only) continue;
+      if (!config.autoFetchModels) continue;
+      final at = config.catalogAt;
+      if (!force && at != null && now - at < maxAge) continue;
+      await refreshModelList(config.id);
+    }
+  }
+
+  /// Notes that the model in use answers now, for the "recently used" part of the model lists.
+  void _noteModelUsed() {
+    final keep = settings.value.recentModelCount;
+    if (providers.isCloud && keep > 0) {
+      unawaited(providers.markUsed(providers.activeId, providers.activeModelId, keep: keep));
+    }
   }
 
   /// True when replies go to a provider outside this device.
@@ -605,6 +705,7 @@ class AppController extends ChangeNotifier {
 
   void _persist(ConversationSnapshot snapshot, bool generating) {
     if (snapshot.messages.isEmpty) return;
+    if (generating) _noteModelUsed();
     final providerId = providers.activeId;
     final modelId = providers.activeModelId;
     _writer = _writer.then((_) async {

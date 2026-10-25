@@ -40,7 +40,7 @@ class AppSettings {
     this.kvCache = KvCacheType.f16,
     this.maxTokens = 2048,
     this.retryLimit = 2,
-    this.maxToolRounds = 4,
+    this.maxToolRounds = 30,
     this.forceExecution = false,
     this.updateRepo = defaultRepo,
     this.autoUpdateCheck = true,
@@ -81,6 +81,12 @@ class AppSettings {
     this.updateUseDelta = true,
     this.resumeDownloadsOnStart = true,
     this.fontScale = 1.0,
+    this.modelListAutoFetch = true,
+    this.modelListRefreshHours = 24,
+    this.fallbackEnabled = true,
+    this.tokenPrecheck = true,
+    this.tokenOverheadPercent = 80,
+    this.recentModelCount = 8,
     this.localDryMultiplier = -1,
     this.kvSnapshotEnabled = false,
     this.kvSnapshotMaxMb = 1024,
@@ -199,6 +205,24 @@ class AppSettings {
   /// How large the text is, as a factor of the usual size (1 = usual); it comes on top of the system's own text size.
   final double fontScale;
 
+  /// Read each provider's model list by itself: when the provider is saved, and again when the
+  /// list is older than [modelListRefreshHours]. Off keeps the lists as they are until the user
+  /// asks.
+  final bool modelListAutoFetch;
+  final int modelListRefreshHours;
+
+  /// Use the fallback rules (the models to try when one cannot be used). The rules themselves are
+  /// set on the model detail screen only: a rule sends the conversation to another provider.
+  final bool fallbackEnabled;
+
+  /// Count the instructions and tool definitions before a request and refuse one that cannot fit
+  /// the model's context; [tokenOverheadPercent] is how much of the context they may take.
+  final bool tokenPrecheck;
+  final int tokenOverheadPercent;
+
+  /// How many of the models used last are offered first in the model lists (0 turns it off).
+  final int recentModelCount;
+
   /// DRY, the repetition penalty of the device model; -1 keeps the app's own value.
   final double localDryMultiplier;
 
@@ -313,6 +337,12 @@ class AppSettings {
     bool? updateUseDelta,
     bool? resumeDownloadsOnStart,
     double? fontScale,
+    bool? modelListAutoFetch,
+    int? modelListRefreshHours,
+    bool? fallbackEnabled,
+    bool? tokenPrecheck,
+    int? tokenOverheadPercent,
+    int? recentModelCount,
     double? localDryMultiplier,
     bool? kvSnapshotEnabled,
     int? kvSnapshotMaxMb,
@@ -380,6 +410,12 @@ class AppSettings {
     updateUseDelta: updateUseDelta ?? this.updateUseDelta,
     resumeDownloadsOnStart: resumeDownloadsOnStart ?? this.resumeDownloadsOnStart,
     fontScale: fontScale ?? this.fontScale,
+    modelListAutoFetch: modelListAutoFetch ?? this.modelListAutoFetch,
+    modelListRefreshHours: modelListRefreshHours ?? this.modelListRefreshHours,
+    fallbackEnabled: fallbackEnabled ?? this.fallbackEnabled,
+    tokenPrecheck: tokenPrecheck ?? this.tokenPrecheck,
+    tokenOverheadPercent: tokenOverheadPercent ?? this.tokenOverheadPercent,
+    recentModelCount: recentModelCount ?? this.recentModelCount,
     localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
     kvSnapshotEnabled: kvSnapshotEnabled ?? this.kvSnapshotEnabled,
     kvSnapshotMaxMb: kvSnapshotMaxMb ?? this.kvSnapshotMaxMb,
@@ -449,6 +485,12 @@ class AppSettings {
     'updateUseDelta': updateUseDelta,
     'resumeDownloadsOnStart': resumeDownloadsOnStart,
     'fontScale': fontScale,
+    'modelListAutoFetch': modelListAutoFetch,
+    'modelListRefreshHours': modelListRefreshHours,
+    'fallbackEnabled': fallbackEnabled,
+    'tokenPrecheck': tokenPrecheck,
+    'tokenOverheadPercent': tokenOverheadPercent,
+    'recentModelCount': recentModelCount,
     'localDryMultiplier': localDryMultiplier,
     'kvSnapshotEnabled': kvSnapshotEnabled,
     'kvSnapshotMaxMb': kvSnapshotMaxMb,
@@ -502,7 +544,9 @@ class AppSettings {
       kvCache: option(KvCacheType.values, 'kvCache', d.kvCache),
       maxTokens: whole('maxTokens', d.maxTokens),
       retryLimit: whole('retryLimit', d.retryLimit),
-      maxToolRounds: whole('maxToolRounds', d.maxToolRounds),
+      // 4 was the old default and no longer one of the choices; it stopped a run of searches with
+      // different words, so a save that still has it gets the new default
+      maxToolRounds: whole('maxToolRounds', d.maxToolRounds) == 4 ? d.maxToolRounds : whole('maxToolRounds', d.maxToolRounds),
       forceExecution: flag('forceExecution', d.forceExecution),
       updateRepo: text('updateRepo', d.updateRepo),
       autoUpdateCheck: flag('autoUpdateCheck', d.autoUpdateCheck),
@@ -547,6 +591,12 @@ class AppSettings {
       updateUseDelta: flag('updateUseDelta', d.updateUseDelta),
       resumeDownloadsOnStart: flag('resumeDownloadsOnStart', d.resumeDownloadsOnStart),
       fontScale: decimal('fontScale', d.fontScale).clamp(0.7, 2.0),
+      modelListAutoFetch: flag('modelListAutoFetch', d.modelListAutoFetch),
+      modelListRefreshHours: whole('modelListRefreshHours', d.modelListRefreshHours).clamp(1, 720),
+      fallbackEnabled: flag('fallbackEnabled', d.fallbackEnabled),
+      tokenPrecheck: flag('tokenPrecheck', d.tokenPrecheck),
+      tokenOverheadPercent: whole('tokenOverheadPercent', d.tokenOverheadPercent).clamp(10, 100),
+      recentModelCount: whole('recentModelCount', d.recentModelCount).clamp(0, 30),
       localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),
       kvSnapshotEnabled: flag('kvSnapshotEnabled', d.kvSnapshotEnabled),
       kvSnapshotMaxMb: whole('kvSnapshotMaxMb', d.kvSnapshotMaxMb),

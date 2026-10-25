@@ -27,6 +27,11 @@ enum ThinkingFormat {
 
   /// OpenAI's form: only `reasoning_effort` (low / medium / high).
   openaiEffort,
+
+  /// OpenRouter's form (and routers that copy it): a `reasoning` object with the effort
+  /// (`low` / `medium` / `high`), or `enabled: false`. Written from OpenRouter's published request
+  /// shape, which could not be opened from the build environment: check it on a real request.
+  openRouter,
 }
 
 /// Whether the thinking of the earlier replies goes back to the provider with the conversation.
@@ -171,7 +176,24 @@ abstract final class ThinkingRequest {
         // OpenAI knows low / medium / high only
         if (!on) return const {};
         return {'reasoning_effort': effort == 'max' ? 'high' : effort};
+      case ThinkingFormat.openRouter:
+        if (!on) {
+          return const {
+            'reasoning': {'enabled': false},
+          };
+        }
+        return {
+          'reasoning': {'effort': _threeLevels(effort)},
+        };
     }
+  }
+
+  /// low / medium / high, for the forms that know only those: `max` is `high`, a number (1–100) is
+  /// cut into thirds, any other word is passed as it is.
+  static String _threeLevels(Object effort) {
+    if (effort is int) return effort <= 33 ? 'low' : (effort <= 66 ? 'medium' : 'high');
+    final word = '$effort';
+    return word == 'max' ? 'high' : word;
   }
 
   /// A typed effort: a number stays a number (DeepSeek V4.1's 1–100 budget), a word stays a word.
@@ -182,6 +204,29 @@ abstract final class ThinkingRequest {
     if (n != null) return n.clamp(1, 100);
     return t;
   }
+
+  /// The format that suits a provider's address, for the hosts whose request shape is known:
+  /// the maker's own API, or a router. Null when the address says nothing (then the model's name
+  /// decides, see [suggestedFormat]). Only a suggestion: the user presses the button.
+  static ThinkingFormat? suggestedFormatForHost(String baseUrl) {
+    final host = (Uri.tryParse(baseUrl.trim())?.host ?? '').toLowerCase();
+    if (host.isEmpty) return null;
+    if (host.contains('openrouter')) return ThinkingFormat.openRouter;
+    if (host.endsWith('deepseek.com')) return ThinkingFormat.deepseekApi;
+    if (host.endsWith('z.ai') || host.endsWith('bigmodel.cn')) return ThinkingFormat.zaiApi;
+    if (host.endsWith('openai.com')) return ThinkingFormat.openaiEffort;
+    if (host.contains('deepinfra') || host.contains('together') || host.contains('fireworks')) return ThinkingFormat.chatTemplate;
+    return null;
+  }
+
+  /// The effort words a [format] documents, for the choices of the chat's thinking menu: DeepSeek
+  /// and Z.ai name `low` / `high` / `max`; the others take `low` / `medium` / `high` (and `max`,
+  /// which they cut to `high`).
+  static List<String> levelsFor(ThinkingFormat format) => switch (format) {
+        ThinkingFormat.deepseekApi || ThinkingFormat.zaiApi => const ['low', 'high', 'max'],
+        ThinkingFormat.none => const [],
+        _ => const ['low', 'medium', 'high'],
+      };
 
   /// The formats worth suggesting for [modelId], by how models are named: a Hugging Face name
   /// (`zai-org/GLM-5.3`) is served by a vLLM-like host, a bare name by the maker's own API.

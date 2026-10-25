@@ -120,4 +120,56 @@ void main() {
       expect(config.copyWith(clearThinking: null).clearThinking, isNull);
     });
   });
+
+  group('OpenRouter の形（ルーターが真似する形も）', () {
+    const config = ThinkingConfig(format: ThinkingFormat.openRouter);
+
+    test('オンなら reasoning の effort（low / medium / high）、オフなら enabled: false', () {
+      expect(fields(config, accuracy: 0.2), {
+        'reasoning': {'effort': 'low'},
+      });
+      expect(fields(config, accuracy: 0.6), {
+        'reasoning': {'effort': 'high'},
+      });
+      expect(fields(config.copyWith(effort: 'medium')), {
+        'reasoning': {'effort': 'medium'},
+      });
+      expect(fields(config, thinking: false), {
+        'reasoning': {'enabled': false},
+      });
+    });
+
+    test('max は high に、数字は三つに分けて low / medium / high にする', () {
+      expect(fields(config.copyWith(effort: 'max')), {
+        'reasoning': {'effort': 'high'},
+      });
+      expect(fields(config.copyWith(effort: '20')), {
+        'reasoning': {'effort': 'low'},
+      });
+      expect(fields(config.copyWith(effort: '50')), {
+        'reasoning': {'effort': 'medium'},
+      });
+      expect(fields(config.copyWith(effort: '90')), {
+        'reasoning': {'effort': 'high'},
+      });
+    });
+  });
+
+  group('提供元のアドレスから、おすすめの送り方', () {
+    test('作った会社自身の API と、ルーターは分かる。分からないアドレスは null', () {
+      expect(ThinkingRequest.suggestedFormatForHost('https://openrouter.ai/api/v1'), ThinkingFormat.openRouter);
+      expect(ThinkingRequest.suggestedFormatForHost('https://api.deepseek.com/v1'), ThinkingFormat.deepseekApi);
+      expect(ThinkingRequest.suggestedFormatForHost('https://api.z.ai/api/paas/v4'), ThinkingFormat.zaiApi);
+      expect(ThinkingRequest.suggestedFormatForHost('https://api.openai.com/v1'), ThinkingFormat.openaiEffort);
+      expect(ThinkingRequest.suggestedFormatForHost('https://api.deepinfra.com/v1/openai'), ThinkingFormat.chatTemplate);
+      expect(ThinkingRequest.suggestedFormatForHost('https://orca.example/v1'), isNull);
+      expect(ThinkingRequest.suggestedFormatForHost('not a url'), isNull);
+    });
+
+    test('メニューに出す強さは、その形が書いている言葉だけ', () {
+      expect(ThinkingRequest.levelsFor(ThinkingFormat.deepseekApi), ['low', 'high', 'max']);
+      expect(ThinkingRequest.levelsFor(ThinkingFormat.openRouter), ['low', 'medium', 'high']);
+      expect(ThinkingRequest.levelsFor(ThinkingFormat.none), isEmpty);
+    });
+  });
 }

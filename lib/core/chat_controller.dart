@@ -214,7 +214,7 @@ class GenerationSettings {
     this.maxTokens = 2048,
     this.searchEnabled = true,
     this.retryLimit = 2,
-    this.maxToolRounds = 4,
+    this.maxToolRounds = 30,
     this.speedAccuracy = 0.5,
     this.modelParamsB,
     this.agentOverride,
@@ -281,7 +281,9 @@ class GenerationSettings {
   /// Regenerations allowed for a cut-off tool call (詳細設定「エラー再書き込み回数」).
   final int retryLimit;
 
-  /// Tool calls allowed before one reply must finish; stops tool loops.
+  /// A safety cap on the tool calls of one reply; 0 means no cap. It is high on purpose: calls with
+  /// different arguments (searches for different words) are not a loop and must not be stopped.
+  /// A loop is the same call made again and again, which [toolRepeatLimit] stops.
   final int maxToolRounds;
 
   /// 0 = fastest, 1 = most accurate (spec §8.1 速度 / 精度).
@@ -737,10 +739,10 @@ class ChatController extends ChangeNotifier {
     final activities = <ToolActivity>[];
     var rounds = 0;
     var roundPrefill = prefill;
-    // A model that keeps asking for the same tool with the same arguments never finishes; the
-    // round limit alone would let it burn every round. Three identical calls in a row is a loop.
-    var lastToolKey = '';
-    var repeated = 0;
+    // A model that keeps asking for the same tool with the same arguments never finishes. The same
+    // call made [toolRepeatLimit] times in this reply, in a row or with others between, is a loop;
+    // a different call (another search word, another tool) is never counted as one.
+    final seenCalls = <String, int>{};
 
     while (true) {
       final thinking =
@@ -885,15 +887,15 @@ class ChatController extends ChangeNotifier {
           return;
         default:
           final key = _toolKey(call);
-          repeated = key == lastToolKey ? repeated + 1 : 1;
-          lastToolKey = key;
-          if (repeated >= config.toolRepeatLimit) {
-            _fail(id, '同じ道具を繰り返し呼んでいます（$key）');
+          final times = (seenCalls[key] ?? 0) + 1;
+          seenCalls[key] = times;
+          if (times >= config.toolRepeatLimit) {
+            _fail(id, '同じ道具を同じ引数で繰り返し呼んでいます（$key）');
             return;
           }
           rounds++;
-          if (rounds > config.maxToolRounds) {
-            _fail(id, 'tool calls exceeded ${config.maxToolRounds} rounds');
+          if (config.maxToolRounds > 0 && rounds > config.maxToolRounds) {
+            _fail(id, 'ツールの呼び出しが上限（${config.maxToolRounds} 回）を超えました。設定の「ツール呼び出しの上限」で増やせます');
             return;
           }
           _update(

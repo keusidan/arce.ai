@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../mcp/mcp_server.dart';
@@ -272,8 +274,12 @@ class _ServerEditorState extends State<_ServerEditor> {
     );
     await widget.app.settings.setMcpToken(server.id, _token.text);
     if (!mounted) return;
+    final app = widget.app;
     Navigator.of(context).pop();
-    widget.app.showToast('${server.name} を保存しました');
+    app.showToast('${server.name} を保存しました。ツール一覧を取得しています…');
+    // saved: the server is asked what it offers at once, so the user sees what it adds to every
+    // request (and a warning when that is too much for the model in use)
+    if (server.enabled) unawaited(app.probeMcp(server.id).then(app.showToast));
   }
 
   @override

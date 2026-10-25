@@ -8,8 +8,6 @@ import 'package:arce_ai/ai/provider_config.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
 import 'package:arce_ai/core/prompt.dart';
-import 'package:arce_ai/core/protocol.dart';
-import 'package:arce_ai/core/stream_segmenter.dart' hide ToolCallDelta;
 import 'package:flutter_test/flutter_test.dart';
 
 /// A provider that fails (with [error], before or after [before] deltas) or streams [deltas].

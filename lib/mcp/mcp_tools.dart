@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import '../ai/token_budget.dart';
 import '../core/protocol.dart';
 import '../core/tool_runtime.dart';
 import 'mcp_client.dart';
@@ -108,7 +111,20 @@ class McpTools {
     final tools = await _toolsOf(server);
     if (tools == null) return '接続できません';
     if (tools.isEmpty) return 'ツールが1つも公開されていません';
-    return '${tools.length} 個のツール: ${tools.map((t) => t.name).join(', ')}';
+    return '${tools.length} 個のツール（毎回の送信に約 ${TokenBudget.estimate(_definitionText(tools))} トークン）: ${tools.map((t) => t.name).join(', ')}';
+  }
+
+  /// What the tools of one server add to every request, as text: the tokens are counted from it.
+  static String _definitionText(List<McpTool> tools) => [
+        for (final tool in tools) '${tool.name} ${tool.description} ${jsonEncode(tool.parameters)}',
+      ].join('\n');
+
+  /// How many tokens the tools of server [id] add to every request; null when it cannot be reached.
+  Future<int?> overheadTokens(String id) async {
+    final server = _serverById(id);
+    if (server == null) return null;
+    final tools = await _toolsOf(server);
+    return tools == null ? null : TokenBudget.estimate(_definitionText(tools));
   }
 
   Future<ToolOutcome> run(McpCall call) async {

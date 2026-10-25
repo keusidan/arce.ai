@@ -98,10 +98,10 @@ abstract final class AgentSettings {
     ),
     'maxToolRounds': SettingSpec(
       key: 'maxToolRounds',
-      label: 'ツール呼び出しの上限',
+      label: 'ツール呼び出しの上限（1回の返信の中。0で上限なし）',
       kind: SettingKind.whole,
       min: 0,
-      max: 20,
+      max: 200,
     ),
     'forceExecution': SettingSpec(key: 'forceExecution', label: '強制実行', kind: SettingKind.flag),
     'autoUpdateCheck': SettingSpec(
@@ -324,6 +324,42 @@ abstract final class AgentSettings {
       kind: SettingKind.decimal,
       min: 0.7,
       max: 2.0,
+    ),
+    'modelListAutoFetch': SettingSpec(
+      key: 'modelListAutoFetch',
+      label: 'プロバイダのモデル一覧を自動で取得する',
+      kind: SettingKind.flag,
+    ),
+    'modelListRefreshHours': SettingSpec(
+      key: 'modelListRefreshHours',
+      label: 'モデル一覧を取り直す間隔（時間）',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 720,
+    ),
+    'fallbackEnabled': SettingSpec(
+      key: 'fallbackEnabled',
+      label: 'モデルが使えないとき、決めておいた別のモデルに切り替える',
+      kind: SettingKind.flag,
+    ),
+    'tokenPrecheck': SettingSpec(
+      key: 'tokenPrecheck',
+      label: '送る前にトークン長を見積もり、収まらないときは先にエラーにする',
+      kind: SettingKind.flag,
+    ),
+    'tokenOverheadPercent': SettingSpec(
+      key: 'tokenOverheadPercent',
+      label: '指示とツール定義が使ってよい文脈の割合（%）',
+      kind: SettingKind.whole,
+      min: 10,
+      max: 100,
+    ),
+    'recentModelCount': SettingSpec(
+      key: 'recentModelCount',
+      label: '最近使ったモデルを、一覧の先頭に出す数（0でなし）',
+      kind: SettingKind.whole,
+      min: 0,
+      max: 30,
     ),
     'resumeDownloadsOnStart': SettingSpec(
       key: 'resumeDownloadsOnStart',
