@@ -126,7 +126,9 @@ jobs:
           # The loader is a separate file (found at run time through PROOT_LOADER), not unpacked from
           # proot at every start; the path given here is only the fallback. The flags go in through the
           # environment: the makefile appends to them with +=, which a make argument would switch off.
-          export CPPFLAGS="-I$RUNNER_TEMP/talloc-out/include" \
+          # ashmem_memfd.c uses strcmp / memset without <string.h>, which the NDK's clang (C99 and later)
+          # refuses; the header is added on the command line instead of changing the source.
+          export CPPFLAGS="-I$RUNNER_TEMP/talloc-out/include -include string.h" \
                  LDFLAGS="-L$RUNNER_TEMP/talloc-out/lib -Wl,-z,max-page-size=16384" \
                  PROOT_UNBUNDLE_LOADER=/nonexistent
           make V=1 proot loader/loader > make.out 2>&1 || {
