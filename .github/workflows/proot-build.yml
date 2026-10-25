@@ -65,6 +65,20 @@ jobs:
           Checking for large file support without additional flags: OK
           Checking for -D_FILE_OFFSET_BITS=64: OK
           Checking for -D_LARGE_FILES: OK
+          Checking for HAVE_SECURE_MKSTEMP: OK
+          Checking for C99 vsnprintf: OK
+          Checking for HAVE_C99_VSNPRINTF: OK
+          Checking for working strptime: OK
+          Checking for HAVE_IFACE_GETIFADDRS: OK
+          Checking for HAVE_IFACE_IFCONF: FAIL
+          Checking for HAVE_IFACE_IFREQ: FAIL
+          Checking for HAVE_SHARED_MMAP: OK
+          Checking for HAVE_MMAP: OK
+          Checking for HAVE_FCNTL_LOCK: OK
+          Checking for HAVE_FTRUNCATE_EXTEND: OK
+          Checking for HAVE_BROKEN_READDIR: FAIL
+          Checking for HAVE_WORKING_GETCWD: OK
+          Checking for HAVE_IFACE_AIX: FAIL
           EOF
           ./configure --prefix="$RUNNER_TEMP/talloc-out" --disable-rpath --disable-python \
             --cross-compile --cross-answers=cross-answers.txt \
