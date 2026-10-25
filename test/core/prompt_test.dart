@@ -3,6 +3,14 @@ import 'package:arce_ai/core/protocol.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('the system prompt asks for ordinary Markdown and names no format of the app\'s own', () {
+    const prompt = ChatMlPromptBuilder.baseSystemPrompt;
+    expect(prompt, contains('Markdown'));
+    expect(prompt, contains('fenced code block'));
+    // the app reads Markdown (tables, headings, lists); the prompt must not narrow it to bold only
+    expect(prompt, isNot(contains('Write bold text as')));
+  });
+
   test('thinking off pre-fills an empty think block', () {
     final prompt = ChatMlPromptBuilder.build([const UserTurn('hi')], [], null, false);
     expect(prompt, endsWith('<|im_start|>assistant\n<think>\n\n</think>\n\n'));

@@ -71,7 +71,7 @@ abstract final class ChatMlPromptBuilder {
   static const baseSystemPrompt = '''
 You are ARCE.AI, a local assistant for coding and general questions.
 Rules:
-- Write bold text as **text**.
+- Write replies in Markdown: lists, **bold**, tables for comparisons, and headings only in longer answers.
 - Put every program or file in a fenced code block with its language, e.g. ```html.
 - Only write code when the user clearly asks for it ("make", "implement", "write code", 作って, 実装して). Otherwise answer in prose.
 - If you need a decision from the user before continuing, call the ask_user tool instead of guessing.
