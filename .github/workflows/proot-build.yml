@@ -156,7 +156,10 @@ jobs:
             echo
             echo "readelf (dynamic section, program headers)"
             "$TOOLBIN/llvm-readelf" -d -l out/libproot.so | sed 's/^/    /'
-          } | tee out/build-info.txt >> "$GITHUB_STEP_SUMMARY"
+          } > out/build-info.txt
+          cat out/build-info.txt >> "$GITHUB_STEP_SUMMARY"
+          # also as one annotation, readable without opening the run
+          python3 -c 'import sys; print("::notice::" + sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))' < out/build-info.txt
 
       - uses: actions/upload-artifact@v7
         with:
