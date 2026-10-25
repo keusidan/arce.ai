@@ -90,7 +90,17 @@ jobs:
           ./configure --prefix="$RUNNER_TEMP/talloc-out" --disable-rpath --disable-python \
             --cross-compile --cross-answers=cross-answers.txt > configure.out 2>&1 || {
               { tail -n 12 configure.out; echo ---; find . -name '*answers*'; echo ---
-                grep -h -B2 'The configuration failed' bin/config.log | tail -n 30; } > configure.tail
+                python3 - <<'PY'
+          import re
+          lines = open("bin/config.log", errors="replace").read().split("\n")
+          for i, l in enumerate(lines):
+              if "--cross-answers" in l:
+                  q = re.findall(r"'([^']*)'\]", l)
+                  nxt = " ".join(lines[i + 1:i + 4])
+                  if "failed" in nxt or "Traceback" in nxt:
+                      print("UNANSWERED?", q[-1] if q else l[-80:])
+          PY
+              } > configure.tail
               fail "talloc configure failed" configure.tail
             }
           make -j"$(nproc)" > make.out 2>&1 || fail "talloc make failed" make.out
