@@ -113,33 +113,177 @@ class MessageView extends StatelessWidget {
   }
 }
 
-/// Reply text with bold spans and code blocks.
+/// A reply written in Markdown: headings, bold / italic / strike / `code`, links, lists, quotes,
+/// rules, tables and code blocks (see [MarkdownLite] for what is read).
 class RichReply extends StatelessWidget {
   const RichReply({super.key, required this.text});
   final String text;
 
   @override
+  Widget build(BuildContext context) => MarkdownBlocks(blocks: MarkdownLite.parse(text));
+}
+
+/// Blocks one under another. A heading has more room above it than the other blocks.
+class MarkdownBlocks extends StatelessWidget {
+  const MarkdownBlocks({super.key, required this.blocks});
+  final List<Block> blocks;
+
+  @override
   Widget build(BuildContext context) {
-    final blocks = MarkdownLite.parse(text);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < blocks.length; i++)
           Padding(
-            padding: EdgeInsets.only(top: i == 0 ? 0 : 8),
-            child: switch (blocks[i]) {
-              Paragraph(:final spans) => Text.rich(
-                  TextSpan(children: [
-                    for (final s in spans)
-                      TextSpan(text: s.text, style: s.bold ? const TextStyle(fontWeight: FontWeight.w700) : null),
-                  ]),
-                  style: ts(context, 13, height: 1.72),
-                ),
-              CodeBlock() => CodeCard(block: blocks[i] as CodeBlock),
-            },
+            padding: EdgeInsets.only(top: i == 0 ? 0 : (blocks[i] is Heading ? 14 : 8)),
+            child: _block(context, blocks[i]),
           ),
       ],
     );
+  }
+
+  static const _headingSizes = [18.0, 16.0, 14.5, 13.5, 13.0, 13.0];
+
+  Widget _block(BuildContext context, Block block) {
+    final c = context.c;
+    return switch (block) {
+      Paragraph(:final spans) => InlineText(spans: spans, size: 13, height: 1.72),
+      Heading(:final level, :final spans) => InlineText(spans: spans, size: _headingSizes[level - 1], height: 1.5, weight: FontWeight.w700),
+      Rule() => Container(height: 1, margin: const EdgeInsets.symmetric(vertical: 4), color: c.line),
+      CodeBlock() => CodeCard(block: block),
+      ListBlock(:final items) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [for (final item in items) _listItem(context, item)]),
+      Quote(:final blocks) => Container(
+          width: double.infinity,
+          padding: const EdgeInsets.only(left: 11),
+          decoration: BoxDecoration(border: Border(left: BorderSide(color: c.line, width: 3))),
+          child: MarkdownBlocks(blocks: blocks),
+        ),
+      TableBlock() => _table(context, block),
+    };
+  }
+
+  Widget _listItem(BuildContext context, ListItem item) {
+    final c = context.c;
+    final marker = item.checked != null
+        ? Icon(item.checked! ? Icons.check_box : Icons.check_box_outline_blank, size: 16, color: item.checked! ? c.accent : c.muted)
+        : Text(
+            item.number != null ? '${item.number}.' : const ['•', '◦', '▪'][item.depth.clamp(0, 2)],
+            style: ts(context, 13, height: 1.72, color: c.muted),
+          );
+    return Padding(
+      padding: EdgeInsets.only(left: item.depth * 18.0, top: 2, bottom: 2),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          width: 24,
+          child: Padding(
+            padding: EdgeInsets.only(top: item.checked != null ? 4 : 0, right: 6),
+            child: Align(alignment: Alignment.topRight, child: marker),
+          ),
+        ),
+        Expanded(child: InlineText(spans: item.spans, size: 13, height: 1.65)),
+      ]),
+    );
+  }
+
+  /// A table scrolls sideways when it is wider than the screen; one cell is at most 280 wide.
+  Widget _table(BuildContext context, TableBlock table) {
+    final c = context.c;
+    Widget cell(List<Span> spans, int column, {bool header = false}) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 280),
+            child: InlineText(
+              spans: spans,
+              size: 12,
+              height: 1.5,
+              weight: header ? FontWeight.w700 : FontWeight.w400,
+              align: switch (table.aligns[column]) {
+                ColumnAlign.left => TextAlign.left,
+                ColumnAlign.center => TextAlign.center,
+                ColumnAlign.right => TextAlign.right,
+              },
+            ),
+          ),
+        );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Table(
+          defaultColumnWidth: const IntrinsicColumnWidth(),
+          border: TableBorder.all(color: c.line),
+          children: [
+            TableRow(
+              decoration: BoxDecoration(color: c.surface2),
+              children: [for (var col = 0; col < table.header.length; col++) cell(table.header[col], col, header: true)],
+            ),
+            for (final row in table.rows) TableRow(children: [for (var col = 0; col < row.length; col++) cell(row[col], col)]),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Styled text of [Span]s; a link opens in the browser when tapped.
+class InlineText extends StatefulWidget {
+  const InlineText({super.key, required this.spans, required this.size, this.height, this.weight = FontWeight.w400, this.align});
+
+  final List<Span> spans;
+  final double size;
+  final double? height;
+  final FontWeight weight;
+  final TextAlign? align;
+
+  @override
+  State<InlineText> createState() => _InlineTextState();
+}
+
+class _InlineTextState extends State<InlineText> {
+  final _recognizers = <TapGestureRecognizer>[];
+
+  void _release() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  @override
+  void dispose() {
+    _release();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    _release();
+    final base = ts(context, widget.size, height: widget.height, weight: widget.weight);
+    TextSpan piece(Span s) {
+      var style = base;
+      if (s.bold) style = style.copyWith(fontWeight: FontWeight.w700);
+      if (s.italic) style = style.copyWith(fontStyle: FontStyle.italic);
+      if (s.strike) style = style.copyWith(decoration: TextDecoration.lineThrough);
+      if (s.code) {
+        style = style.copyWith(fontFamily: 'monospace', fontSize: widget.size - 1, backgroundColor: c.surface3.withValues(alpha: .7));
+      }
+      GestureRecognizer? tap;
+      if (s.link != null) {
+        final url = s.link!;
+        final recognizer = TapGestureRecognizer()..onTap = () => openUrl(url);
+        _recognizers.add(recognizer);
+        tap = recognizer;
+        style = style.copyWith(
+          color: c.accent,
+          decoration: s.strike ? TextDecoration.combine([TextDecoration.underline, TextDecoration.lineThrough]) : TextDecoration.underline,
+          decorationColor: c.accent,
+        );
+      }
+      return TextSpan(text: s.text, style: style, recognizer: tap);
+    }
+
+    return Text.rich(TextSpan(children: [for (final s in widget.spans) piece(s)]), style: base, textAlign: widget.align);
   }
 }
 
