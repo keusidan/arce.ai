@@ -82,13 +82,15 @@ jobs:
           EOF
           # A failure is also written as one annotation, so it can be read without the full log.
           fail() {
-            { echo "$1"; tail -n 25 "$2"; } | python3 -c \
+            { echo "$1"; tail -n 90 "$2"; } | python3 -c \
               'import sys; print("::error::" + sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'
             exit 1
           }
           ./configure --prefix="$RUNNER_TEMP/talloc-out" --disable-rpath --disable-python \
-            --cross-compile --cross-answers=cross-answers.txt > configure.out 2>&1 \
-            || fail "talloc configure failed" configure.out
+            --cross-compile --cross-answers=cross-answers.txt > configure.out 2>&1 || {
+              { find . -name '*answers*'; grep -h -i 'answer' bin/config.log | sort -u | head -n 60; } >> configure.out
+              fail "talloc configure failed" configure.out
+            }
           make -j"$(nproc)" > make.out 2>&1 || fail "talloc make failed" make.out
           mkdir -p "$RUNNER_TEMP/talloc-out/lib" "$RUNNER_TEMP/talloc-out/include"
           find bin -name '*.o' | sort
