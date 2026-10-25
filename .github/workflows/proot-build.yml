@@ -126,7 +126,11 @@ jobs:
           export CPPFLAGS="-I$RUNNER_TEMP/talloc-out/include" \
                  LDFLAGS="-L$RUNNER_TEMP/talloc-out/lib -Wl,-z,max-page-size=16384" \
                  PROOT_UNBUNDLE_LOADER=/nonexistent
-          make -f "$GITHUB_WORKSPACE/third_party/proot/src/GNUmakefile" V=1 proot loader/loader
+          make -f "$GITHUB_WORKSPACE/third_party/proot/src/GNUmakefile" V=1 proot loader/loader > make.out 2>&1 || {
+            { echo "proot make failed"; grep -n -i -B2 -A4 'error' make.out | tail -n 60; echo ---; tail -n 20 make.out; } \
+              | python3 -c 'import sys; print("::error::" + sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'
+            exit 1
+          }
           ls -l proot loader/loader
 
       - name: What was built
