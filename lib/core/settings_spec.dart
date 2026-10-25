@@ -347,6 +347,11 @@ abstract final class AgentSettings {
       label: '送る前にトークン長を見積もり、収まらないときは先にエラーにする',
       kind: SettingKind.flag,
     ),
+    'thinkingExpanded': SettingSpec(
+      key: 'thinkingExpanded',
+      label: '思考の内容を、開いたまま表示する',
+      kind: SettingKind.flag,
+    ),
     'tokenOverheadPercent': SettingSpec(
       key: 'tokenOverheadPercent',
       label: '指示とツール定義が使ってよい文脈の割合（%）',

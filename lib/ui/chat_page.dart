@@ -6,13 +6,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../ai/thinking_config.dart';
 import '../core/attachments.dart';
 import '../services/app_controller.dart';
 import 'app_scope.dart';
 import 'chat_widgets.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
+import 'thinking_sheet.dart';
 import 'widgets.dart';
 
 class ChatPage extends StatefulWidget {
@@ -203,13 +203,8 @@ class _ChatPageState extends State<ChatPage> {
                 svg: ArceSvg.brainLabel,
                 label: '思考',
                 on: settings.thinking,
-                onTap: () {
-                  app.settings.update((s) => s.copyWith(thinking: !s.thinking));
-                  final label = !settings.thinking ? 'Thinking表示をオン' : 'Thinking表示をオフ';
-                  // an online model only hears about it when a thinking format is chosen for it
-                  final unheard = app.engine.isCloud && (app.providers.activeModel?.thinking.format ?? ThinkingFormat.none) == ThinkingFormat.none;
-                  app.showToast(unheard ? '$label（このモデルは思考の送り方が未設定で、表示だけが変わります）' : label);
-                },
+                tooltip: '思考の量・送り方・表示',
+                onTap: () => showThinkingSheet(context, app),
               ),
               _ToolButton(
                 svg: ArceSvg.search,

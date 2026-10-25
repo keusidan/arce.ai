@@ -100,7 +100,7 @@ class MessageView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (message.thinking.trim().isNotEmpty) ThinkingBlock(text: message.thinking, live: generating && message.text.isEmpty),
+        if (message.thinking.trim().isNotEmpty) ThinkingBlock(text: message.thinking, live: generating && message.text.isEmpty, expanded: ArceScope.of(context).settings.value.thinkingExpanded),
         for (final activity in message.activities) ActivityView(activity: activity),
         if (message.text.trim().isNotEmpty || message.finish == FinishReason.error)
           Padding(
@@ -232,11 +232,13 @@ class MessageActions extends StatelessWidget {
   }
 }
 
-/// The model's reasoning: folded away by default, open while it is still the only output.
+/// The model's reasoning: open (the setting 思考の内容を開いたまま表示), or folded away once the reply
+/// starts; it is open while it is still the only output either way. A tap opens and closes it.
 class ThinkingBlock extends StatefulWidget {
-  const ThinkingBlock({super.key, required this.text, required this.live});
+  const ThinkingBlock({super.key, required this.text, required this.live, this.expanded = true});
   final String text;
   final bool live;
+  final bool expanded;
 
   @override
   State<ThinkingBlock> createState() => _ThinkingBlockState();
@@ -248,7 +250,7 @@ class _ThinkingBlockState extends State<ThinkingBlock> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final open = _open ?? widget.live;
+    final open = _open ?? (widget.live || widget.expanded);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 6),
@@ -264,7 +266,7 @@ class _ThinkingBlockState extends State<ThinkingBlock> {
               child: Row(children: [
                 ArceIcon(ArceSvg.brainLabel, size: 14, color: c.accent),
                 const SizedBox(width: 6),
-                Expanded(child: Text(widget.live ? '考えています…' : '思考プロセス', style: ts(context, 11, weight: FontWeight.w600, color: c.muted))),
+                Expanded(child: Text(widget.live ? '考えています…' : '思考プロセス（${widget.text.trim().length}文字）', style: ts(context, 11, weight: FontWeight.w600, color: c.muted))),
                 ArceIcon(open ? ArceSvg.chevronUp : ArceSvg.chevronDown, size: 15, color: c.muted),
               ]),
             ),

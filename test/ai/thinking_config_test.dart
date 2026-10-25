@@ -166,6 +166,31 @@ void main() {
       expect(ThinkingRequest.suggestedFormatForHost('not a url'), isNull);
     });
 
+    test('メニューの選びは、モードと強さに戻せる', () {
+      const base = ThinkingConfig(format: ThinkingFormat.deepseekApi);
+      expect(ThinkingRequest.choiceOf(base), 'auto');
+      final high = ThinkingRequest.withChoice(base, 'high');
+      expect((high.mode, high.effort), (ThinkingMode.on, 'high'));
+      expect(ThinkingRequest.choiceOf(high), 'high');
+      final off = ThinkingRequest.withChoice(high, 'off');
+      expect(off.mode, ThinkingMode.off);
+      expect(ThinkingRequest.choiceOf(off), 'off');
+      final auto = ThinkingRequest.withChoice(off, 'auto');
+      expect((auto.mode, auto.effort), (ThinkingMode.auto, ''));
+      expect(ThinkingRequest.choiceOf(const ThinkingConfig(mode: ThinkingMode.on)), 'on');
+    });
+
+    test('送り方を変えると、新しい形が知らない強さは外れる', () {
+      const medium = ThinkingConfig(format: ThinkingFormat.openRouter, mode: ThinkingMode.on, effort: 'medium');
+      final moved = ThinkingRequest.withFormat(medium, ThinkingFormat.deepseekApi);
+      expect(moved.format, ThinkingFormat.deepseekApi);
+      expect(moved.effort, isEmpty, reason: 'DeepSeek names low / high / max only');
+      expect(moved.mode, ThinkingMode.auto);
+      final kept = ThinkingRequest.withFormat(medium, ThinkingFormat.openaiEffort);
+      expect((kept.effort, kept.mode), ('medium', ThinkingMode.on));
+      expect(ThinkingRequest.withFormat(const ThinkingConfig(effort: '70'), ThinkingFormat.deepseekApi).effort, '70');
+    });
+
     test('メニューに出す強さは、その形が書いている言葉だけ', () {
       expect(ThinkingRequest.levelsFor(ThinkingFormat.deepseekApi), ['low', 'high', 'max']);
       expect(ThinkingRequest.levelsFor(ThinkingFormat.openRouter), ['low', 'medium', 'high']);

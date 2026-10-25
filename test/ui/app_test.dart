@@ -256,7 +256,7 @@ void main() {
     expect(saved.thinking.replay, ReasoningReplay.never);
   });
 
-  testWidgets('chat: the thinking switch says when an online model does not hear about it', (tester) async {
+  testWidgets('chat: the thinking menu chooses how an online model thinks, and says when nothing is sent', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);
     await app.providers.save(const ProviderConfig(
@@ -271,22 +271,46 @@ void main() {
     expect(app.engine.isCloud, isTrue);
 
     await tester.tap(find.text('思考'));
-    await tester.pump();
-    expect(find.textContaining('思考の送り方が未設定'), findsOneWidget);
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('思考の送り方がまだ決まっていません'), findsOneWidget);
+    expect(find.text('最大'), findsNothing, reason: 'no effort words until a format names them');
 
-    // once a format is chosen the model does hear it: the plain message
-    await app.providers.save(const ProviderConfig(
-      id: 'host',
-      label: 'ホスト',
-      baseUrl: 'https://host.example/v1',
-      models: [ModelConfig(id: 'deepseek-v4-flash', name: 'ds', thinking: ThinkingConfig(format: ThinkingFormat.deepseekApi))],
-    ));
-    await tester.tap(find.text('思考'));
+    // the name says DeepSeek: one button takes the suggestion
+    await tester.tap(find.textContaining('「DeepSeek API」にする'));
+    await tester.pumpAndSettle();
+    ThinkingConfig stored() => app.providers.byId('host')!.models.single.thinking;
+    expect(stored().format, ThinkingFormat.deepseekApi);
+    expect(find.text('最大'), findsOneWidget);
+
+    await tester.tap(find.text('高'));
+    await tester.pumpAndSettle();
+    expect(stored().mode, ThinkingMode.on);
+    expect(stored().effort, 'high');
+
+    await tester.tap(find.text('オフ'));
+    await tester.pumpAndSettle();
+    expect(stored().mode, ThinkingMode.off);
+
+    await tester.tap(find.text('自動'));
+    await tester.pumpAndSettle();
+    expect(stored().mode, ThinkingMode.auto);
+    expect(stored().effort, isEmpty);
+  });
+
+  testWidgets('chat: the thinking menu of the device model has the switch and the speed slider', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
     await tester.pump();
-    expect(find.textContaining('思考の送り方が未設定'), findsNothing);
-    expect(find.text('Thinking表示をオン'), findsOneWidget);
-    await tester.pump(const Duration(seconds: 3));
+    expect(app.engine.isCloud, isFalse);
+
+    await tester.tap(find.text('思考'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Slider), findsOneWidget);
+    expect(app.settings.value.thinkingExpanded, isTrue);
+    await tester.tap(find.byType(ArceSwitch).last, warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(app.settings.value.thinkingExpanded, isFalse);
   });
 
   testWidgets('settings page: coding mode asks for both models before it can work', (tester) async {

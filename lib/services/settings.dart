@@ -85,6 +85,7 @@ class AppSettings {
     this.modelListRefreshHours = 24,
     this.fallbackEnabled = true,
     this.tokenPrecheck = true,
+    this.thinkingExpanded = true,
     this.tokenOverheadPercent = 80,
     this.recentModelCount = 8,
     this.localDryMultiplier = -1,
@@ -218,6 +219,9 @@ class AppSettings {
   /// Count the instructions and tool definitions before a request and refuse one that cannot fit
   /// the model's context; [tokenOverheadPercent] is how much of the context they may take.
   final bool tokenPrecheck;
+
+  /// Whether the model's thinking is shown open under the reply (true) or folded away (false).
+  final bool thinkingExpanded;
   final int tokenOverheadPercent;
 
   /// How many of the models used last are offered first in the model lists (0 turns it off).
@@ -341,6 +345,7 @@ class AppSettings {
     int? modelListRefreshHours,
     bool? fallbackEnabled,
     bool? tokenPrecheck,
+    bool? thinkingExpanded,
     int? tokenOverheadPercent,
     int? recentModelCount,
     double? localDryMultiplier,
@@ -414,6 +419,7 @@ class AppSettings {
     modelListRefreshHours: modelListRefreshHours ?? this.modelListRefreshHours,
     fallbackEnabled: fallbackEnabled ?? this.fallbackEnabled,
     tokenPrecheck: tokenPrecheck ?? this.tokenPrecheck,
+    thinkingExpanded: thinkingExpanded ?? this.thinkingExpanded,
     tokenOverheadPercent: tokenOverheadPercent ?? this.tokenOverheadPercent,
     recentModelCount: recentModelCount ?? this.recentModelCount,
     localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
@@ -489,6 +495,7 @@ class AppSettings {
     'modelListRefreshHours': modelListRefreshHours,
     'fallbackEnabled': fallbackEnabled,
     'tokenPrecheck': tokenPrecheck,
+    'thinkingExpanded': thinkingExpanded,
     'tokenOverheadPercent': tokenOverheadPercent,
     'recentModelCount': recentModelCount,
     'localDryMultiplier': localDryMultiplier,
@@ -595,6 +602,7 @@ class AppSettings {
       modelListRefreshHours: whole('modelListRefreshHours', d.modelListRefreshHours).clamp(1, 720),
       fallbackEnabled: flag('fallbackEnabled', d.fallbackEnabled),
       tokenPrecheck: flag('tokenPrecheck', d.tokenPrecheck),
+      thinkingExpanded: flag('thinkingExpanded', d.thinkingExpanded),
       tokenOverheadPercent: whole('tokenOverheadPercent', d.tokenOverheadPercent).clamp(10, 100),
       recentModelCount: whole('recentModelCount', d.recentModelCount).clamp(0, 30),
       localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),

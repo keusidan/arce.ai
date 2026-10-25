@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:arce_ai/core/engine.dart';
+import 'package:arce_ai/core/settings_spec.dart';
 import 'package:arce_ai/core/search.dart';
 import 'package:arce_ai/mcp/mcp_server.dart';
 import 'package:arce_ai/services/settings.dart';
@@ -30,6 +31,26 @@ void main() {
     expect(damaged.theme, ThemeMode.system);
     expect(damaged.contextLength, 4096);
     expect(damaged.thinking, isTrue);
+  });
+
+  test('the 0.9.0 model settings: defaults, round trip, and the chat may change them', () {
+    const d = AppSettings();
+    expect(d.thinkingExpanded, isTrue, reason: 'the thinking is shown open unless the user folds it');
+    expect(d.tokenPrecheck, isTrue);
+    expect(d.fallbackEnabled, isTrue);
+    expect(d.maxToolRounds, 30);
+
+    const custom = AppSettings(thinkingExpanded: false, tokenPrecheck: false, fallbackEnabled: false, tokenOverheadPercent: 60, recentModelCount: 3);
+    final back = AppSettings.fromJson(custom.toJson());
+    expect(back.thinkingExpanded, isFalse);
+    expect(back.tokenPrecheck, isFalse);
+    expect(back.fallbackEnabled, isFalse);
+    expect(back.tokenOverheadPercent, 60);
+    expect(back.recentModelCount, 3);
+    expect(back.toJson(), custom.toJson());
+
+    expect(AgentSettings.isEditable('thinkingExpanded'), isTrue);
+    expect(AgentSettings.normalize('thinkingExpanded', false), isA<SettingsChangeOk>());
   });
 
   test('the device model and the online models have their own settings', () {

@@ -228,6 +228,30 @@ abstract final class ThinkingRequest {
         _ => const ['low', 'medium', 'high'],
       };
 
+  /// What the chat's thinking menu shows as picked for [config]: `off`, `auto`, an effort word or
+  /// number, or `on` (always on, with the effort left to the 速度⇔精度 slider, which the menu does not offer).
+  static String choiceOf(ThinkingConfig config) {
+    if (config.mode == ThinkingMode.off) return 'off';
+    if (config.effort.isNotEmpty) return config.effort;
+    return config.mode == ThinkingMode.on ? 'on' : 'auto';
+  }
+
+  /// [config] with the menu's [choice] applied (see [choiceOf]): `off` and `auto` set the mode, an
+  /// effort word turns thinking on at that effort.
+  static ThinkingConfig withChoice(ThinkingConfig config, String choice) => switch (choice) {
+        'off' => config.copyWith(mode: ThinkingMode.off),
+        'auto' => config.copyWith(mode: ThinkingMode.auto, effort: ''),
+        _ => config.copyWith(mode: ThinkingMode.on, effort: choice),
+      };
+
+  /// [config] changed to [format]: an effort that the new format does not name (`medium` for
+  /// DeepSeek's API) is dropped, so the request never carries a word the provider does not know.
+  static ThinkingConfig withFormat(ThinkingConfig config, ThinkingFormat format) {
+    final keep = config.effort.isEmpty || int.tryParse(config.effort) != null || levelsFor(format).contains(config.effort);
+    final cleared = !keep || format == ThinkingFormat.none;
+    return config.copyWith(format: format, effort: cleared ? '' : config.effort, mode: cleared && config.mode == ThinkingMode.on ? ThinkingMode.auto : config.mode);
+  }
+
   /// The formats worth suggesting for [modelId], by how models are named: a Hugging Face name
   /// (`zai-org/GLM-5.3`) is served by a vLLM-like host, a bare name by the maker's own API.
   /// Only a suggestion: the user presses the button, and the hosts' fields are theirs to check.
