@@ -81,8 +81,9 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
+  # The build does not wait for the tests: both start together and publishing needs both (see `publish`).
   android:
-    needs: [prepare, test]
+    needs: prepare
     if: needs.prepare.outputs.release == 'true' && inputs.reuse_run == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -213,12 +214,13 @@ jobs:
           key: ccache-${{ steps.ccache.outputs.llama }}-${{ github.sha }}
 
   publish:
-    needs: [prepare, android]
-    # Runs after a build, or alone when an earlier run's APK is reused (then the build jobs are skipped).
+    needs: [prepare, test, android]
+    # Runs after the tests and a build, or alone when an earlier run's APK is reused (then both are skipped).
     if: >-
       ${{ !cancelled()
       && needs.prepare.outputs.release == 'true'
       && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+      && (needs.test.result == 'success' || (needs.test.result == 'skipped' && inputs.reuse_run != ''))
       && (needs.android.result == 'success' || (needs.android.result == 'skipped' && inputs.reuse_run != '')) }}
     runs-on: ubuntu-24.04
     permissions:
@@ -257,13 +259,42 @@ jobs:
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-      # The app can download only what changed since the build it has installed: a bsdiff patch from each
-      # of the last few releases to this one, next to the APK. The app checks the result against the
-      # APK's SHA-256, so a patch that does not fit only costs it the full download. A failure here
-      # must not hold back the release.
+      # Every platform has its own release. Only the Android one is "latest": the earlier native app
+      # reads /releases/latest and expects an APK in it.
+      - uses: ./.github/actions/publish
+        with:
+          tag: ${{ needs.prepare.outputs.tag }}
+          title: ARCE.AI ${{ needs.prepare.outputs.tag }}
+          latest: "true"
+          sha: ${{ steps.src.outputs.sha }}
+
+  # The app can download only what changed since the build it has installed: a bsdiff patch from each
+  # of the last few releases to this one, next to the APK. It is made after the release is out, so the
+  # APK does not wait for it; the patches are added to the release a few minutes later, and until then
+  # the app downloads the whole file. The app checks the result against the APK's SHA-256, so a patch
+  # that does not fit only costs it the full download. A failure here must not turn the run red.
+  patches:
+    needs: [prepare, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write # add the patches to the release
+      actions: read # download the APK of this or an earlier run
+    steps:
+      - uses: actions/checkout@v7 # for the local action below
+
+      - name: Download the APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: dist
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
+
       - name: Make patches from earlier releases
-        continue-on-error: true
-        timeout-minutes: 20
+        id: make
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -274,32 +305,40 @@ jobs:
           /tmp/bsdiff-venv/bin/pip install --quiet bsdiff4
           new="dist/ARCE.AI-v$VERSION-android.apk"
           new_size="$(stat -c %s "$new")"
-          mkdir -p old
+          mkdir -p old patches
           # Android tags are plain vX.Y.Z; take the newest ones that are older than this version
           versions="$( { gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//'; echo "$VERSION"; } \
             | sort -uV | awk -v v="$VERSION" '$0 == v { exit } { print }' | tail -n "$PATCH_FROM")"
           echo "patches from: $(echo $versions)"
-          for old_version in $versions; do
-            gh release download "v$old_version" --pattern "ARCE.AI-v$old_version-android.apk" --dir old --clobber || { echo "no APK in v$old_version"; continue; }
-            # made outside dist/ and moved in only when whole, so a failure leaves no half file to upload
+
+          # one patch; a failure of it is its own (the others still go on)
+          make_patch() {
+            old_version="$1"
+            gh release download "v$old_version" --pattern "ARCE.AI-v$old_version-android.apk" --dir old --clobber \
+              || { echo "no APK in v$old_version"; return 0; }
+            # made outside patches/ and moved in only when whole, so a failure leaves no half file to upload
             made="old/from-$old_version.patch"
             /tmp/bsdiff-venv/bin/python -c "import bsdiff4,sys; bsdiff4.file_diff(sys.argv[1], sys.argv[2], sys.argv[3])" \
-              "old/ARCE.AI-v$old_version-android.apk" "$new" "$made"
+              "old/ARCE.AI-v$old_version-android.apk" "$new" "$made" || { echo "diff from $old_version failed"; return 0; }
             # a patch that is not much smaller than the file is not worth offering
             if [ "$(( $(stat -c %s "$made") * 2 ))" -gt "$new_size" ]; then
               echo "patch from $old_version is too large; skipped"
             else
-              mv "$made" "dist/ARCE.AI-v$VERSION-android.apk.from-$old_version.patch"
-              echo "patch from $old_version: $(stat -c %s "dist/ARCE.AI-v$VERSION-android.apk.from-$old_version.patch") bytes (APK $new_size)"
+              mv "$made" "patches/ARCE.AI-v$VERSION-android.apk.from-$old_version.patch"
+              echo "patch from $old_version: $(stat -c %s "patches/ARCE.AI-v$VERSION-android.apk.from-$old_version.patch") bytes (APK $new_size)"
             fi
-          done
-          ls -l dist
+          }
+          # the diffs are single-threaded and independent: all at once
+          for old_version in $versions; do make_patch "$old_version" & done
+          wait
+          ls -l patches
+          if compgen -G "patches/*" > /dev/null; then echo "any=true" >> "$GITHUB_OUTPUT"; fi
 
-      # Every platform has its own release. Only the Android one is "latest": the earlier native app
-      # reads /releases/latest and expects an APK in it.
-      - uses: ./.github/actions/publish
+      - name: Add the patches to the release
+        if: steps.make.outputs.any == 'true'
+        uses: ./.github/actions/publish
         with:
           tag: ${{ needs.prepare.outputs.tag }}
           title: ARCE.AI ${{ needs.prepare.outputs.tag }}
           latest: "true"
-          sha: ${{ steps.src.outputs.sha }}
+          dir: patches
