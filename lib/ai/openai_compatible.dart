@@ -93,11 +93,13 @@ class OpenAiCompatibleProvider implements AiProvider {
 
     final calls = <int, _PartialCall>{};
     var finish = FinishReason.eog;
-    final decoder = const Utf8Decoder();
     var pending = '';
 
-    await for (final bytes in response.stream) {
-      pending += decoder.convert(bytes);
+    // The decoder of a stream keeps the bytes of a character that a network chunk cut in two until
+    // the rest arrives (Japanese text is three bytes a character, so this happens all the time).
+    // Converting each chunk on its own failed with "Unfinished UTF-8 octet sequence".
+    await for (final text in response.stream.transform(const Utf8Decoder(allowMalformed: true))) {
+      pending += text;
       // events end with a blank line; keep the last unfinished line for the next chunk
       final lines = pending.split('\n');
       pending = lines.removeLast();

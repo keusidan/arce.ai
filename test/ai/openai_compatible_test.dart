@@ -17,12 +17,13 @@ OpenAiCompatibleProvider providerWith(
   String errorBody = '',
   void Function(http.BaseRequest request)? onRequest,
   String body = '',
+  List<List<int>>? byteChunks,
 }) {
   final client = MockClient.streaming((request, _) async {
     onRequest?.call(request);
     if (status != 200) return http.StreamedResponse(Stream.value(utf8.encode(errorBody)), status, request: request);
     return http.StreamedResponse(
-      Stream.fromIterable(chunks.map(utf8.encode)),
+      Stream.fromIterable(byteChunks ?? chunks.map(utf8.encode)),
       200,
       headers: const {'content-type': 'text/event-stream'},
       request: request,
@@ -129,6 +130,30 @@ void main() {
       final deltas = await provider.stream(request).toList();
       expect([for (final d in deltas) if (d is TextDelta) d.text], ['こんにちは']);
       expect(deltas.last, isA<StopDelta>());
+    });
+  });
+
+  group('文字の途中での切れ目', () {
+    test('日本語の1文字の途中（バイトの境目）で chunk が切れても読める', () async {
+      final bytes = utf8.encode(textEvent('こんにちは、世界') +
+          event({
+            'choices': [
+              {'delta': <String, Object?>{}, 'finish_reason': 'stop'},
+            ],
+          }));
+      // every cut position, including the ones inside a three-byte character
+      for (var cut = 1; cut < bytes.length; cut += 1) {
+        final provider = providerWith(const [], byteChunks: [bytes.sublist(0, cut), bytes.sublist(cut)]);
+        final deltas = await provider.stream(request).toList();
+        expect([for (final d in deltas) if (d is TextDelta) d.text].join(), 'こんにちは、世界', reason: 'cut at $cut');
+      }
+    });
+
+    test('1バイトずつ届いても読める', () async {
+      final bytes = utf8.encode(textEvent('日本語の返事'));
+      final provider = providerWith(const [], byteChunks: [for (final b in bytes) [b]]);
+      final deltas = await provider.stream(request).toList();
+      expect([for (final d in deltas) if (d is TextDelta) d.text].join(), '日本語の返事');
     });
   });
 
