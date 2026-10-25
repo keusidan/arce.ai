@@ -118,24 +118,28 @@ jobs:
         run: |
           export CC="$TOOLBIN/${TRIPLE}${API}-clang" STRIP="$TOOLBIN/llvm-strip" \
                  OBJCOPY="$TOOLBIN/llvm-objcopy" OBJDUMP="$TOOLBIN/llvm-objdump"
+          # The makefile only works inside its own source folder (its VPATH doubles the path
+          # otherwise), so build in a copy and leave the submodule clean.
           mkdir -p "$RUNNER_TEMP/proot-build"
-          cd "$RUNNER_TEMP/proot-build"
+          cp -r "$GITHUB_WORKSPACE/third_party/proot/src" "$RUNNER_TEMP/proot-build/src"
+          cd "$RUNNER_TEMP/proot-build/src"
           # The loader is a separate file (found at run time through PROOT_LOADER), not unpacked from
           # proot at every start; the path given here is only the fallback. The flags go in through the
           # environment: the makefile appends to them with +=, which a make argument would switch off.
           export CPPFLAGS="-I$RUNNER_TEMP/talloc-out/include" \
                  LDFLAGS="-L$RUNNER_TEMP/talloc-out/lib -Wl,-z,max-page-size=16384" \
                  PROOT_UNBUNDLE_LOADER=/nonexistent
-          make -f "$GITHUB_WORKSPACE/third_party/proot/src/GNUmakefile" V=1 proot loader/loader > make.out 2>&1 || {
+          make V=1 proot loader/loader > make.out 2>&1 || {
             { echo "proot make failed"; grep -n -i -B2 -A4 'error' make.out | tail -n 60; echo ---; tail -n 20 make.out; } \
               | python3 -c 'import sys; print("::error::" + sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'
             exit 1
           }
           ls -l proot loader/loader
+          echo "BUILD=$PWD" >> "$GITHUB_ENV"
 
       - name: What was built
         run: |
-          cd "$RUNNER_TEMP/proot-build"
+          cd "$BUILD"
           mkdir -p out
           cp proot out/libproot.so
           cp loader/loader out/libproot_loader.so
@@ -151,5 +155,5 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: proot-arm64-v8a
-          path: ${{ runner.temp }}/proot-build/out
+          path: ${{ runner.temp }}/proot-build/src/out
           retention-days: 14
