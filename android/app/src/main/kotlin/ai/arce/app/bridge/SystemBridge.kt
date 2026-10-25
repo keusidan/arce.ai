@@ -1,11 +1,14 @@
 package ai.arce.app.bridge
 
+import ai.arce.app.linux.ProotProbe
 import ai.arce.app.service.GenerationService
 import ai.arce.app.update.ApkInstaller
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.StatFs
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
@@ -62,6 +65,11 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                     }
                     result.success(null)
                 }
+                // runs a child process for up to a few seconds: off the main thread
+                "prootCheck" -> Thread {
+                    val answer = try { ProotProbe.run(context) } catch (e: Throwable) { mapOf("error" to (e.message ?: e.javaClass.simpleName)) }
+                    Handler(Looper.getMainLooper()).post { result.success(answer) }
+                }.start()
                 "stopForeground" -> {
                     context.stopService(Intent(context, GenerationService::class.java))
                     result.success(null)

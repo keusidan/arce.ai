@@ -76,8 +76,12 @@ android {
 
     packaging {
         jniLibs {
-            // Store .so files uncompressed and page-aligned so they load straight from the APK.
-            useLegacyPackaging = false
+            // Extract the .so files at install time (and store them compressed in the APK). Android runs a
+            // program only from a file on disk, and proot (libproot.so, libproot_loader.so) is one: it is
+            // started as a process from nativeLibraryDir. Measured in docs section 15.8: the APK gets
+            // smaller (131 -> 68 MB), the device needs ~117 MB of disk for the libraries, and a delta
+            // update patch is larger (1.1 -> 5.9 MB).
+            useLegacyPackaging = true
             // LiteRT-LM and Flutter may both bring the shared C++ runtime.
             pickFirsts += "**/libc++_shared.so"
         }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../ai/model_tree.dart';
@@ -10,6 +12,7 @@ import 'app_scope.dart';
 import 'mcp_widgets.dart';
 import 'model_tree_view.dart';
 import 'search_widgets.dart';
+import 'proot_check_card.dart';
 import 'provider_widgets.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
@@ -907,9 +910,10 @@ class _SettingsPageState extends State<SettingsPage> {
           icon: ArceSvg.alert,
           title: 'Force Execution',
           subtitle: 'メモリ不足の警告があっても、モデルの選択を許可します',
-          last: true,
+          last: !Platform.isAndroid,
           trailing: ArceSwitch(value: s.forceExecution, onChanged: (v) => set((x) => x.copyWith(forceExecution: v))),
         ),
+        if (Platform.isAndroid) ProotCheckRow(app: app),
       ],
     ),
   );

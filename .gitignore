@@ -52,3 +52,6 @@ captures/
 # Signing keys never go into the repository
 *.keystore
 *.jks
+
+# proot built by CI (.github/actions/proot) and copied here by the Android release workflow
+android/app/src/main/jniLibs/

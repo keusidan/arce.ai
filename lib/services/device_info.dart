@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'proot_check.dart';
+
 class MemoryInfo {
   const MemoryInfo({required this.totalBytes, required this.availableBytes, this.lowMemory = false});
   final int totalBytes;
@@ -61,6 +63,17 @@ class DeviceInfoService {
       // unknown
     }
     return null;
+  }
+
+  /// Starts the packaged proot on this device and reports what happened (Android only; else null).
+  Future<ProotReport?> prootCheck() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final map = await _channel.invokeMapMethod<Object?, Object?>('prootCheck');
+      return map == null ? null : ProotReport.fromMap(map);
+    } catch (e) {
+      return ProotReport(present: false, directory: '', files: const [], steps: const [], error: '$e');
+    }
   }
 
   /// "Manufacturer Model" of the SoC (Android 12+), used to offer NPU builds only where they run.

@@ -1,6 +1,6 @@
 # ARCE.AI ドキュメント（1 ファイルにまとめた版）
 
-- 整理した日：2026-10-26（日本時間 02:16）。内容は v0.9.0 時点（7.6 と 17 章に 0.9.0 を追記）。
+- 整理した日：2026-10-26（日本時間 02:16）。内容は v0.9.1 時点（7.6 に 0.9.0、15.9 に 0.9.1 を追記）。
 - 目的：会話の履歴なしで、この文書だけを読んで作業を続けられるようにする。コードを読めば分かること（個々の関数の動き）は書かず、**意図・決定・制約・未確認のこと**を書く。
 - これは `docs/` にあった Claude 作成の文書 34 本（仕様書・リリース手順・機能ごとの記録・設計メモ・過去のレビュー）を 1 つにしたもの。**古くなっていた記述は、いまの実装に合わせて直した**。元の文書は git の履歴に残っている（コミット 36c4358 に全部ある。`git show 36c4358:docs/<ファイル名>`、一覧は `git ls-tree --name-only 36c4358 docs/`）。
 - `docs/` に残したもの：`ARCE.AI企画書.txt`（利用者の企画書）と `ARCE.AI助言書.txt`（利用者の実装アドバイス・失敗ログ。AI に読ませる運用の文書）。利用者が書いたものなので、まとめの対象にしていない。
@@ -527,7 +527,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | 段階 | 内容 | 検証 |
 |---|---|---|
 | 1a | CI で proot をビルドする（`proot-build.yml`） | **完了**（15.7） |
-| 1b | `useLegacyPackaging` の影響を測る（**完了**、15.8）。Android のビルドで proot を `jniLibs` に入れ、`useLegacyPackaging` を有効にし、起動だけを確かめる（`proot --version`） | CI のログ。実機での起動は利用者の確認が要る |
+| 1b | `useLegacyPackaging` の影響を測る（**完了**、15.8）。Android のビルドで proot を `jniLibs` に入れ、`useLegacyPackaging` を有効にする（**0.9.1 で実装**、15.9）。起動の確認は、設定の「Linux 環境（試験）：proot の確認」ボタン | CI が APK の中身を検査する。実機での起動は利用者の確認が要る |
 | 2 | rootfs（Ubuntu）のダウンロード・展開・仕上げ（Kotlin）と、設定画面の「Linux 環境」 | 展開のテストは単体で。実機での起動は利用者の確認が要る |
 | 3 | `run_command` ツール（確認カード、時間・出力の上限、設定項目、`AgentSettings` との対応） | Dart の単体テスト |
 | 4 | 対話ターミナル、`kaggle` の導入手順（`pip install kaggle`） | 実機 |
@@ -561,6 +561,14 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - arm64 の `.so` の内訳：`liblitertlm_jni.so` 20.8 MB、`libflutter.so` 11.2 MB、`libapp.so` 7.5 MB、`libarce_llama.so` 6.6 MB、`libsqlite3.so` 1.7 MB、`libomp.so` 0.9 MB。proot は約 0.3 MB を足す。
 - 結論：**展開する方式にしても、ダウンロードも端末内の合計も、今より小さくなる**。代わりに、差分更新のパッチが大きくなる（それでも全体より小さい）。**未確認**：端末での起動時間の変化（インストール時に展開するので、起動のたびの展開はない）、更新のインストールにかかる時間の変化。
 - 統合の方法（利用者の提案）：Android のビルドで、アプリのビルドの前に proot をビルドして（`.github/actions/proot`。サブモジュールの commit でキャッシュ）、できた `libproot.so` と `libproot_loader.so` を `android/app/src/main/jniLibs/arm64-v8a/` へ直接コピーし、`useLegacyPackaging` を有効にする。proot の成果物を別の場所に置いてあとで取りに行く形にはしない。
+
+### 15.9 段階 1b の実装：proot をアプリに入れる（0.9.1）
+
+- **入れ方**（利用者の案「ビルドのあとにソースを直接コピーしてリンクする」のとおり）：`release-android.yml` の `android` ジョブが、ローカルアクション `.github/actions/proot`（15.7）で proot をビルドし（サブモジュールのコミットでキャッシュ）、`libproot.so` と `libproot_loader.so` を `android/app/src/main/jniLibs/arm64-v8a/` にコピーしてから `flutter build apk` を行う。`jniLibs/` は `.gitignore` に入れてあり、リポジトリには入らない（ローカルのビルドでは入らず、アプリは「proot なし」と表示する）。x64 の APK（エミュレータ向け）には入らない。
+- **`useLegacyPackaging = true`**（`android/app/build.gradle.kts`）：`.so` をインストール時に `nativeLibraryDir` へ取り出す。Android 10 以降はアプリのデータ領域のファイルを実行できないため、プログラムとして起動できるのは、この取り出された場所のファイルだけ。コストは 15.8 のとおり（APK 131 → 68 MB、端末のディスクに約 117 MB、差分パッチ 1.1 → 5.9 MB）。
+- **CI の検査**（`Check proot in the APK`）：APK の中に 2 つの `.so` があり、ビルドしたファイルとバイト単位で同じこと、`lib/` の `.so` がすべて圧縮されていること、マニフェストが `extractNativeLibs=true` であることを調べ、違えば赤にする。proot を CI で実行はしない（arm64 の bionic 向けで、runner では動かせない）。
+- **実機の確認**（`ProotProbe.kt`、設定 →「ローカルモデルの設定」→「Linux 環境（試験）」）：`libproot.so --version`、`libproot.so -r / /system/bin/echo ok`（rootfs なし。ptrace と seccomp が許されるかが分かる）を実行し、失敗したら `PROOT_NO_SECCOMP=1` でもう 1 回試して、終了コードと出力をそのまま画面に出す。環境変数 `PROOT_LOADER` に `libproot_loader.so` を指す（15.7）。何も変更しない。
+- **まだ確認していないこと**：上のボタンの結果（実機）。その結果で、段階 2（rootfs）に進むか、proot なしの方式に変えるかを決める。
 
 ---
 
@@ -626,6 +634,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | 0.8.18 | チャットを文書型に、モデルのボタンの削除、文字の大きさの設定 |
 | 0.8.19 | Android のリリースを高速化（test と build の並行、パッチの別ジョブ化）。`apply-version.yml` を削除 |
 | 0.9.0 | SSE の UTF-8 の修正（Gemini・分担）。モデル一覧の自動取得・ツリー・検索、最近使った順、フォールバック、トークンの事前チェック、「詳細」画面、思考の表示と入力欄の思考メニュー、道具の繰り返しの判定を引数つきに（7.6） |
+| 0.9.1 | proot を APK に入れる（`jniLibs` + `useLegacyPackaging`）と、実機での起動の確認ボタン（15.9） |
 
 ---
 
