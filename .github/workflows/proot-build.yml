@@ -88,8 +88,9 @@ jobs:
           }
           ./configure --prefix="$RUNNER_TEMP/talloc-out" --disable-rpath --disable-python \
             --cross-compile --cross-answers=cross-answers.txt > configure.out 2>&1 || {
-              { find . -name '*answers*'; grep -h -i 'answer' bin/config.log | sort -u | head -n 60; } >> configure.out
-              fail "talloc configure failed" configure.out
+              { tail -n 12 configure.out; echo ---; find . -name '*answers*'; echo ---
+                grep -h -i -B1 -A1 'cross' bin/config.log | tail -n 40; } > configure.tail
+              fail "talloc configure failed" configure.tail
             }
           make -j"$(nproc)" > make.out 2>&1 || fail "talloc make failed" make.out
           mkdir -p "$RUNNER_TEMP/talloc-out/lib" "$RUNNER_TEMP/talloc-out/include"
