@@ -80,6 +80,9 @@ jobs:
           Checking for HAVE_BROKEN_READDIR: FAIL
           Checking for HAVE_WORKING_GETCWD: OK
           Checking for HAVE_IFACE_AIX: FAIL
+          Checking correct behavior of strtoll: OK
+          Checking for HAVE_MREMAP: OK
+          Checking for HAVE_INCOHERENT_MMAP: FAIL
           EOF
           # A failure is also written as one annotation, so it can be read without the full log.
           fail() {
