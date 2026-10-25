@@ -58,6 +58,15 @@ class ArceApp extends StatelessWidget {
             themeMode: app.settings.value.theme,
             theme: buildTheme(Brightness.light),
             darkTheme: buildTheme(Brightness.dark),
+            // the text size of the settings comes on top of the system's own
+            builder: (context, child) {
+              final media = MediaQuery.of(context);
+              final system = media.textScaler.scale(14) / 14;
+              return MediaQuery(
+                data: media.copyWith(textScaler: TextScaler.linear(system * app.settings.value.fontScale)),
+                child: child!,
+              );
+            },
             home: const AppShell(),
           ),
         ),

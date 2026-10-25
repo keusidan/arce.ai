@@ -80,6 +80,7 @@ class AppSettings {
     this.downloadConnections = 4,
     this.updateUseDelta = true,
     this.resumeDownloadsOnStart = true,
+    this.fontScale = 1.0,
     this.localDryMultiplier = -1,
     this.kvSnapshotEnabled = false,
     this.kvSnapshotMaxMb = 1024,
@@ -195,6 +196,9 @@ class AppSettings {
   /// Carry on with a model download that the app was closed in the middle of, when it starts again.
   final bool resumeDownloadsOnStart;
 
+  /// How large the text is, as a factor of the usual size (1 = usual); it comes on top of the system's own text size.
+  final double fontScale;
+
   /// DRY, the repetition penalty of the device model; -1 keeps the app's own value.
   final double localDryMultiplier;
 
@@ -308,6 +312,7 @@ class AppSettings {
     int? downloadConnections,
     bool? updateUseDelta,
     bool? resumeDownloadsOnStart,
+    double? fontScale,
     double? localDryMultiplier,
     bool? kvSnapshotEnabled,
     int? kvSnapshotMaxMb,
@@ -374,6 +379,7 @@ class AppSettings {
     downloadConnections: downloadConnections ?? this.downloadConnections,
     updateUseDelta: updateUseDelta ?? this.updateUseDelta,
     resumeDownloadsOnStart: resumeDownloadsOnStart ?? this.resumeDownloadsOnStart,
+    fontScale: fontScale ?? this.fontScale,
     localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
     kvSnapshotEnabled: kvSnapshotEnabled ?? this.kvSnapshotEnabled,
     kvSnapshotMaxMb: kvSnapshotMaxMb ?? this.kvSnapshotMaxMb,
@@ -442,6 +448,7 @@ class AppSettings {
     'downloadConnections': downloadConnections,
     'updateUseDelta': updateUseDelta,
     'resumeDownloadsOnStart': resumeDownloadsOnStart,
+    'fontScale': fontScale,
     'localDryMultiplier': localDryMultiplier,
     'kvSnapshotEnabled': kvSnapshotEnabled,
     'kvSnapshotMaxMb': kvSnapshotMaxMb,
@@ -539,6 +546,7 @@ class AppSettings {
       downloadConnections: whole('downloadConnections', d.downloadConnections),
       updateUseDelta: flag('updateUseDelta', d.updateUseDelta),
       resumeDownloadsOnStart: flag('resumeDownloadsOnStart', d.resumeDownloadsOnStart),
+      fontScale: decimal('fontScale', d.fontScale).clamp(0.7, 2.0),
       localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),
       kvSnapshotEnabled: flag('kvSnapshotEnabled', d.kvSnapshotEnabled),
       kvSnapshotMaxMb: whole('kvSnapshotMaxMb', d.kvSnapshotMaxMb),

@@ -374,6 +374,38 @@ void main() {
     expect(find.text(full), findsWidgets, reason: 'the field now shows the choice');
   });
 
+  testWidgets('the text size is a setting and applies to the whole screen', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    double scale() => MediaQuery.of(tester.element(find.byType(Scaffold).first)).textScaler.scale(10) / 10;
+    expect(scale(), closeTo(1.0, 0.001));
+
+    await app.settings.update((s) => s.copyWith(fontScale: 1.5));
+    await tester.pump();
+    expect(scale(), closeTo(1.5, 0.001));
+    expect(app.settings.value.toJson()['fontScale'], 1.5);
+  });
+
+  testWidgets('a reply is plain text over the whole width: no name, no role, no bubble, no model button', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField).first, 'こんにちは');
+    await tester.pump();
+    await tester.tap(find.text('送信'));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    expect(find.text('こんにちは'), findsWidgets);
+    expect(find.text('General Chat'), findsNothing, reason: 'the role of the agent is not written above a reply');
+    expect(find.text('ARCE.AI'), findsWidgets, reason: 'only the app bar carries the name');
+    expect(find.byTooltip('モデル管理'), findsNothing, reason: 'the model button of the input row is gone');
+  });
+
   testWidgets('settings page: the search group has the server, the result count and the search APIs', (tester) async {
     setSize(tester, const Size(411, 1200));
     final app = await makeApp(tester);

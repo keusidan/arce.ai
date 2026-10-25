@@ -239,8 +239,6 @@ class _ChatPageState extends State<ChatPage> {
                 },
               ),
               const Spacer(),
-              _ToolButton(svg: ArceSvg.cube, onTap: () => app.goTo(AppPage.models), tooltip: 'モデル管理'),
-              const SizedBox(width: 5),
               if (chat.isGenerating)
                 _SendButton(label: '停止', svg: ArceSvg.stop, onTap: app.chat.stop, stop: true)
               else
@@ -283,11 +281,11 @@ class _Messages extends StatelessWidget {
     return SelectionArea(
       child: ListView(
         controller: scroll,
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 13),
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 13),
         children: [
           Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 860),
+              constraints: const BoxConstraints(maxWidth: 920),
               child: state.messages.isEmpty
                   ? _Welcome(app: app, onPrompt: onPrompt)
                   : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -297,7 +295,7 @@ class _Messages extends StatelessWidget {
                           child: MessageView(message: state.messages[i], isLast: i == state.messages.length - 1, state: state),
                         ),
                       if (showThinkingCard)
-                        ThinkingCard(task: state.task, style: settings.thinkingStyle, agent: last?.agent),
+                        ThinkingCard(task: state.task, style: settings.thinkingStyle),
                       if (state.pendingQuestion != null)
                         QuestionCard(
                           key: ValueKey(state.messages.length),

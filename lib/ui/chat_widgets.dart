@@ -49,7 +49,7 @@ class MessageView extends StatelessWidget {
     final user = message.role == Role.user;
     final time = message.time == null ? '' : formatTime(message.time!);
     final width = MediaQuery.sizeOf(context).width;
-    final maxWidth = (width * .84).clamp(0.0, 640.0);
+    final maxWidth = (width * .88).clamp(0.0, 720.0);
 
     if (user) {
       return Align(
@@ -94,61 +94,20 @@ class MessageView extends StatelessWidget {
       );
     }
 
+    // The reply is plain text over the whole width, like a document: no avatar, no name or role above
+    // it and no bubble. Only what the user says sits in a bubble.
     final generating = isLast && state.isGenerating;
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 30,
-          height: 30,
-          margin: const EdgeInsets.only(top: 2),
-          decoration: BoxDecoration(color: c.nav, borderRadius: BorderRadius.circular(10)),
-          alignment: Alignment.center,
-          child: const ArceIcon(ArceSvg.brain, size: 18, color: Colors.white),
-        ),
-        const SizedBox(width: 9),
-        Flexible(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth + 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 5),
-                  child: Wrap(spacing: 7, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                    Text('ARCE.AI', style: ts(context, 10, color: c.muted)),
-                    if (message.agent != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(5)),
-                        child: Text(message.agent!, style: ts(context, 9, weight: FontWeight.w700, color: c.accent)),
-                      ),
-                    Text(time, style: ts(context, 10, color: c.muted)),
-                  ]),
-                ),
-                if (message.thinking.trim().isNotEmpty) ThinkingBlock(text: message.thinking, live: generating && message.text.isEmpty),
-                for (final activity in message.activities) ActivityView(activity: activity),
-                if (message.text.trim().isNotEmpty || message.finish == FinishReason.error)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-                    decoration: BoxDecoration(
-                      color: c.assistantBubble,
-                      border: Border.all(color: c.line),
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(4),
-                        topRight: Radius.circular(15),
-                        bottomLeft: Radius.circular(15),
-                        bottomRight: Radius.circular(15),
-                      ),
-                    ),
-                    child: RichReply(text: message.text),
-                  ),
-                if (!generating && message.text.isNotEmpty) MessageActions(message: message, isLast: isLast, state: state),
-              ],
-            ),
+        if (message.thinking.trim().isNotEmpty) ThinkingBlock(text: message.thinking, live: generating && message.text.isEmpty),
+        for (final activity in message.activities) ActivityView(activity: activity),
+        if (message.text.trim().isNotEmpty || message.finish == FinishReason.error)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+            child: SizedBox(width: double.infinity, child: RichReply(text: message.text)),
           ),
-        ),
+        if (!generating && message.text.isNotEmpty) MessageActions(message: message, isLast: isLast, state: state),
       ],
     );
   }
@@ -416,11 +375,10 @@ class FileChip extends StatelessWidget {
 
 /// The card shown while a reply is being produced: icon, current phase, and the steps so far.
 class ThinkingCard extends StatefulWidget {
-  const ThinkingCard({super.key, required this.task, required this.style, required this.agent});
+  const ThinkingCard({super.key, required this.task, required this.style});
 
   final TaskState task;
   final ThinkingStyle style;
-  final String? agent;
 
   @override
   State<ThinkingCard> createState() => _ThinkingCardState();
@@ -442,7 +400,7 @@ class _ThinkingCardState extends State<ThinkingCard> {
     final active = widget.task == TaskState.generation ? 2 : 1;
     final steps = ['入力を受け付けました', searching ? '検索しています' : '内容を考えています', '回答を書いています'];
     return Container(
-      margin: const EdgeInsets.fromLTRB(39, 3, 0, 4),
+      margin: const EdgeInsets.fromLTRB(0, 3, 0, 4),
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
       decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: c.line)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -452,7 +410,6 @@ class _ThinkingCardState extends State<ThinkingCard> {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(title, style: ts(context, 13, weight: FontWeight.w700)),
-              if (widget.agent != null) Padding(padding: const EdgeInsets.only(top: 2), child: Text(widget.agent!, style: ts(context, 10, color: c.muted))),
             ]),
           ),
           IconTap(

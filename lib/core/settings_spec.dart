@@ -318,6 +318,13 @@ abstract final class AgentSettings {
       label: '更新は差分だけダウンロード（Android）',
       kind: SettingKind.flag,
     ),
+    'fontScale': SettingSpec(
+      key: 'fontScale',
+      label: '文字の大きさ（1 が標準）',
+      kind: SettingKind.decimal,
+      min: 0.7,
+      max: 2.0,
+    ),
     'resumeDownloadsOnStart': SettingSpec(
       key: 'resumeDownloadsOnStart',
       label: '閉じたときに止まったモデルのダウンロードを、次の起動で続ける',

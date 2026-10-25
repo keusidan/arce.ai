@@ -209,6 +209,17 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(
             children: [
               SettingRow(
+                icon: ArceSvg.file,
+                title: '文字の大きさ',
+                subtitle: '画面全体の文字（端末の文字サイズの設定に重ねて効きます）',
+                trailing: _Cycle<double>(
+                  value: s.fontScale,
+                  values: const [0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0],
+                  label: (v) => '${(v * 100).round()}%',
+                  onChanged: (v) => set((x) => x.copyWith(fontScale: v)),
+                ),
+              ),
+              SettingRow(
                 icon: ArceSvg.moon,
                 title: 'テーマ',
                 subtitle: '画面の明るさ',
