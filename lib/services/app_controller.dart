@@ -419,8 +419,8 @@ class AppController extends ChangeNotifier {
     }
     if (providers.isCloud) return 'プロバイダの設定が未完了です';
     return engine.isLoaded
-        ? '${models.loadedName ?? 'モデル'} · ${models.backend ?? ''}'
-        : 'モデル未接続 · デモ応答のみ';
+        ? '${models.loadedName ?? 'ローカルモデル'} · ${models.backend ?? ''}'
+        : 'ローカルモデル未接続 · デモ応答のみ';
   }
 
   /// [ProviderList.localId] goes back to the device model.

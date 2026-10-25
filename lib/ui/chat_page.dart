@@ -253,7 +253,7 @@ class _ChatPageState extends State<ChatPage> {
             const SizedBox(width: 5),
             Flexible(
               child: Text(
-                app.engine.isLoaded ? '${app.models.loadedName ?? 'モデル'} · ${app.models.backend ?? ''}' : 'モデル未接続 · デモ応答のみ',
+                app.engineLabel,
                 overflow: TextOverflow.ellipsis,
                 style: ts(context, 9, color: c.muted),
               ),
@@ -365,7 +365,7 @@ class _Welcome extends StatelessWidget {
         const SizedBox(height: 14),
         Wrap(alignment: WrapAlignment.center, spacing: 7, runSpacing: 7, children: [
           _Badge(icon: ArceSvg.shield, text: 'データは端末内に保存'),
-          _Badge(dot: loaded ? c.green : c.amber, text: loaded ? 'AIモデル接続済み' : 'AIモデル未接続'),
+          _Badge(dot: loaded ? c.green : c.amber, text: loaded ? 'AIモデル接続済み' : 'ローカルモデル未接続'),
         ]),
         const SizedBox(height: 21),
         ConstrainedBox(

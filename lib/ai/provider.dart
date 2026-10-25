@@ -160,8 +160,11 @@ abstract interface class AiProvider {
 
 /// A failed request, with a message that can be shown as it is.
 class AiProviderException implements Exception {
-  const AiProviderException(this.message);
+  const AiProviderException(this.message, {this.statusCode});
   final String message;
+
+  /// The HTTP status the provider answered with, when it answered; the fallback mode reads it.
+  final int? statusCode;
 
   @override
   String toString() => message;

@@ -180,6 +180,9 @@ class ProviderConfig {
     this.headers = const {},
     this.body = const {},
     this.supportsTools = true,
+    this.catalog = const [],
+    this.catalogAt,
+    this.autoFetchModels = true,
   });
 
   /// Stable id, also stored in the database (`conversations.provider_id`).
@@ -200,6 +203,45 @@ class ProviderConfig {
 
   /// Whether the endpoint offers function calling.
   final bool supportsTools;
+
+  /// Everything the provider's model list offered the last time it was read. [models] holds only
+  /// the models the user has chosen or set up; picking one from here copies it into [models], so
+  /// a list of hundreds of models does not make the settings long.
+  final List<ModelInfo> catalog;
+
+  /// When [catalog] was read (milliseconds since the epoch); null when it never was.
+  final int? catalogAt;
+
+  /// Read the model list by itself (when the provider is saved and now and then); a provider that
+  /// has no list, or charges for asking, turns it off.
+  final bool autoFetchModels;
+
+  /// The ids the user can pick: the chosen models first, then what the catalog adds.
+  List<String> get knownIds {
+    final seen = <String>{};
+    return [
+      for (final model in models)
+        if (seen.add(model.id)) model.id,
+      for (final info in catalog)
+        if (seen.add(info.id)) info.id,
+    ];
+  }
+
+  ModelInfo? catalogInfo(String id) {
+    for (final info in catalog) {
+      if (info.id == id) return info;
+    }
+    return null;
+  }
+
+  /// The model [id] to use: the one set up here, or else a plain one made from the catalog (with
+  /// what the provider says about its limits), or null when neither knows it.
+  ModelConfig? resolveModel(String id) {
+    final saved = modelById(id);
+    if (saved != null) return saved;
+    final info = catalogInfo(id);
+    return info == null ? null : ModelConfig(id: id, name: id).mergeInfo(info);
+  }
 
   /// Where the key for this provider is kept in the secure storage.
   String get keyRef => 'provider_key.$id';
@@ -231,6 +273,9 @@ class ProviderConfig {
     Map<String, String>? headers,
     Map<String, Object?>? body,
     bool? supportsTools,
+    List<ModelInfo>? catalog,
+    int? catalogAt,
+    bool? autoFetchModels,
   }) => ProviderConfig(
     id: id,
     label: label ?? this.label,
@@ -239,6 +284,9 @@ class ProviderConfig {
     headers: headers ?? this.headers,
     body: body ?? this.body,
     supportsTools: supportsTools ?? this.supportsTools,
+    catalog: catalog ?? this.catalog,
+    catalogAt: catalogAt ?? this.catalogAt,
+    autoFetchModels: autoFetchModels ?? this.autoFetchModels,
   );
 
   Map<String, Object?> toJson() => {
@@ -249,6 +297,9 @@ class ProviderConfig {
     if (headers.isNotEmpty) 'headers': headers,
     if (body.isNotEmpty) 'body': body,
     if (!supportsTools) 'tools': false,
+    if (catalog.isNotEmpty) 'catalog': [for (final info in catalog) info.toJson()],
+    if (catalogAt != null) 'catalogAt': catalogAt,
+    if (!autoFetchModels) 'autoFetch': false,
   };
 
   /// Anything missing or wrongly typed falls back to a usable default, so an older or a damaged
@@ -283,6 +334,12 @@ class ProviderConfig {
           ? (json['body']! as Map).cast<String, Object?>()
           : const {},
       supportsTools: json['tools'] is bool ? json['tools']! as bool : true,
+      catalog: [
+        if (json['catalog'] is List)
+          for (final entry in json['catalog']! as List) ...[?ModelInfo.fromJson(entry)],
+      ],
+      catalogAt: json['catalogAt'] is int ? json['catalogAt']! as int : null,
+      autoFetchModels: json['autoFetch'] is bool ? json['autoFetch']! as bool : true,
     );
   }
 }

@@ -84,7 +84,7 @@ class _ModelsPageState extends State<ModelsPage> {
                         Text(
                           loaded
                               ? '${models.loadedName} · ${models.backend ?? ''}'
-                              : 'AIモデル未導入 · デモ応答のみ',
+                              : 'ローカルモデル未導入 · デモ応答のみ',
                           style: ts(context, 10, color: c.muted),
                         ),
                       ]),

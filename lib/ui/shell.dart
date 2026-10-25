@@ -154,10 +154,14 @@ class EnginePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return ListenableBuilder(
-      listenable: app.models,
+      listenable: Listenable.merge([app.models, app.providers]),
       builder: (context, _) {
-        final loaded = app.models.isLoaded;
-        final label = loaded ? (app.models.loadedName ?? 'モデル') : (compact ? 'モデル未導入' : 'ローカルAI');
+        // an online model answering means the device model is not what the user is waiting for
+        final online = app.providers.active != null;
+        final loaded = online || app.models.isLoaded;
+        final label = online
+            ? app.providers.activeModelId
+            : (app.models.isLoaded ? (app.models.loadedName ?? 'ローカルモデル') : (compact ? 'ローカルモデル未導入' : 'ローカルAI'));
         return Material(
           color: c.surface2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11), side: BorderSide(color: c.line)),
@@ -166,7 +170,7 @@ class EnginePill extends StatelessWidget {
             onTap: () => app.goTo(AppPage.models),
             child: Container(
               height: 34,
-              constraints: BoxConstraints(maxWidth: compact ? 124 : 220),
+              constraints: BoxConstraints(maxWidth: compact ? 156 : 220),
               padding: const EdgeInsets.symmetric(horizontal: 9),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 StatusDot(color: loaded ? c.green : const Color(0xFFE4A546)),

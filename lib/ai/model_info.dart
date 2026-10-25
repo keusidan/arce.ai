@@ -15,6 +15,31 @@ class ModelInfo {
   final bool? reasoning;
 
   bool get hasLimits => contextTokens != null || maxOutputTokens != null;
+
+  /// Short keys: a provider can list hundreds of models and the list is kept in the settings.
+  Map<String, Object?> toJson() => {
+        'id': id,
+        if (contextTokens != null) 'ctx': contextTokens,
+        if (maxOutputTokens != null) 'out': maxOutputTokens,
+        if (vision != null) 'vision': vision,
+        if (tools != null) 'tools': tools,
+        if (reasoning != null) 'reasoning': reasoning,
+      };
+
+  /// Null for an entry without an id (a damaged save).
+  static ModelInfo? fromJson(Object? json) {
+    if (json is! Map || json['id'] is! String || (json['id'] as String).trim().isEmpty) return null;
+    int? positive(Object? v) => v is num && v > 0 ? v.toInt() : null;
+    bool? flag(Object? v) => v is bool ? v : null;
+    return ModelInfo(
+      json['id'] as String,
+      contextTokens: positive(json['ctx']),
+      maxOutputTokens: positive(json['out']),
+      vision: flag(json['vision']),
+      tools: flag(json['tools']),
+      reasoning: flag(json['reasoning']),
+    );
+  }
 }
 
 /// Reads the model lists and model files that providers publish.

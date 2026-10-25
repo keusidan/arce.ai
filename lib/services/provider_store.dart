@@ -1,8 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../ai/fallback.dart';
+import '../ai/model_info.dart';
 import '../ai/openai_compatible.dart';
 import '../ai/provider.dart';
 import '../ai/provider_config.dart';
@@ -24,6 +28,8 @@ class ProviderStore extends ChangeNotifier {
   static const _listKey = 'providers.v1';
   static const _activeKey = 'providers.active';
   static const _activeModelKey = 'providers.activeModel';
+  static const _fallbackKey = 'providers.fallback.v1';
+  static const _recentKey = 'providers.recent';
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secure;
@@ -32,6 +38,8 @@ class ProviderStore extends ChangeNotifier {
   final Map<String, String> _keys = {};
   String _active = ProviderList.localId;
   String _activeModel = '';
+  List<FallbackRule> _fallback = const [];
+  List<String> _recent = const [];
 
   List<ProviderConfig> get providers => List.unmodifiable(_providers);
 
@@ -84,6 +92,13 @@ class ProviderStore extends ChangeNotifier {
         ? saved!
         : ProviderList.localId;
     store._activeModel = store._prefs.getString(_activeModelKey) ?? '';
+    try {
+      final raw = store._prefs.getString(_fallbackKey);
+      if (raw != null && raw.isNotEmpty) store._fallback = FallbackRule.decodeList(jsonDecode(raw));
+    } catch (_) {
+      // a damaged list of rules only means no fallback until the user sets it again
+    }
+    store._recent = store._prefs.getStringList(_recentKey) ?? const [];
     final active = store.active;
     if (active != null && active.modelById(store._activeModel) == null) {
       store._activeModel = active.model;
@@ -151,6 +166,87 @@ class ProviderStore extends ChangeNotifier {
     _activeModel = id;
     notifyListeners();
     await _persistActive();
+  }
+
+  /// Chooses the model [modelId] of [providerId] and makes that provider the one in use. A model
+  /// that is only in the provider's catalog is set up first (with what the provider says about it),
+  /// so it keeps its own settings from then on.
+  Future<bool> selectModel(String providerId, String modelId) async {
+    final provider = byId(providerId);
+    if (provider == null) return false;
+    if (provider.modelById(modelId) == null) {
+      final made = provider.resolveModel(modelId);
+      if (made == null) return false;
+      await save(provider.copyWith(models: [...provider.models, made]));
+    }
+    await setActiveModel(providerId, modelId);
+    return true;
+  }
+
+  /// Replaces the catalog of [providerId] with what its model list offered now, and fills in the
+  /// limits of the models already set up (nothing the user typed is replaced). Returns how many
+  /// models are new to the catalog; null when the provider is gone.
+  Future<int?> updateCatalog(String providerId, List<ModelInfo> infos, {int? now}) async {
+    final provider = byId(providerId);
+    if (provider == null) return null;
+    final before = {for (final info in provider.catalog) info.id};
+    final byIdInfo = {for (final info in infos) info.id: info};
+    await save(
+      provider.copyWith(
+        catalog: infos,
+        catalogAt: now ?? DateTime.now().millisecondsSinceEpoch,
+        models: [
+          for (final model in provider.models)
+            byIdInfo.containsKey(model.id) ? model.mergeInfo(byIdInfo[model.id]!) : model,
+        ],
+      ),
+    );
+    return infos.where((info) => !before.contains(info.id)).length;
+  }
+
+  /// The models used last, newest first, as `provider|model`.
+  List<String> get recentRefs => List.unmodifiable(_recent);
+
+  /// Notes that [modelId] of [providerId] answered, keeping the [keep] newest. Listeners are told
+  /// only when the order changed, so answering again with the same model costs nothing.
+  Future<void> markUsed(String providerId, String modelId, {int keep = 8}) async {
+    if (providerId.isEmpty || modelId.isEmpty || keep <= 0) return;
+    final ref = '$providerId|$modelId';
+    if (_recent.isNotEmpty && _recent.first == ref && _recent.length <= keep) return;
+    _recent = [ref, for (final r in _recent) if (r != ref) r].take(keep).toList();
+    notifyListeners();
+    await _prefs.setStringList(_recentKey, _recent);
+  }
+
+  List<FallbackRule> get fallbackRules => List.unmodifiable(_fallback);
+
+  Future<void> setFallbackRules(List<FallbackRule> rules) async {
+    _fallback = List.of(rules);
+    notifyListeners();
+    await _prefs.setString(_fallbackKey, jsonEncode([for (final r in _fallback) r.toJson()]));
+  }
+
+  /// The models to try after [primary] fails, from the most specific rule that covers it; null
+  /// when no rule does, or none of its models can be used (a removed or incomplete provider).
+  FallbackPlan? fallbackPlanFor(AiProvider primary) {
+    final rule = FallbackPolicy.ruleFor(_fallback, primary.id, primary.modelId);
+    if (rule == null) return null;
+    final targets = <AiProvider>[];
+    for (final ref in rule.targets) {
+      final parsed = FallbackRule.parseRef(ref);
+      if (parsed == null) continue;
+      final (providerId, modelId) = parsed;
+      final config = byId(providerId);
+      if (config == null || !config.isComplete) continue;
+      final model = modelId.isEmpty || modelId == '*' ? config.defaultModel : config.resolveModel(modelId);
+      if (model == null || (providerId == primary.id && model.id == primary.modelId)) continue;
+      targets.add(build(config, model: model));
+    }
+    if (targets.isEmpty) return null;
+    return FallbackPlan(
+      targets: targets,
+      statuses: rule.statuses.isEmpty ? FallbackPolicy.defaultStatuses : rule.statuses,
+    );
   }
 
   Future<void> setKey(String id, String key) async {

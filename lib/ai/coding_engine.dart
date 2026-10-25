@@ -5,6 +5,7 @@ import '../core/coding_plan.dart';
 import '../core/engine.dart';
 import '../core/generation.dart';
 import 'chatml_bridge.dart';
+import 'fallback.dart';
 import 'model_hints.dart';
 import 'provider.dart';
 import 'thinking_config.dart';
@@ -34,30 +35,32 @@ abstract interface class RoleModel {
 
 /// An online model, asked through its provider.
 class ProviderRole implements RoleModel {
-  ProviderRole(this.provider, {this.maxParallel = 4});
+  ProviderRole(this.provider, {this.maxParallel = 4, this.fallback, this.onFallback});
 
   final AiProvider provider;
 
   @override
   final int maxParallel;
 
+  /// The models to try when this one fails in a way another model may not share.
+  final FallbackPlan? fallback;
+  final void Function(AiProvider from, AiProvider to, String reason)? onFallback;
+
   @override
   String get label => '${provider.label} · ${provider.modelId}';
 
-  @override
-  Future<String> ask(
+  AiRequest _requestFor(
+    AiProvider target,
     List<AiMessage> messages, {
     required int maxTokens,
-    required bool Function() cancelled,
-    double temperature = 0.3,
-    int autoTokens = 4096,
-  }) async {
-    final out = StringBuffer();
-    final model = provider.modelConfig;
-    final hint = ModelHints.of(provider.modelId);
-    final request = AiRequest(
+    required double temperature,
+    required int autoTokens,
+  }) {
+    final model = target.modelConfig;
+    final hint = ModelHints.of(target.modelId);
+    return AiRequest(
       messages: messages,
-      model: provider.modelId,
+      model: target.modelId,
       // a number typed in the coding settings is the user's; 0 leaves it to the model
       maxTokens: ModelHints.resolveMaxTokens(
         modelSetting: maxTokens > 0 ? maxTokens : model?.intParam('maxTokens'),
@@ -75,8 +78,25 @@ class ProviderRole implements RoleModel {
       // a role has no thinking switch of its own: "auto" means thinking on, at the middle of the slider
       extraBody: ThinkingRequest.fields(model?.thinking ?? ThinkingConfig.none, appThinking: true, speedAccuracy: 0.6),
     );
+  }
+
+  @override
+  Future<String> ask(
+    List<AiMessage> messages, {
+    required int maxTokens,
+    required bool Function() cancelled,
+    double temperature = 0.3,
+    int autoTokens = 4096,
+  }) async {
+    final out = StringBuffer();
     try {
-      await for (final delta in provider.stream(request).takeWhile((_) => !cancelled())) {
+      final deltas = streamWithFallback(
+        primary: provider,
+        plan: fallback,
+        build: (target) => _requestFor(target, messages, maxTokens: maxTokens, temperature: temperature, autoTokens: autoTokens),
+        onSwitch: onFallback,
+      );
+      await for (final delta in deltas.takeWhile((_) => !cancelled())) {
         if (delta is TextDelta) out.write(delta.text);
       }
     } on AiProviderException catch (e) {
