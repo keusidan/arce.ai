@@ -218,6 +218,13 @@ class ProviderStore extends ChangeNotifier {
     await _prefs.setStringList(_recentKey, _recent);
   }
 
+  Future<void> clearRecent() async {
+    if (_recent.isEmpty) return;
+    _recent = const [];
+    notifyListeners();
+    await _prefs.remove(_recentKey);
+  }
+
   List<FallbackRule> get fallbackRules => List.unmodifiable(_fallback);
 
   Future<void> setFallbackRules(List<FallbackRule> rules) async {

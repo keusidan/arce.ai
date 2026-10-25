@@ -366,11 +366,15 @@ void main() {
     await tester.tap(find.text('未選択').first);
     await tester.pumpAndSettle();
 
-    const full = 'Some Very Long Provider Name · vendor/an-extremely-long-model-name-that-no-narrow-field-can-show-v2';
-    expect(find.text(full), findsOneWidget, reason: 'the list shows the whole name, not an ellipsis');
-    await tester.tap(find.text(full));
+    // a tree with a search field: type a word of the provider and the model shows, written in full
+    const model = 'vendor/an-extremely-long-model-name-that-no-narrow-field-can-show-v2';
+    await tester.enterText(find.byType(TextField).last, 'long extremely');
     await tester.pumpAndSettle();
-    expect(app.settings.value.plannerModel, contains('long'));
+    expect(find.text(model), findsOneWidget, reason: 'the list shows the whole name, not an ellipsis');
+    await tester.tap(find.text(model));
+    await tester.pumpAndSettle();
+    expect(app.settings.value.plannerModel, 'long|$model');
+    const full = 'Some Very Long Provider Name · $model';
     expect(find.text(full), findsWidgets, reason: 'the field now shows the choice');
   });
 

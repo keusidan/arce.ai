@@ -1,9 +1,9 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../ai/model_hints.dart';
-import '../ai/model_info.dart';
+import '../ai/model_tree.dart';
 import '../ai/openai_compatible.dart';
 import '../ai/provider.dart';
 import '../ai/provider_config.dart';
@@ -11,6 +11,8 @@ import '../ai/thinking_config.dart';
 import '../services/app_controller.dart';
 import '../services/provider_store.dart';
 import 'app_scope.dart';
+import 'model_detail_page.dart';
+import 'model_tree_view.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -74,6 +76,12 @@ class ProvidersSection extends StatelessWidget {
                       label: 'プロバイダを追加',
                       svg: ArceSvg.plus,
                       onTap: () => _openEditor(context, app, null),
+                    ),
+                    const SizedBox(width: 8),
+                    SoftButton(
+                      label: '詳細',
+                      svg: ArceSvg.sliders,
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ModelDetailPage(app: app))),
                     ),
                   ],
                 ),
@@ -303,6 +311,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
     text: ProviderExtras.show(widget.existing?.body ?? const {}),
   );
   late bool _tools = widget.existing?.supportsTools ?? true;
+  late bool _autoFetch = widget.existing?.autoFetchModels ?? true;
 
   String? _result;
   bool _busy = false;
@@ -318,15 +327,18 @@ class _ProviderEditorState extends State<_ProviderEditor> {
   ProviderConfig _config() {
     final existing = widget.existing;
     final label = _label.text.trim();
-    return ProviderConfig(
-      id: existing?.id ?? ProviderList.idFor(label, widget.store.providers),
+    // a [FormatException] from the two JSON fields is shown by the caller
+    final headers = ProviderExtras.parseHeaders(_headers.text);
+    final body = ProviderExtras.parseBody(_body.text);
+    // an edited provider keeps what the editor does not show (its models and model list)
+    final base = existing ?? ProviderConfig(id: ProviderList.idFor(label, widget.store.providers), label: '', baseUrl: '');
+    return base.copyWith(
       label: label.isEmpty ? 'プロバイダ' : label,
       baseUrl: _baseUrl.text.trim(),
-      models: existing?.models ?? const [],
-      // a [FormatException] from the two JSON fields is shown by the caller
-      headers: ProviderExtras.parseHeaders(_headers.text),
-      body: ProviderExtras.parseBody(_body.text),
+      headers: headers,
+      body: body,
       supportsTools: _tools,
+      autoFetchModels: _autoFetch,
     );
   }
 
@@ -344,8 +356,8 @@ class _ProviderEditorState extends State<_ProviderEditor> {
     final config = _configOrExplain();
     if (config == null) return;
     final model = config.defaultModel;
-    if (config.baseUrl.trim().isEmpty || model == null) {
-      setState(() => _result = 'Base URL（https://…）とモデルを用意してください');
+    if (config.baseUrl.trim().isEmpty) {
+      setState(() => _result = 'Base URL（https://…）を入れてください');
       return;
     }
     setState(() {
@@ -356,7 +368,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
       id: config.id,
       label: config.label,
       baseUrl: config.baseUrl,
-      model: model.id,
+      model: model?.id ?? '',
       modelConfig: model,
       apiKey: _key.text.trim(),
       headers: config.headers,
@@ -366,7 +378,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
     try {
       await provider.verify();
       if (!mounted) return;
-      setState(() => _result = '接続できました（${model.id}）');
+      setState(() => _result = model == null ? '接続できました' : '接続できました（${model.id}）');
     } on AiProviderException catch (e) {
       if (!mounted) return;
       setState(() => _result = e.message);
@@ -388,8 +400,11 @@ class _ProviderEditorState extends State<_ProviderEditor> {
     await widget.store.save(config);
     await widget.store.setKey(config.id, _key.text);
     if (!mounted) return;
+    final app = widget.app;
     Navigator.of(context).pop();
-    widget.app.showToast('${config.label} を保存しました');
+    app.showToast('${config.label} を保存しました');
+    // the address or the key may be new: read the model list now (nothing is shown if it fails)
+    if (_autoFetch) unawaited(app.autoReadModelLists(only: config.id, force: true));
   }
 
   @override
@@ -427,12 +442,23 @@ class _ProviderEditorState extends State<_ProviderEditor> {
                 style: ts(context, 9.5, color: c.muted),
               ),
             ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: _autoFetch,
+              onChanged: (value) => setState(() => _autoFetch = value),
+              title: Text('モデル一覧を自動で取得', style: ts(context, 12)),
+              subtitle: Text(
+                '保存したときと、一覧が古くなったときに、提供元の /models を読みます。一覧を返さない提供元ではオフに',
+                style: ts(context, 9.5, color: c.muted),
+              ),
+            ),
             _field('追加ヘッダー（JSON・任意）', _headers, '{"HTTP-Referer": "https://example.com"}', maxLines: 3),
             _field('追加のリクエスト項目（JSON・任意）', _body, '{"reasoning_effort": "low"}', maxLines: 3),
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Text(
-                'モデルは保存したあと、一覧の「モデル」から取得または追加できます。',
+                'モデルは保存したあと自動で取得します。一覧の「モデル」から選べます。',
                 style: ts(context, 9.5, color: context.c.muted, height: 1.5),
               ),
             ),
@@ -491,7 +517,11 @@ class _ProviderEditorState extends State<_ProviderEditor> {
   );
 }
 
-/// The models of one provider: fetch them from `/models`, add one by hand, choose the one in use.
+/// The models of one provider: a tree by maker with a search field, the one in use, and the buttons
+/// to read the provider's list again, to add a model by hand, and to open the detail screen.
+///
+/// The provider's list is read by itself (when the provider is saved, and when it is old); a model
+/// that is only in the list is set up the moment it is picked.
 class _ModelsSheet extends StatefulWidget {
   const _ModelsSheet({required this.app, required this.config});
 
@@ -504,59 +534,30 @@ class _ModelsSheet extends StatefulWidget {
 
 class _ModelsSheetState extends State<_ModelsSheet> {
   String? _result;
-  bool _busy = false;
+  final _query = TextEditingController();
 
-  ProviderConfig get _config =>
-      widget.app.providers.byId(widget.config.id) ?? widget.config;
+  ProviderConfig get _config => widget.app.providers.byId(widget.config.id) ?? widget.config;
 
-  Future<void> _fetch() async {
-    setState(() {
-      _busy = true;
-      _result = 'モデル一覧を読み込んでいます…';
-    });
-    try {
-      final provider = widget.app.providers.build(_config);
-      final infos = provider is OpenAiCompatibleProvider
-          ? await provider.fetchModelInfos()
-          : const <ModelInfo>[];
-      if (!mounted) return;
-      final existing = {for (final model in _config.models) model.id};
-      // a new model starts with what the provider says about it; one already here only gains
-      // what it did not have (nothing the user typed is replaced)
-      final added = [
-        for (final info in infos)
-          if (!existing.contains(info.id)) ModelConfig(id: info.id, name: info.id).mergeInfo(info),
-      ];
-      final byId = {for (final info in infos) info.id: info};
-      final refreshed = [
-        for (final model in _config.models)
-          byId.containsKey(model.id) ? model.mergeInfo(byId[model.id]!) : model,
-      ];
-      final changed = [
-        for (var i = 0; i < refreshed.length; i++)
-          if (jsonEncode(refreshed[i].toJson()) != jsonEncode(_config.models[i].toJson())) refreshed[i],
-      ];
-      if (added.isNotEmpty || changed.isNotEmpty) {
-        await widget.app.providers.save(
-          _config.copyWith(models: [...refreshed, ...added]),
-        );
-      }
-      if (!mounted) return;
-      final withLimits = infos.where((i) => i.hasLimits).length;
-      setState(
-        () => _result = added.isEmpty && changed.isEmpty
-            ? '新しいモデルはありませんでした（${infos.length}件）'
-            : '${added.length}件のモデルを追加しました'
-                '${changed.isEmpty ? '' : '、${changed.length}件の上限を更新しました'}'
-                '${withLimits == 0 ? '（この提供元は上限を返しません。モデルの編集の「取得」で Hugging Face から調べられます）' : ''}',
-      );
-    } on AiProviderException catch (e) {
-      if (mounted) setState(() => _result = e.message);
-    } catch (e) {
-      if (mounted) setState(() => _result = '取得できませんでした（$e）');
-    } finally {
-      if (mounted) setState(() => _busy = false);
+  @override
+  void initState() {
+    super.initState();
+    // opened before the list was ever read: read it now (the setting can turn this off)
+    final settings = widget.app.settings.value;
+    if (_config.catalog.isEmpty && _config.autoFetchModels && settings.modelListAutoFetch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _read());
     }
+  }
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  Future<void> _read() async {
+    setState(() => _result = 'モデル一覧を読み込んでいます…');
+    final message = await widget.app.refreshModelList(_config.id);
+    if (mounted) setState(() => _result = message);
   }
 
   Future<void> _add() async {
@@ -592,12 +593,7 @@ class _ModelsSheetState extends State<_ModelsSheet> {
       return;
     }
     await widget.app.providers.save(
-      _config.copyWith(
-        models: [
-          ..._config.models,
-          ModelConfig(id: name, name: name),
-        ],
-      ),
+      _config.copyWith(models: [..._config.models, _config.resolveModel(name) ?? ModelConfig(id: name, name: name)]),
     );
     if (mounted) setState(() => _result = '$name を追加しました');
   }
@@ -616,159 +612,119 @@ class _ModelsSheetState extends State<_ModelsSheet> {
     if (mounted) setState(() {});
   }
 
+  /// Takes the model out of the settings (its own settings go with it). A model of the provider's
+  /// list stays in the list and can be picked again.
   Future<void> _remove(ModelConfig model) async {
     final left = [
       for (final m in _config.models)
         if (m.id != model.id) m,
     ];
     await widget.app.providers.save(_config.copyWith(models: left));
-    if (mounted) setState(() => _result = '${model.id} を削除しました');
+    if (mounted) setState(() => _result = '${model.id} の設定を消しました');
   }
 
-  Future<void> _pick(ModelConfig model) async {
-    await widget.app.providers.setActiveModel(_config.id, model.id);
-    widget.app.showToast('${_config.label} · ${model.id} で答えます');
+  Future<void> _pick(String id) async {
+    final ok = await widget.app.providers.selectModel(_config.id, id);
+    if (!ok) return;
+    widget.app.showToast('${_config.label} · $id で答えます');
     if (mounted) setState(() {});
+  }
+
+  Future<void> _openDetail() async {
+    final navigator = Navigator.of(context);
+    navigator.pop();
+    await navigator.push(MaterialPageRoute<void>(builder: (_) => ModelDetailPage(app: widget.app)));
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final store = widget.app.providers;
-    final models = _config.models;
-    final selected = store.modelOf(_config.id)?.id;
+    final config = _config;
+    final selected = store.modelOf(config.id)?.id;
+    final query = _query.text.trim();
+    final reading = widget.app.isReadingModelList(config.id);
     return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: sheetBottomPadding(context),
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${_config.label} のモデル',
-              style: ts(context, 14, weight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '選んだモデルがチャットで使われます。パラメータとプロンプトはモデルごとに保存します。',
-              style: ts(context, 9.5, color: c.muted, height: 1.5),
-            ),
-            const SizedBox(height: 10),
-            if (models.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Text(
-                  'モデルがまだありません。「取得」か「追加」で用意してください。',
-                  style: ts(context, 10, color: c.amber, height: 1.5),
-                ),
-              ),
-            for (var i = 0; i < models.length; i++)
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 7),
-                decoration: BoxDecoration(
-                  border: i == models.length - 1
-                      ? null
-                      : Border(bottom: BorderSide(color: c.line)),
-                ),
-                child: Row(
-                  children: [
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _pick(models[i]),
-                      child: Row(
-                        children: [
-                          Icon(
-                            selected == models[i].id
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_unchecked,
-                            size: 17,
-                            color: selected == models[i].id
-                                ? c.accent
-                                : c.muted,
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => _pick(models[i]),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              models[i].id,
-                              style: ts(context, 11.5, weight: FontWeight.w600),
-                            ),
-                            Text(
-                              _paramsLabel(models[i]),
-                              style: ts(context, 9, color: c.muted),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    IconTap(
-                      svg: ArceSvg.pencil,
-                      onTap: () => _edit(models[i]),
-                      tooltip: '編集',
-                      size: 15,
-                    ),
-                    const SizedBox(width: 6),
-                    IconTap(
-                      svg: ArceSvg.close,
-                      onTap: () => _remove(models[i]),
-                      tooltip: '削除',
-                      size: 15,
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 12),
-            Row(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.9,
+        child: ListenableBuilder(
+          listenable: Listenable.merge([store, widget.app]),
+          builder: (context, _) {
+            final config = _config;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SoftButton(
-                  label: '取得',
-                  svg: ArceSvg.retry,
-                  onTap: _busy ? null : _fetch,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Row(children: [
+                    Expanded(child: Text('${config.label} のモデル', style: ts(context, 14, weight: FontWeight.w700))),
+                    SoftButton(label: '詳細', svg: ArceSvg.sliders, height: 30, onTap: _openDetail),
+                  ]),
                 ),
-                const SizedBox(width: 8),
-                SoftButton(
-                  label: '追加',
-                  svg: ArceSvg.plus,
-                  onTap: _busy ? null : _add,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                  child: Text(
+                    '選んだモデルがチャットで使われます。一覧は提供元から自動で読み込みます。'
+                    '選んだモデルは「設定済み」になり、パラメータとプロンプトをモデルごとに保存できます。',
+                    style: ts(context, 9.5, color: c.muted, height: 1.5),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                  child: ModelSearchField(controller: _query, onChanged: (_) => setState(() {})),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                    child: config.knownIds.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            child: Text(
+                              reading ? '読み込んでいます…' : 'モデルがまだありません。「更新」で提供元の一覧を読み込むか、「追加」で名前を入れてください。',
+                              style: ts(context, 10, color: c.amber, height: 1.5),
+                            ),
+                          )
+                        : ModelTreeView(
+                            model: ModelTrees.forProvider(config, query: query, recent: store.recentRefs),
+                            selectedKey: selected,
+                            searching: query.isNotEmpty,
+                            onPick: _pick,
+                            leafTrailing: (leaf) {
+                              final saved = config.modelById(leaf.key);
+                              if (saved == null) return null;
+                              return Row(mainAxisSize: MainAxisSize.min, children: [
+                                IconTap(svg: ArceSvg.pencil, onTap: () => _edit(saved), tooltip: '編集', size: 15),
+                                const SizedBox(width: 8),
+                                IconTap(svg: ArceSvg.close, onTap: () => _remove(saved), tooltip: '設定を消す', size: 15),
+                              ]);
+                            },
+                          ),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(16, 6, 16, sheetBottomPadding(context) > 16 ? 6 : 12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    if (_result != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(_result!, style: ts(context, 10, color: c.muted, height: 1.5)),
+                      ),
+                    Row(children: [
+                      SoftButton(label: reading ? '読み込み中…' : '更新', svg: ArceSvg.retry, onTap: reading ? null : _read),
+                      const SizedBox(width: 8),
+                      SoftButton(label: '追加', svg: ArceSvg.plus, onTap: _add),
+                      const Spacer(),
+                      Text('${config.knownIds.length} 件', style: ts(context, 9.5, color: c.muted)),
+                    ]),
+                  ]),
                 ),
               ],
-            ),
-            if (_result != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                _result!,
-                style: ts(context, 10, color: c.muted, height: 1.5),
-              ),
-            ],
-          ],
+            );
+          },
         ),
       ),
     );
-  }
-
-  static String _paramsLabel(ModelConfig model) {
-    final parts = <String>[
-      if (model.param('temperature') != null)
-        'temperature ${model.param('temperature')}',
-      if (model.param('topP') != null) 'top_p ${model.param('topP')}',
-      if (model.param('maxTokens') != null)
-        'max ${model.intParam('maxTokens')}',
-      if (model.prompt.trim().isNotEmpty) 'プロンプトあり',
-    ];
-    return parts.isEmpty ? 'アプリの既定値' : parts.join(' · ');
   }
 }
 

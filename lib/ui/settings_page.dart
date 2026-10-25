@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ai/model_tree.dart';
 import '../core/agents.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
@@ -7,6 +8,7 @@ import '../services/app_controller.dart';
 import '../services/settings.dart';
 import 'app_scope.dart';
 import 'mcp_widgets.dart';
+import 'model_tree_view.dart';
 import 'search_widgets.dart';
 import 'provider_widgets.dart';
 import 'svg_icons.dart';
@@ -538,13 +540,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _codingMode(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
     final c = context.c;
-    // every model of every provider, and the one on the device
-    final choices = <String, String>{
-      '': '未選択',
-      CodingSettings.ref(CodingSettings.localProvider, ''): '端末のモデル',
-      for (final provider in app.providers.providers)
-        for (final model in provider.models) CodingSettings.ref(provider.id, model.id): '${provider.label} · ${model.name}',
-    };
     final coding = s.coding;
     final String? problem;
     if (!coding.enabled) {
@@ -562,7 +557,7 @@ class _SettingsPageState extends State<SettingsPage> {
       icon: icon,
       title: title,
       subtitle: subtitle,
-      trailing: _PickerField(value: value, items: choices, width: 168, title: title, onChanged: onPick),
+      trailing: _ModelRefField(app: app, value: value, title: title, width: 168, onChanged: onPick),
     );
     return ArceCard(
       child: Column(
@@ -1138,56 +1133,49 @@ class _Dropdown<T> extends StatelessWidget {
   }
 }
 
-/// A choice among long names (a provider and its model): the field shows the choice on up to two
-/// lines, and a tap opens a list of the full width in which every name is written out in full — a
-/// drop-down menu is only as wide as its field and would cut each name with an ellipsis.
-class _PickerField extends StatelessWidget {
-  const _PickerField({
+/// The choice of a model for a job (a provider's model, the device model, or none): the field
+/// shows the choice, and a tap opens a full-height tree with a search field. The models used last
+/// are at the top, so the ones in use are one tap away.
+class _ModelRefField extends StatelessWidget {
+  const _ModelRefField({
+    required this.app,
     required this.value,
-    required this.items,
     required this.onChanged,
     required this.title,
     required this.width,
   });
+  final AppController app;
   final String value;
-  final Map<String, String> items;
   final ValueChanged<String> onChanged;
   final String title;
   final double width;
 
+  static const _roots = [
+    TreeLeaf('', '未選択'),
+    TreeLeaf('${CodingSettings.localProvider}|', '端末のモデル'),
+  ];
+
+  String _label() {
+    if (value.isEmpty) return '未選択';
+    final parsed = CodingSettings.parseRef(value);
+    if (parsed == null) return value;
+    final (providerId, model) = parsed;
+    if (providerId == CodingSettings.localProvider) return '端末のモデル';
+    final provider = app.providers.byId(providerId);
+    return '${provider == null ? providerId : (provider.label.isEmpty ? provider.id : provider.label)} · $model';
+  }
+
   Future<void> _open(BuildContext context) async {
-    final c = context.c;
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: c.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-            child: Text(title, style: ts(context, 14, weight: FontWeight.w700)),
-          ),
-          Flexible(
-            child: ListView(
-              shrinkWrap: true,
-              padding: EdgeInsets.only(bottom: sheetBottomPadding(context)),
-              children: [
-                for (final e in items.entries)
-                  ListTile(
-                    dense: true,
-                    selected: e.key == value,
-                    title: Text(e.value, style: ts(context, 11.5, weight: e.key == value ? FontWeight.w700 : FontWeight.w500)),
-                    trailing: e.key == value ? ArceIcon(ArceSvg.check, size: 16, color: c.accent) : null,
-                    onTap: () => Navigator.of(context).pop(e.key),
-                  ),
-              ],
-            ),
-          ),
-        ],
+    final picked = await showModelPicker(
+      context,
+      title: title,
+      selectedKey: value,
+      note: '提供元ごとに分かれています。上の「最近使った」から選ぶと早く決められます。検索は提供元の名前でも絞れます',
+      build: (query) => ModelTrees.forPicker(
+        app.providers.providers,
+        query: query,
+        recent: app.providers.recentRefs,
+        rootLeaves: _roots,
       ),
     );
     if (picked != null) onChanged(picked);
@@ -1196,7 +1184,6 @@ class _PickerField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final label = items[value] ?? items.values.first;
     return SizedBox(
       width: width,
       child: InkWell(
@@ -1212,7 +1199,7 @@ class _PickerField extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(context, 10, weight: FontWeight.w600)),
+                child: Text(_label(), maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(context, 10, weight: FontWeight.w600)),
               ),
               const SizedBox(width: 4),
               ArceIcon(ArceSvg.chevronDown, size: 14, color: c.muted),
