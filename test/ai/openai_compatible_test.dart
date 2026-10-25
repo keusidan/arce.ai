@@ -166,6 +166,64 @@ void main() {
           ],
         };
 
+    test('呼び出しに付いた extra_content（Gemini 3 の思考署名）は、そのまま取っておき、次の送信の tool_calls に入れる', () async {
+      const signature = {
+        'google': {'thought_signature': 'c2lnbmF0dXJl'},
+      };
+      final provider = providerWith([
+        event(callChunk([
+          {'index': 0, 'id': 'call_a', 'function': {'name': 'web_search', 'arguments': '{"query":"x"}'}, 'extra_content': signature},
+        ])),
+      ]);
+      final call = (await provider.stream(request).toList()).whereType<ToolCallDelta>().single;
+      expect(call.extraContent, signature);
+
+      Map<String, Object?>? sent;
+      final echo = providerWith(
+        [textEvent('ok')],
+        onRequest: (r) => sent = jsonDecode((r as http.Request).body) as Map<String, Object?>,
+      );
+      await echo
+          .stream(AiRequest(messages: [
+            const AiMessage(AiRole.user, text: '調べて'),
+            AiMessage(AiRole.assistant, toolCalls: [call]),
+            const AiMessage(AiRole.tool, text: '結果', toolCallId: 'call_a'),
+          ]))
+          .toList();
+      final assistant = (sent!['messages']! as List)[1] as Map;
+      expect((assistant['tool_calls'] as List).single['extra_content'], signature);
+    });
+
+    test('署名の無い呼び出しには extra_content を足さない', () async {
+      Map<String, Object?>? sent;
+      final echo = providerWith([textEvent('ok')], onRequest: (r) => sent = jsonDecode((r as http.Request).body) as Map<String, Object?>);
+      await echo
+          .stream(const AiRequest(messages: [
+            AiMessage(AiRole.user, text: 'x'),
+            AiMessage(AiRole.assistant, toolCalls: [ToolCallDelta(id: 'a', name: 'get_time', argumentsJson: '{}')]),
+            AiMessage(AiRole.tool, text: 'r', toolCallId: 'a'),
+          ]))
+          .toList();
+      expect(((sent!['messages']! as List)[1] as Map)['tool_calls'][0].containsKey('extra_content'), isFalse);
+    });
+
+    test('失敗の本文が Gemini のようにリストで包まれていても、メッセージを出す。形が分からなければ本文の頭を出す', () async {
+      final wrapped = providerWith(const [], status: 400, errorBody: jsonEncode([
+        {
+          'error': {'code': 400, 'message': 'Function call is missing a thought_signature in functionCall parts.', 'status': 'INVALID_ARGUMENT'},
+        },
+      ]));
+      await expectLater(
+        wrapped.stream(request).toList(),
+        throwsA(isA<AiProviderException>().having((e) => e.message, 'message', allOf(contains('HTTP 400'), contains('thought_signature')))),
+      );
+      final unknown = providerWith(const [], status: 400, errorBody: jsonEncode({'detail': {'x': 1}}));
+      await expectLater(
+        unknown.stream(request).toList(),
+        throwsA(isA<AiProviderException>().having((e) => e.message, 'message', contains('"detail"'))),
+      );
+    });
+
     test('Gemini: 同じ index 0 で id だけが違う複数の呼び出しは、別々の呼び出しになる', () async {
       final provider = providerWith([
         event(callChunk([

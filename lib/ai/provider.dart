@@ -28,10 +28,16 @@ class ToolCallDelta extends Delta {
     required this.name,
     required this.argumentsJson,
     this.id = '',
+    this.extraContent,
   });
   final String id;
   final String name;
   final String argumentsJson;
+
+  /// What the provider attached to the call besides the standard fields (`extra_content`: Gemini 3
+  /// puts an encrypted thought signature there). The provider refuses the next request of the
+  /// conversation unless it comes back unchanged, so it is kept as it arrived and sent back as it is.
+  final Map<String, Object?>? extraContent;
 }
 
 /// Token usage for one request, sent at the end by providers that report it.

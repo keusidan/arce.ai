@@ -162,6 +162,8 @@ class OpenAiCompatibleProvider implements AiProvider {
             }
             final partial = calls[slot]!;
             if (id.isNotEmpty) partial.id = id;
+            final extra = call['extra_content'];
+            if (extra is Map) partial.extraContent = Map<String, Object?>.from(extra);
             final function = call['function'];
             if (function is Map) {
               final name = function['name'];
@@ -189,11 +191,11 @@ class OpenAiCompatibleProvider implements AiProvider {
       final objects = splitObjects(arguments);
       if (objects.length > 1) {
         for (var n = 0; n < objects.length; n++) {
-          yield ToolCallDelta(id: call.id.isEmpty ? '' : '${call.id}_$n', name: call.name, argumentsJson: objects[n]);
+          yield ToolCallDelta(id: call.id.isEmpty ? '' : '${call.id}_$n', name: call.name, argumentsJson: objects[n], extraContent: n == 0 ? call.extraContent : null);
         }
         continue;
       }
-      yield ToolCallDelta(id: call.id, name: call.name, argumentsJson: arguments);
+      yield ToolCallDelta(id: call.id, name: call.name, argumentsJson: arguments, extraContent: call.extraContent);
     }
     yield StopDelta(finish);
   }
@@ -265,6 +267,7 @@ class OpenAiCompatibleProvider implements AiProvider {
                   'name': call.name,
                   'arguments': call.argumentsJson,
                 },
+                'extra_content': ?call.extraContent,
               },
           ],
         };
@@ -320,7 +323,9 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// The `error.message` of a failed request, when the service sends one.
   static String? _errorMessage(String body) {
     try {
-      final decoded = jsonDecode(body);
+      var decoded = jsonDecode(body);
+      // Gemini wraps an error in a list: [{"error": {...}}]
+      if (decoded is List && decoded.isNotEmpty) decoded = decoded.first;
       if (decoded is Map) {
         final error = decoded['error'];
         if (error is Map && error['message'] is String) {
@@ -329,6 +334,9 @@ class OpenAiCompatibleProvider implements AiProvider {
         if (error is String) return error;
         if (decoded['message'] is String) return decoded['message'] as String;
       }
+      // JSON, but not in a shape that is known: the start of it is better than nothing
+      final text = body.trim();
+      if (text.isNotEmpty) return text.length > 300 ? '${text.substring(0, 300)}…' : text;
     } catch (_) {
       // not JSON: show the start of the body instead
       final text = body.trim();
@@ -397,6 +405,7 @@ List<String> splitObjects(String text) {
 
 class _PartialCall {
   int wireIndex = 0;
+  Map<String, Object?>? extraContent;
   String id = '';
   String name = '';
   final StringBuffer arguments = StringBuffer();

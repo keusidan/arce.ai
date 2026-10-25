@@ -124,9 +124,15 @@ abstract final class ChatMlBridge {
       final decoded = jsonDecode(match.group(1)!);
       if (decoded is! Map || decoded['name'] is! String) return null;
       final arguments = decoded['arguments'];
+      final extra = decoded['extra_content'];
       return (
         text.substring(0, match.start).trim(),
-        ToolCallDelta(id: id, name: decoded['name'] as String, argumentsJson: jsonEncode(arguments is Map ? arguments : const {})),
+        ToolCallDelta(
+          id: id,
+          name: decoded['name'] as String,
+          argumentsJson: jsonEncode(arguments is Map ? arguments : const {}),
+          extraContent: extra is Map ? Map<String, Object?>.from(extra) : null,
+        ),
       );
     } on FormatException {
       return null;
@@ -208,13 +214,16 @@ class CloudEventAdapter {
           if (!_thinking) ..._openThinking(),
           if (text.isNotEmpty) Piece(text),
         ];
-      case ToolCallDelta(:final name, :final argumentsJson):
+      case ToolCallDelta(:final name, :final argumentsJson, :final extraContent):
         final arguments = argumentsJson.trim().isEmpty ? '{}' : argumentsJson;
+        // extra_content rides along in the call's JSON (the parser reads name and arguments only), so it
+        // is still there when the conversation goes back to the provider
+        final extra = extraContent == null ? '' : ', "extra_content": ${jsonEncode(extraContent)}';
         return [
           ..._closeThinking(),
           Piece(
             '${StreamSegmenter.toolOpen}'
-            '{"name": ${jsonEncode(name)}, "arguments": $arguments}'
+            '{"name": ${jsonEncode(name)}, "arguments": $arguments$extra}'
             '${StreamSegmenter.toolClose}',
           ),
         ];

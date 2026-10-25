@@ -180,6 +180,22 @@ void main() {
       expect(messages.first.text, isNot(contains('<tools>')));
     });
 
+    test('Gemini 3 の思考署名（extra_content）は、呼び出しといっしょに履歴へ残り、次の送信でそのまま返る', () {
+      const extra = {
+        'google': {'thought_signature': 'c2ln'},
+      };
+      // the provider's call is written into the reply as text, with the extra content inside
+      final piece = CloudEventAdapter().convert(const ToolCallDelta(id: 'a', name: 'get_time', argumentsJson: '{"timezone":"Asia/Tokyo"}', extraContent: extra));
+      final text = (piece.whereType<Piece>().single).text;
+      final json = text.replaceAll('<tool_call>', '').replaceAll('</tool_call>', '');
+      expect(jsonDecode(json)['extra_content'], extra);
+      // the parser that runs the call reads name and arguments, and does not mind the rest
+      expect(ToolCallParser.parse(json, tools), isA<ParseOk>());
+      // the history keeps that JSON, and the next request carries the extra content again
+      final messages = native([const UserTurn('いま何時'), AssistantTurn('', json), const ToolResponseTurn('12:00')]);
+      expect(messages[2].toolCalls.single.extraContent, extra);
+    });
+
     test('結果が来なかった呼び出し（途中で止めた会話）は、テキストに戻す。provider は tool_calls に tool の返事を求めるため', () {
       final messages = native(const [UserTurn('x'), AssistantTurn('調べます', call), UserTurn('やっぱりいい')]);
       final assistant = messages[2];
