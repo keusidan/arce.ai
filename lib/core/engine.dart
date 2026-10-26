@@ -99,9 +99,32 @@ class GenerateRequest {
     this.continuation = false,
     this.user = const UserSampling(),
     this.assistantReasoning = const [],
+    this.abort,
   });
 
   final String prompt;
+
+  /// Completes when the user stops the reply. An online request that is waiting for the model's
+  /// next word (a model that thinks sends nothing for a long time) is dropped at once, instead of
+  /// when the next word arrives. Null for a request nobody stops.
+  final Future<void>? abort;
+
+  /// This request, with [abort] set.
+  GenerateRequest withAbort(Future<void> abort) => GenerateRequest(
+        prompt: prompt,
+        toolCallSchema: toolCallSchema,
+        thinking: thinking,
+        maxTokens: maxTokens,
+        sampling: sampling,
+        strictJsonSchema: strictJsonSchema,
+        tools: tools,
+        images: images,
+        agentId: agentId,
+        continuation: continuation,
+        user: user,
+        assistantReasoning: assistantReasoning,
+        abort: abort,
+      );
 
   /// What the model thought before each earlier reply, oldest first, one entry per assistant turn
   /// of the prompt (empty when it did not think). The prompt text never carries it; only an

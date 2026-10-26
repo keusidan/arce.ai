@@ -107,9 +107,14 @@ class AiRequest {
     this.temperature = 0.7,
     this.topP = 0.95,
     this.extraBody = const {},
+    this.abort,
   });
 
   final List<AiMessage> messages;
+
+  /// Completes when the user stops the reply: the provider drops the request (the connection is
+  /// closed) and ends the stream, whether or not the model has sent anything lately.
+  final Future<void>? abort;
 
   /// The model to ask for; empty keeps the one the provider was built with.
   final String model;

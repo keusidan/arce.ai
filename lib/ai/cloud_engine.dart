@@ -92,6 +92,7 @@ class CloudEngine implements InferenceEngine {
     // online models, the maker's recommendation (DeepSeek V4, GLM-5), the app's default.
     final hint = ModelHints.of(target.modelId);
     return AiRequest(
+      abort: request.abort,
       messages: allMessages,
       model: target.modelId,
       maxTokens: ModelHints.resolveMaxTokens(

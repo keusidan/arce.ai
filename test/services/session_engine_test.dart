@@ -29,10 +29,17 @@ class HandProvider implements AiProvider {
   @override
   Future<void> verify() async {}
 
+  /// How many requests were dropped by the user's stop (a real provider closes its connection).
+  int aborted = 0;
+
   @override
   Stream<Delta> stream(AiRequest request) {
     final controller = StreamController<Delta>();
     streams.add(controller);
+    request.abort?.then((_) {
+      aborted++;
+      controller.close();
+    });
     return controller.stream;
   }
 }
@@ -109,6 +116,23 @@ void main() {
     expect(textB, ['B1', 'B2'], reason: 'the other chat is not stopped');
     expect(endB, [FinishReason.eog]);
     expect(lease.isHeld, isFalse, reason: 'online answers do not take the device model');
+  });
+
+  test('online: stop ends the reply at once even when the model is silent (it is thinking), and drops the request', () async {
+    final provider = HandProvider();
+    final router = RoutingEngine(local: HandLocal(), cloud: CloudEngine(provider))..target = provider;
+    final a = SessionEngine(router, ExclusiveLease());
+    final events = <GenerationEvent>[];
+    var closed = false;
+    a.generate(request('a')).listen(events.add, onDone: () => closed = true);
+    await settle();
+    expect(provider.streams, hasLength(1));
+    a.cancel(); // nothing has been sent by the model: no event to wake the loop
+    await settle();
+    await settle();
+    expect(closed, isTrue, reason: 'it does not wait for the next word');
+    expect(events.whereType<Finished>().single.reason, FinishReason.cancelled);
+    expect(provider.aborted, 1, reason: 'the request is told to drop its connection');
   });
 
   test('device model: a second chat is told it is in use, and can use it once the first is done', () async {

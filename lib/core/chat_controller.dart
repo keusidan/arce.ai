@@ -468,6 +468,7 @@ class ChatController extends ChangeNotifier {
   /// The request the agent is chosen for; selection runs lazily at the start of generation.
   (String, bool) _agentRequest = ('', false);
   bool _busy = false;
+  bool _stopRequested = false;
 
   void _update(ChatState Function(ChatState) change) {
     _state = change(_state);
@@ -634,7 +635,14 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  void stop() => _engine.cancel();
+  /// Stops the reply. A stop that comes while nothing is being generated yet (the agent is being
+  /// chosen, an MCP server is being asked, a tool is running) is kept, and ends the reply before the
+  /// next request is sent; the engine alone would forget it, as a new request starts it afresh.
+  void stop() {
+    if (_busy) _stopRequested = true;
+    _engine.cancel();
+  }
+
 
   /// Replaces the last reply with a fresh one generated from the same context.
   Future<void> regenerate() {
@@ -685,6 +693,7 @@ class ChatController extends ChangeNotifier {
 
   Future<void> _start(String prefill) async {
     _busy = true;
+    _stopRequested = false;
     try {
       await _generate(prefill);
     } catch (e) {
@@ -692,6 +701,7 @@ class ChatController extends ChangeNotifier {
       _fail(_nextId - 1, e.toString());
     } finally {
       _busy = false;
+      _stopRequested = false;
       // the state may not have changed since the last notification, but "running" has
       notifyListeners();
     }
@@ -963,6 +973,8 @@ class ChatController extends ChangeNotifier {
       _update((s) => s.copyWith(task: task.state));
     }
 
+    // stopped before this request could start: it is not sent
+    if (_stopRequested) return _Attempt(FinishReason.cancelled, thinkingText, answer, null, false);
     _update(
       (s) => s.copyWith(
         task: request.thinking ? TaskState.thinking : TaskState.generation,

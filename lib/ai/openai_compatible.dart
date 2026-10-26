@@ -80,11 +80,19 @@ class OpenAiCompatibleProvider implements AiProvider {
 
   @override
   Stream<Delta> stream(AiRequest request) async* {
-    final message = http.Request('POST', _uri('chat/completions'))
+    // an abortable request: when the user stops, the connection is closed and the wait for the next
+    // word ends (cancelling a stream that is waiting cannot do that)
+    final message = http.AbortableRequest('POST', _uri('chat/completions'), abortTrigger: request.abort)
       ..headers.addAll(_requestHeaders)
       ..body = jsonEncode(_body(request));
 
-    final response = await _client.send(message).timeout(timeout);
+    final http.StreamedResponse response;
+    try {
+      response = await _client.send(message).timeout(timeout);
+    } on http.RequestAbortedException {
+      yield const StopDelta(FinishReason.cancelled);
+      return;
+    }
     if (response.statusCode < 200 || response.statusCode > 299) {
       throw AiProviderException(
         _failure(response.statusCode, await response.stream.bytesToString()),
@@ -100,84 +108,90 @@ class OpenAiCompatibleProvider implements AiProvider {
     // The decoder of a stream keeps the bytes of a character that a network chunk cut in two until
     // the rest arrives (Japanese text is three bytes a character, so this happens all the time).
     // Converting each chunk on its own failed with "Unfinished UTF-8 octet sequence".
-    await for (final text in response.stream.transform(const Utf8Decoder(allowMalformed: true))) {
-      pending += text;
-      // events end with a blank line; keep the last unfinished line for the next chunk
-      final lines = pending.split('\n');
-      pending = lines.removeLast();
-      for (final raw in lines) {
-        final line = raw.trimRight();
-        if (line.isEmpty || line.startsWith(':')) continue;
-        if (!line.startsWith('data:')) continue;
-        final data = line.substring(5).trim();
-        if (data.isEmpty) continue;
-        if (data == '[DONE]') break;
+    try {
+      await for (final text in response.stream.transform(const Utf8Decoder(allowMalformed: true))) {
+        pending += text;
+        // events end with a blank line; keep the last unfinished line for the next chunk
+        final lines = pending.split('\n');
+        pending = lines.removeLast();
+        for (final raw in lines) {
+          final line = raw.trimRight();
+          if (line.isEmpty || line.startsWith(':')) continue;
+          if (!line.startsWith('data:')) continue;
+          final data = line.substring(5).trim();
+          if (data.isEmpty) continue;
+          if (data == '[DONE]') break;
 
-        final Object? decoded;
-        try {
-          decoded = jsonDecode(data);
-        } catch (_) {
-          continue; // a keep-alive or a provider-specific event
-        }
-        if (decoded is! Map) continue;
-
-        final usage = decoded['usage'];
-        if (usage is Map) {
-          final prompt = _int(usage['prompt_tokens']);
-          final completion = _int(usage['completion_tokens']);
-          if (prompt != null || completion != null) {
-            yield UsageDelta(
-              promptTokens: prompt,
-              completionTokens: completion,
-            );
+          final Object? decoded;
+          try {
+            decoded = jsonDecode(data);
+          } catch (_) {
+            continue; // a keep-alive or a provider-specific event
           }
-        }
+          if (decoded is! Map) continue;
 
-        final choices = decoded['choices'];
-        final choice = choices is List && choices.isNotEmpty
-            ? choices.first
-            : null;
-        if (choice is! Map) continue;
-
-        final delta = choice['delta'];
-        if (delta is Map) {
-          final reasoning = delta['reasoning_content'] ?? delta['reasoning'];
-          if (reasoning is String && reasoning.isNotEmpty) {
-            yield ReasoningDelta(reasoning);
-          }
-          final text = delta['content'];
-          if (text is String && text.isNotEmpty) yield TextDelta(text);
-          for (final call in (delta['tool_calls'] as List? ?? const [])) {
-            if (call is! Map) continue;
-            final wireIndex = _int(call['index']) ?? 0;
-            final id = call['id'] is String ? call['id'] as String : '';
-            // Gemini's OpenAI-compatible endpoint numbers every call 0 and tells them apart by id; taking
-            // them as one call glued their arguments into `{...}{...}` ("not JSON: Unexpected character")
-            var slot = slotOf[wireIndex];
-            final current = slot == null ? null : calls[slot];
-            if (current == null || (id.isNotEmpty && current.id.isNotEmpty && id != current.id)) {
-              slot = calls.length;
-              slotOf[wireIndex] = slot;
-              calls[slot] = _PartialCall()..wireIndex = wireIndex;
-            }
-            final partial = calls[slot]!;
-            if (id.isNotEmpty) partial.id = id;
-            final extra = call['extra_content'];
-            if (extra is Map) partial.extraContent = Map<String, Object?>.from(extra);
-            final function = call['function'];
-            if (function is Map) {
-              final name = function['name'];
-              if (name is String && name.isNotEmpty) partial.name = name;
-              final arguments = function['arguments'];
-              // arguments arrive in fragments and can be cut anywhere inside a string
-              if (arguments is String) partial.arguments.write(arguments);
+          final usage = decoded['usage'];
+          if (usage is Map) {
+            final prompt = _int(usage['prompt_tokens']);
+            final completion = _int(usage['completion_tokens']);
+            if (prompt != null || completion != null) {
+              yield UsageDelta(
+                promptTokens: prompt,
+                completionTokens: completion,
+              );
             }
           }
-        }
 
-        final reason = choice['finish_reason'];
-        if (reason is String) finish = _finishOf(reason);
+          final choices = decoded['choices'];
+          final choice = choices is List && choices.isNotEmpty
+              ? choices.first
+              : null;
+          if (choice is! Map) continue;
+
+          final delta = choice['delta'];
+          if (delta is Map) {
+            final reasoning = delta['reasoning_content'] ?? delta['reasoning'];
+            if (reasoning is String && reasoning.isNotEmpty) {
+              yield ReasoningDelta(reasoning);
+            }
+            final text = delta['content'];
+            if (text is String && text.isNotEmpty) yield TextDelta(text);
+            for (final call in (delta['tool_calls'] as List? ?? const [])) {
+              if (call is! Map) continue;
+              final wireIndex = _int(call['index']) ?? 0;
+              final id = call['id'] is String ? call['id'] as String : '';
+              // Gemini's OpenAI-compatible endpoint numbers every call 0 and tells them apart by id; taking
+              // them as one call glued their arguments into `{...}{...}` ("not JSON: Unexpected character")
+              var slot = slotOf[wireIndex];
+              final current = slot == null ? null : calls[slot];
+              if (current == null || (id.isNotEmpty && current.id.isNotEmpty && id != current.id)) {
+                slot = calls.length;
+                slotOf[wireIndex] = slot;
+                calls[slot] = _PartialCall()..wireIndex = wireIndex;
+              }
+              final partial = calls[slot]!;
+              if (id.isNotEmpty) partial.id = id;
+              final extra = call['extra_content'];
+              if (extra is Map) partial.extraContent = Map<String, Object?>.from(extra);
+              final function = call['function'];
+              if (function is Map) {
+                final name = function['name'];
+                if (name is String && name.isNotEmpty) partial.name = name;
+                final arguments = function['arguments'];
+                // arguments arrive in fragments and can be cut anywhere inside a string
+                if (arguments is String) partial.arguments.write(arguments);
+              }
+            }
+          }
+
+          final reason = choice['finish_reason'];
+          if (reason is String) finish = _finishOf(reason);
+        }
       }
+    } on http.RequestAbortedException {
+      // the user stopped the reply while the model was thinking
+      yield const StopDelta(FinishReason.cancelled);
+      return;
     }
 
     // in the order the provider numbered them; calls that share a number keep the order they came in

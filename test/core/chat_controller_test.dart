@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:typed_data';
 
@@ -194,6 +195,27 @@ void main() {
     await chat.send('調べて');
     expect(queries, ['first']);
     expect(chat.state.messages.last.text, 'done');
+  });
+
+  test('a stop pressed before the request is sent (the tools are still being listed) is not forgotten', () async {
+    final engine = ScriptedEngine([('この返信は届かない', FinishReason.eog)]);
+    final listing = Completer<List<ToolDefinition>>();
+    final chat = ChatController(engine, extraTools: () => listing.future, store: (_, {required generating}) {});
+    final sent = chat.send('こんにちは');
+    await Future<void>.delayed(Duration.zero);
+    expect(chat.isRunning, isTrue);
+    chat.stop(); // nothing is being generated yet
+    listing.complete(const []);
+    await sent;
+    expect(engine.requests, isEmpty, reason: 'no request goes out after the stop');
+    final reply = chat.state.messages.last;
+    expect(reply.finish, FinishReason.cancelled);
+    expect(chat.isRunning, isFalse);
+    // and the next message is not stopped by the one before
+    final next = ScriptedEngine([('ok', FinishReason.eog)]);
+    final again = ChatController(next, store: (_, {required generating}) {});
+    await again.send('x');
+    expect(again.state.messages.last.text, 'ok');
   });
 
   test(

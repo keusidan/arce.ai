@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -38,6 +39,20 @@ OpenAiCompatibleProvider providerWith(
     client: client,
     body: body.isEmpty ? const {} : jsonDecode(body) as Map<String, Object?>,
   );
+}
+
+/// A client that hands the request to a function, and notes whether it could be aborted.
+class _AbortableClient extends http.BaseClient {
+  _AbortableClient(this._answer);
+  final http.StreamedResponse Function(http.AbortableRequest request) _answer;
+  bool sawAbortTrigger = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final abortable = request as http.AbortableRequest;
+    sawAbortTrigger = abortable.abortTrigger != null;
+    return _answer(abortable);
+  }
 }
 
 String event(Map<String, Object?> json) => 'data: ${jsonEncode(json)}\n\n';
@@ -155,6 +170,23 @@ void main() {
       final deltas = await provider.stream(request).toList();
       expect([for (final d in deltas) if (d is TextDelta) d.text].join(), '日本語の返事');
     });
+  });
+
+  test('停止（abort）で、モデルが黙っていても接続を切り、返信を「止めた」で終える', () async {
+    // a server that sends nothing until the request is aborted, as a model that is still thinking
+    final silent = StreamController<List<int>>();
+    final client = _AbortableClient((request) {
+      request.abortTrigger?.then((_) => silent.addError(http.RequestAbortedException(request.url)));
+      return http.StreamedResponse(silent.stream, 200, request: request);
+    });
+    final provider = OpenAiCompatibleProvider(id: 't', label: 'テスト', baseUrl: 'https://api.example/v1/', model: 'm', apiKey: 'k', client: client);
+    final abort = Completer<void>();
+    final done = provider.stream(AiRequest(messages: const [AiMessage(AiRole.user, text: 'x')], abort: abort.future)).toList();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    abort.complete();
+    final deltas = await done.timeout(const Duration(seconds: 2));
+    expect(deltas.whereType<StopDelta>().single.reason, FinishReason.cancelled);
+    expect(client.sawAbortTrigger, isTrue, reason: 'the request carries the trigger');
   });
 
   group('道具の呼び出し', () {

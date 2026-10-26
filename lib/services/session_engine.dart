@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../ai/routing_engine.dart';
 import '../core/engine.dart';
 import '../core/generation.dart';
@@ -36,6 +38,10 @@ class SessionEngine implements InferenceEngine {
 
   bool _cancelled = false;
 
+  /// Completes when [cancel] is called, so a reply that is waiting for the model's next word (a model
+  /// that thinks for a long time sends nothing) stops at once, not at the next word.
+  var _cancelSignal = Completer<void>();
+
   /// Whether the request in progress uses the device model or the coding mode.
   bool _exclusive = false;
 
@@ -51,6 +57,9 @@ class SessionEngine implements InferenceEngine {
   @override
   Stream<GenerationEvent> generate(GenerateRequest request) async* {
     _cancelled = false;
+    _cancelSignal = Completer<void>();
+    // the online request is told to drop its connection when the user stops (see GenerateRequest.abort)
+    request = request.withAbort(_cancelSignal.future);
     final split = _router.coding;
     _exclusive = !_router.isCloud || (split != null && split.handles(request));
     if (_exclusive && !_lease.acquire(this)) {
@@ -58,13 +67,30 @@ class SessionEngine implements InferenceEngine {
     }
     try {
       var finished = false;
-      await for (final event in _router.generate(request)) {
-        // an online request is dropped here: its engine is shared, and is not told to stop
-        if (_cancelled && !_exclusive) break;
-        if (event is Finished) finished = true;
-        yield event;
+      if (_exclusive) {
+        // the device engine ends the stream itself once it has been told to stop
+        await for (final event in _router.generate(request)) {
+          if (event is Finished) finished = true;
+          yield event;
+        }
+      } else {
+        // an online request is dropped here: its engine is shared, and is not told to stop. The wait
+        // for the next event ends as soon as the user stops, even when the model is silent.
+        final events = StreamIterator(_router.generate(request));
+        try {
+          final signal = _cancelSignal;
+          while (await Future.any<bool>([events.moveNext(), signal.future.then((_) => false)])) {
+            final event = events.current;
+            if (event is Finished) finished = true;
+            yield event;
+          }
+        } finally {
+          // not waited for: the stream below may be suspended in a wait that only the dropped
+          // connection ends
+          unawaited(events.cancel());
+        }
+        if (_cancelled && !finished) yield const Finished(FinishReason.cancelled);
       }
-      if (_cancelled && !_exclusive && !finished) yield const Finished(FinishReason.cancelled);
     } finally {
       if (_exclusive) _lease.release(this);
     }
@@ -73,6 +99,7 @@ class SessionEngine implements InferenceEngine {
   @override
   void cancel() {
     _cancelled = true;
+    if (!_cancelSignal.isCompleted) _cancelSignal.complete();
     // only what this chat is using is stopped: stopping the shared online engine would end the
     // replies of the other chats too
     if (_exclusive) {
