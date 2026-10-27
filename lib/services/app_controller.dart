@@ -24,6 +24,7 @@ import '../core/engine.dart';
 import '../core/generation.dart';
 import '../core/http_get.dart';
 import '../core/protocol.dart';
+import '../core/run_progress.dart';
 import '../core/search.dart';
 import '../core/settings_spec.dart';
 import '../core/tool_runtime.dart';
@@ -100,16 +101,18 @@ class AppController extends ChangeNotifier {
   _Session _newSession() {
     final session = _Session();
     final stop = StopSignal();
+    final meter = RunMeter();
     session.chat = ChatController(
       SessionEngine(engine, _lease),
       stopSignal: stop,
+      meter: meter,
       delegateEnabled: _delegateAvailable,
       onFailure: (reason) => reportProblem('chat', reason),
       delegateInstructions: () {
         final s = settings.value.coding;
         return CodingPrompts.plannerInstructions(maxTasks: s.maxTasks, reviewRounds: s.reviewRounds);
       },
-      toolRuntime: _SessionToolRuntime(_toolRuntime, _delegate, stop, _lease),
+      toolRuntime: _SessionToolRuntime(_toolRuntime, _delegate, stop, _lease, meter),
       settings: () => settings.value.toGeneration(
         models.loadedParamsB,
         cloud: engine.isCloud,
@@ -1003,12 +1006,13 @@ class AppController extends ChangeNotifier {
 /// chat's stop button (the developer model may work for minutes) and, when the developer is the
 /// device model, the device lease.
 class _SessionToolRuntime implements ToolRuntime {
-  _SessionToolRuntime(this._base, this._delegate, this._stop, this._lease);
+  _SessionToolRuntime(this._base, this._delegate, this._stop, this._lease, this._meter);
 
   final ToolRuntime _base;
   final DelegateRunner _delegate;
   final StopSignal _stop;
   final ExclusiveLease _lease;
+  final RunMeter _meter;
 
   @override
   Future<ToolOutcome> run(ToolCall call) {
@@ -1018,6 +1022,7 @@ class _SessionToolRuntime implements ToolRuntime {
         stop: _stop.future,
         acquireDevice: () => _lease.acquire(this),
         releaseDevice: () => _lease.release(this),
+        meter: _meter,
       );
     }
     return _base.run(call);

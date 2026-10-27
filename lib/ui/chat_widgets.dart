@@ -10,6 +10,7 @@ import '../core/chat_controller.dart';
 import '../core/generation.dart';
 import '../core/markdown_lite.dart';
 import '../core/protocol.dart';
+import '../core/run_progress.dart';
 import '../core/tool_runtime.dart';
 import '../services/app_controller.dart';
 import '../services/settings.dart';
@@ -852,6 +853,98 @@ class _OptionChip extends StatelessWidget {
 }
 
 /// The chat's own place for "not working" messages.
+/// Says that the reply is going on and what it is doing: the step, a line more (what the model is
+/// thinking about, the search word, the job), the number of requests and tools, and the time that
+/// counts every second. When the reply is over it stays as one quiet line with the totals.
+class RunStatus extends StatefulWidget {
+  const RunStatus({super.key, required this.progress});
+
+  final RunProgress progress;
+
+  @override
+  State<RunStatus> createState() => _RunStatusState();
+}
+
+class _RunStatusState extends State<RunStatus> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(RunStatus old) {
+    super.didUpdateWidget(old);
+    _syncTimer();
+  }
+
+  void _syncTimer() {
+    if (widget.progress.running && _tick == null) {
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!widget.progress.running && _tick != null) {
+      _tick!.cancel();
+      _tick = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final p = widget.progress;
+    final elapsed = RunProgress.clock(p.elapsedMs(DateTime.now().millisecondsSinceEpoch));
+    if (!p.running) {
+      if (p.requests == 0) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(2, 0, 2, 4),
+        child: Text('${p.counts} · 所要 $elapsed', style: ts(context, 10.5, color: c.faint)),
+      );
+    }
+    final stats = [
+      if (p.round > 1) '${p.round} 回目の返信',
+      p.counts,
+      elapsed,
+    ].join(' · ');
+    return Container(
+      key: const ValueKey('run-status'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: c.line)),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.8, color: c.accent)),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p.stage.isEmpty ? '準備しています' : p.stage, style: ts(context, 12, weight: FontWeight.w600)),
+            if (p.detail.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(p.detail, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(context, 11, color: c.muted, height: 1.4)),
+              ),
+            Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Text(stats, style: ts(context, 10.5, color: c.faint)),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
 class NoticeBanner extends StatelessWidget {
   const NoticeBanner({super.key, required this.text, required this.tone, this.action});
 

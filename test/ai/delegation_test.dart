@@ -6,6 +6,7 @@ import 'package:arce_ai/ai/roles.dart';
 import 'package:arce_ai/core/coding_plan.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/protocol.dart';
+import 'package:arce_ai/core/run_progress.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A developer model that answers from a script, and records what it was asked and how many
@@ -75,6 +76,22 @@ void main() {
     expect(outcome.shown, allOf(contains('> 開発: 開発・テスト（最大3件を同時に）'), contains('### タスク1'), contains('print(')));
     expect(outcome.activity.tool, 'Delegate');
     expect(outcome.activity.failed, isFalse);
+  });
+
+  test('進み具合：開発モデルへの要求の数と、終わった件数が、途中でも分かる', () async {
+    final meter = RunMeter()..begin();
+    final stages = <String>[];
+    meter.onChange = (p) {
+      if (p != null && (stages.isEmpty || stages.last != p.stage)) stages.add(p.stage);
+    };
+    final dev = FakeDeveloper((m) => 'ok', delay: const Duration(milliseconds: 10));
+    await runnerOf(dev).run(delegateOf(3), stop: never, meter: meter);
+
+    expect(meter.progress!.developerRequests, 3);
+    expect(stages.first, '開発モデルが作業しています（0/3 件完了）');
+    expect(stages.last, '開発モデルが作業しています（3/3 件完了）');
+    expect(stages, contains('開発モデルが作業しています（1/3 件完了）'));
+    expect(meter.progress!.counts, '通信 3 回（プランナー 0・開発 3）');
   });
 
   test('開発モデルには、要約とそのタスクだけが渡る（ほかのタスクは見えない）', () async {

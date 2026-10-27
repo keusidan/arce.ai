@@ -296,6 +296,7 @@ class _Messages extends StatelessWidget {
                         ),
                       if (showThinkingCard)
                         ThinkingCard(task: state.task, style: settings.thinkingStyle),
+                      if (state.progress != null) RunStatus(progress: state.progress!),
                       if (state.pendingQuestion != null)
                         QuestionCard(
                           key: ValueKey(state.messages.length),

@@ -118,6 +118,7 @@ void main() {
         "type 'Null' is not a subtype of type 'String'",
         'Bad state: No element',
         'FormatException: Unfinished UTF-8 octet sequence',
+        'プランナーの返信が空でした（思考のあとで何も書かれませんでした）。もう一度試すか、別のモデルを選んでください。',
       ]) {
         expect(should('chat', text), isTrue, reason: text);
       }

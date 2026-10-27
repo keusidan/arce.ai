@@ -13,6 +13,7 @@ import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
 import 'package:arce_ai/core/prompt.dart';
 import 'package:arce_ai/core/protocol.dart';
+import 'package:arce_ai/core/run_progress.dart';
 import 'package:arce_ai/core/tool_runtime.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -74,13 +75,14 @@ class FakeDeveloper implements RoleModel {
 
 /// What the app puts around the chat: `delegate` goes to the runner, the rest is not needed here.
 class _Runtime implements ToolRuntime {
-  _Runtime(this.runner, this.stop);
+  _Runtime(this.runner, this.stop, this.meter);
   final DelegateRunner runner;
   final StopSignal stop;
+  final RunMeter meter;
 
   @override
   Future<ToolOutcome> run(ToolCall call) {
-    if (call is Delegate) return runner.run(call, stop: stop.future);
+    if (call is Delegate) return runner.run(call, stop: stop.future, meter: meter);
     throw StateError('unexpected $call');
   }
 }
@@ -100,10 +102,12 @@ const delegateCall =
     settings: () => const CodingSettings(enabled: true, planner: 'p|m', developer: 'd|m', maxTasks: 4, parallel: 3),
     developer: () => developer,
   );
+  final meter = RunMeter();
   final chat = ChatController(
     planner,
     stopSignal: stop,
-    toolRuntime: _Runtime(runner, stop),
+    meter: meter,
+    toolRuntime: _Runtime(runner, stop, meter),
     delegateEnabled: () => enabled,
     delegateInstructions: () => '分担の指示（テスト）',
     store: (_, {required generating}) {},
@@ -132,6 +136,33 @@ void main() {
     expect(reply.text.indexOf('<p>画面</p>'), lessThan(reply.text.indexOf('作りました。')), reason: 'the file first, then the summary');
     expect(reply.activities.single.tool, 'Delegate');
     expect(reply.finish, FinishReason.eog);
+  });
+
+  test('分担の途中でも進み具合が分かり、プランナーの思考は開発のあとも残る。終わると通信の回数が出る', () async {
+    final t = setup(
+      replies: ['<think>**設計**\n画面を一つに分ける</think>$delegateCall', '<think>**確認**\n結果を読む</think>作りました。'],
+      developerDelay: const Duration(milliseconds: 40),
+    );
+    final stages = <String>[];
+    t.chat.addListener(() {
+      final p = t.chat.state.progress;
+      if (p != null && (stages.isEmpty || stages.last != p.stage)) stages.add(p.stage);
+    });
+    await t.chat.send('ツールを作って');
+
+    expect(stages, containsAllInOrder([
+      'プランナーが考えています',
+      '開発モデルに依頼しています',
+      '開発モデルが作業しています（0/1 件完了）',
+      '開発モデルが作業しています（1/1 件完了）',
+      'プランナーが考えています',
+      'プランナーが回答を書いています',
+    ]));
+    final p = t.chat.state.progress!;
+    expect((p.modelRequests, p.developerRequests, p.toolRuns, p.round), (2, 1, 1, 2));
+    expect(p.counts, '通信 3 回（プランナー 2・開発 1） · ツール 1 回');
+    expect(p.running, isFalse);
+    expect(t.chat.state.messages.last.thinking, allOf(contains('画面を一つに分ける'), contains('結果を読む')));
   });
 
   test('分担が使えないときは、delegate の道具も分担の指示も出さない', () async {

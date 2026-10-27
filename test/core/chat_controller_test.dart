@@ -290,10 +290,104 @@ void main() {
       expect(chat.state.task, TaskState.completed);
       expect(saved, [
         true,
+        true,
         false,
-      ], reason: 'saved as unfinished at start, finished at the end');
+      ], reason: 'saved as unfinished at start and after the tool round, finished at the end');
     },
   );
+
+  test('what the model thought in an earlier round stays when the next round begins', () async {
+    final engine = ScriptedEngine([
+      ('<think>一回目の考え</think><tool_call>\n{"name":"web_search","arguments":{"query":"q"}}\n</tool_call>', FinishReason.eog),
+      ('<think>二回目の考え</think>答え', FinishReason.eog),
+    ]);
+    final runtime = _Runtime((_) => const ToolOutcome('r', ToolActivity('Search', 'found')));
+    final chat = ChatController(engine, toolRuntime: runtime);
+    final seen = <String>[];
+    chat.addListener(() => seen.add(chat.state.messages.last.thinking));
+    await chat.send('調べて');
+
+    final thinking = chat.state.messages.last.thinking;
+    expect(thinking, allOf(contains('一回目の考え'), contains('二回目の考え')));
+    expect(thinking.indexOf('一回目の考え') < thinking.indexOf('二回目の考え'), isTrue);
+    expect(
+      seen.where((t) => t.contains('二回目') && !t.contains('一回目')),
+      isEmpty,
+      reason: 'the first round never drops out while the second streams',
+    );
+  });
+
+  test('a reply that is empty after thinking is asked again, and says so when it stays empty', () async {
+    final retried = ScriptedEngine([('<think>考えた</think>', FinishReason.eog), ('<think></think>書けました', FinishReason.eog)]);
+    final a = ChatController(retried);
+    await a.send('hi');
+    expect(retried.requests, hasLength(2));
+    expect(a.state.messages.last.text, '書けました');
+    expect(a.state.error, isNull);
+
+    final empty = ScriptedEngine([for (var i = 0; i < 3; i++) ('<think>考えた</think>', FinishReason.eog)]);
+    final failures = <String>[];
+    final b = ChatController(empty, onFailure: failures.add);
+    await b.send('hi');
+    expect(empty.requests, hasLength(3), reason: 'once, and the retry limit (2) more');
+    expect(b.state.task, TaskState.error);
+    expect(b.state.error, contains('返信が空'));
+    expect(b.state.messages.last.thinking, contains('考えた'), reason: 'the thinking is still there to read');
+    expect(failures, hasLength(1));
+  });
+
+  test('a reply that spent its tokens on thinking says the limit was reached, and is not asked again', () async {
+    final engine = ScriptedEngine([('<think>長い長い考え</think>', FinishReason.length)]);
+    final chat = ChatController(engine);
+    await chat.send('hi');
+    expect(engine.requests, hasLength(1));
+    expect(chat.state.task, TaskState.error);
+    expect(chat.state.error, allOf(contains('上限'), contains('最大トークン')));
+  });
+
+  test('the files a tool showed are a reply even when the model then writes nothing', () async {
+    final engine = ScriptedEngine([
+      ('<tool_call>\n{"name":"web_search","arguments":{"query":"q"}}\n</tool_call>', FinishReason.eog),
+      ('', FinishReason.eog),
+    ]);
+    final runtime = _Runtime((_) => const ToolOutcome('r', ToolActivity('Search', 'found'), shown: '### a.py'));
+    final chat = ChatController(engine, toolRuntime: runtime);
+    await chat.send('x');
+    expect(chat.state.task, TaskState.completed);
+    expect(chat.state.messages.last.text, contains('a.py'));
+  });
+
+  test('the progress says what the reply is doing, and counts the requests and the tools', () async {
+    final engine = ScriptedEngine([
+      ('<think>**検索の計画**\n語を決める</think><tool_call>\n{"name":"web_search","arguments":{"query":"kotlin"}}\n</tool_call>', FinishReason.eog),
+      ('<think></think>答え', FinishReason.eog),
+    ]);
+    final runtime = _Runtime((_) => const ToolOutcome('r', ToolActivity('Search', 'found')));
+    final chat = ChatController(engine, toolRuntime: runtime);
+    final stages = <String>[];
+    final details = <String>[];
+    chat.addListener(() {
+      final p = chat.state.progress;
+      if (p == null) return;
+      if (stages.isEmpty || stages.last != p.stage) stages.add(p.stage);
+      details.add(p.detail);
+    });
+    await chat.send('調べて');
+
+    expect(stages, containsAllInOrder(['モデルに送信しています（返信を待っています）', 'モデルが考えています', '検索しています', 'モデルが回答を書いています']));
+    expect(details, contains('検索の計画'), reason: 'the heading the model wrote is shown');
+    expect(details, contains('kotlin'), reason: 'the search word is shown while it runs');
+    final done = chat.state.progress!;
+    expect(done.running, isFalse);
+    expect(done.modelRequests, 2);
+    expect(done.toolRuns, 1);
+    expect(done.round, 2);
+    expect(done.counts, '通信 2 回 · ツール 1 回');
+
+    // a new conversation does not carry the numbers of the last one
+    chat.clear();
+    expect(chat.state.progress, isNull);
+  });
 
   test('tool loops are cut off', () async {
     const call =

@@ -3,6 +3,7 @@ import 'dart:async';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
 import '../core/protocol.dart';
+import '../core/run_progress.dart';
 import '../core/tool_runtime.dart';
 import 'provider.dart';
 import 'roles.dart';
@@ -30,11 +31,14 @@ class DelegateRunner {
 
   /// Runs [call]. [stop] completes when the user stops the reply. A job for the device model needs
   /// [acquireDevice] to succeed (one chat at a time) and gives it back through [releaseDevice].
+  /// [meter] is told each request to the developer model and each job that ends, so the screen shows
+  /// that the work goes on.
   Future<ToolOutcome> run(
     Delegate call, {
     required Future<void> stop,
     bool Function()? acquireDevice,
     void Function()? releaseDevice,
+    RunMeter? meter,
   }) async {
     final s = settings();
     final model = developer();
@@ -67,6 +71,14 @@ class DelegateRunner {
       );
       final unknownRevise = <String>[];
 
+      var ended = 0;
+      final running = <String>[];
+      void report() => meter?.stage(
+        '開発モデルが作業しています（$ended/${accepted.length} 件完了）',
+        detail: running.isEmpty ? '' : '作業中: ${running.join('、')}',
+      );
+      report();
+
       final jobs = <Future<_Stored>>[];
       for (final task in accepted) {
         final id = 'd${++_count}';
@@ -85,6 +97,9 @@ class DelegateRunner {
               AiMessage(AiRole.user, text: CodingPrompts.correction(task.instructions)),
             ],
           ];
+          running.add(title);
+          meter?.developerRequest();
+          report();
           try {
             final answer = await model.ask(
               messages,
@@ -97,6 +112,10 @@ class DelegateRunner {
           } on Object catch (e) {
             final reason = e is EngineException ? e.message : '$e';
             return _Stored(id, title, summary, base, '（このタスクは失敗しました: $reason）', failed: true);
+          } finally {
+            running.remove(title);
+            ended++;
+            report();
           }
         }));
       }

@@ -9,6 +9,7 @@ import 'engine.dart';
 import 'generation.dart';
 import 'prompt.dart';
 import 'protocol.dart';
+import 'run_progress.dart';
 import 'settings_spec.dart';
 import 'stream_segmenter.dart';
 import 'tool_runtime.dart';
@@ -160,12 +161,17 @@ class ChatState {
     this.thinkingEnabled = true,
     this.error,
     this.notice,
+    this.progress,
   });
 
   final List<UiMessage> messages;
   final TaskState task;
   final bool thinkingEnabled;
   final String? error;
+
+  /// What the reply that is going on (or the last one) has done: the step, the requests, the time.
+  /// Not saved with the conversation.
+  final RunProgress? progress;
 
   /// e.g. the selected agent expects a larger model than the one loaded (spec §17.2).
   final String? notice;
@@ -212,12 +218,14 @@ class ChatState {
     bool? thinkingEnabled,
     Object? error = _unset,
     Object? notice = _unset,
+    Object? progress = _unset,
   }) => ChatState(
     messages: messages ?? this.messages,
     task: task ?? this.task,
     thinkingEnabled: thinkingEnabled ?? this.thinkingEnabled,
     error: identical(error, _unset) ? this.error : error as String?,
     notice: identical(notice, _unset) ? this.notice : notice as String?,
+    progress: identical(progress, _unset) ? this.progress : progress as RunProgress?,
   );
 }
 
@@ -415,9 +423,12 @@ class ChatController extends ChangeNotifier {
     this.delegateInstructions,
     this.onFailure,
     StopSignal? stopSignal,
+    RunMeter? meter,
   }) : _stopSignal = stopSignal ?? StopSignal(),
+       meter = meter ?? RunMeter(),
        _settings = settings ?? (() => const GenerationSettings()),
        _store = store ?? ((_, {required generating}) {}) {
+    this.meter.onChange = (p) => _update((s) => s.copyWith(progress: p));
     _router = AgentRouter((prompt, schema) async {
       final out = StringBuffer();
       final stream = _engine
@@ -456,6 +467,10 @@ class ChatController extends ChangeNotifier {
   final InferenceEngine _engine;
   final ToolRuntime _toolRuntime;
   final StopSignal _stopSignal;
+
+  /// Counts what the reply does (requests, tools, time) for [ChatState.progress]. A tool that works
+  /// for a long time shares it, to report its own steps.
+  final RunMeter meter;
 
   /// Told why a reply failed (the text the screen shows), so the app can report it.
   final void Function(String reason)? onFailure;
@@ -730,6 +745,7 @@ class ChatController extends ChangeNotifier {
     _busy = true;
     _stopRequested = false;
     _stopSignal.reset();
+    meter.begin();
     try {
       await _generate(prefill);
     } catch (e) {
@@ -738,6 +754,7 @@ class ChatController extends ChangeNotifier {
     } finally {
       _busy = false;
       _stopRequested = false;
+      meter.end();
       // the state may not have changed since the last notification, but "running" has
       notifyListeners();
     }
@@ -790,6 +807,12 @@ class ChatController extends ChangeNotifier {
     _store(snapshot(), generating: true);
 
     var earlierText = '';
+    // what the model thought in the rounds before this one: each round streams only its own, and
+    // without this the thinking of the first round vanished when the second began
+    var earlierThinking = '';
+    // the planner of the coding mode, or the one model that answers
+    final actor = canDelegate && agent.tools.contains(Protocol.delegate) ? 'プランナー' : 'モデル';
+    var emptyReplies = 0;
     final activities = <ToolActivity>[];
     var rounds = 0;
     var roundPrefill = prefill;
@@ -799,6 +822,7 @@ class ChatController extends ChangeNotifier {
     final seenCalls = <String, int>{};
 
     while (true) {
+      meter.round(rounds + 1);
       final thinking =
           config.effectiveThinking(_state.thinkingEnabled) &&
           roundPrefill.isEmpty;
@@ -835,7 +859,7 @@ class ChatController extends ChangeNotifier {
       late _Attempt result;
       while (true) {
         try {
-          result = await _attempt(id, request, earlierText, roundPrefill);
+          result = await _attempt(id, request, earlierText, roundPrefill, earlierThinking: earlierThinking, actor: actor);
         } on EngineException catch (e) {
           _fail(id, e.message);
           return;
@@ -867,10 +891,29 @@ class ChatController extends ChangeNotifier {
       _history.add(
         AssistantTurn(result.answer, call == null ? null : result.toolCallJson, result.thinking),
       );
+      earlierThinking = _join(earlierThinking, result.thinking);
       final shown = _join(earlierText, result.answer);
 
       switch (call) {
         case null:
+          // A reply with nothing in it (no text, no tool, and nothing from the tools before it) is not
+          // an answer: it was a model that thought and then said nothing, or ran out of tokens while
+          // it thought. Say so, instead of leaving an empty chat that looks as if the reply was lost.
+          if (result.reason != FinishReason.cancelled && shown.trim().isEmpty) {
+            final cut = result.reason == FinishReason.length;
+            if (!cut && emptyReplies < config.retryLimit) {
+              emptyReplies++;
+              _history.removeLast();
+              continue;
+            }
+            _fail(
+              id,
+              cut
+                  ? '$actorは、思考だけで出力の上限に達し、返信の本文を書けませんでした。設定の「最大トークン」を増やすか、思考を弱めてください。'
+                  : '$actorの返信が空でした（思考のあとで何も書かれませんでした）。もう一度試すか、別のモデルを選んでください。',
+            );
+            return;
+          }
           _replace(
             id,
             (m) => m.copyWith(
@@ -957,7 +1000,10 @@ class ChatController extends ChangeNotifier {
               task: call is WebSearch ? TaskState.search : TaskState.generation,
             ),
           );
+          final (toolStage, toolDetail) = _toolStage(call);
+          meter.stage(toolStage, detail: toolDetail);
           final outcome = await _toolRuntime.run(call);
+          meter.toolRun();
           activities.add(outcome.activity);
           _history.add(ToolResponseTurn(outcome.response));
           earlierText = outcome.shown == null ? shown : _join(shown, outcome.shown!);
@@ -967,6 +1013,9 @@ class ChatController extends ChangeNotifier {
             (m) =>
                 m.copyWith(text: earlierText, activities: List.of(activities)),
           );
+          // what the reply has so far is kept now: a coding reply takes minutes, and the system may
+          // close the app or the user may leave before it is over
+          _store(snapshot(), generating: true);
       }
     }
   }
@@ -976,8 +1025,10 @@ class ChatController extends ChangeNotifier {
     int id,
     GenerateRequest request,
     String earlierText,
-    String prefill,
-  ) async {
+    String prefill, {
+    String earlierThinking = '',
+    String actor = 'モデル',
+  }) async {
     final task = GenerationTask();
     final segmenter = StreamSegmenter();
     var reason = FinishReason.error;
@@ -1004,23 +1055,26 @@ class ChatController extends ChangeNotifier {
             thinkingText += text;
             thinkingSince ??= DateTime.now();
             task.moveTo(TaskState.thinking);
+            meter.stage('$actorが考えています', detail: ThinkingHeadline.of(thinkingText));
           case PlainText(:final text):
             endThinking();
             answer += text;
             task.moveTo(TaskState.generation);
+            meter.stage('$actorが回答を書いています');
           case ToolCallEnd(:final json):
             // one call is run per round; of several calls in one reply (parallel calls) the first is the one
             toolCallJson ??= json;
           case ToolCallStart() || ToolCallDelta():
             endThinking();
             task.moveTo(TaskState.generation);
+            meter.stage('$actorが道具の呼び出しを書いています');
         }
       }
       _replace(
         id,
         (m) => m.copyWith(
           text: _join(earlierText, answer),
-          thinking: thinkingText,
+          thinking: _join(earlierThinking, thinkingText),
           thinkingMs: earlierThinkingMs + thoughtMs,
           thinkingSince: thinkingSince?.millisecondsSinceEpoch ?? 0,
         ),
@@ -1035,6 +1089,8 @@ class ChatController extends ChangeNotifier {
         task: request.thinking ? TaskState.thinking : TaskState.generation,
       ),
     );
+    meter.modelRequest();
+    meter.stage('$actorに送信しています（返信を待っています）');
     try {
       await for (final event in _engine.generate(request)) {
         switch (event) {
@@ -1060,6 +1116,16 @@ class ChatController extends ChangeNotifier {
       segmenter.isInsideToolCall,
     );
   }
+
+  /// What the screen says while [call] runs: the step and a line more.
+  static (String, String) _toolStage(ToolCall call) => switch (call) {
+    WebSearch() => ('検索しています', call.query),
+    GetWeather() => ('天気を調べています', call.location),
+    GetTime() => ('時刻を調べています', call.timezone ?? ''),
+    McpCall() => ('ツールを実行しています', call.name),
+    Delegate() => ('開発モデルに依頼しています', [for (final t in call.tasks) t.title].where((t) => t.trim().isNotEmpty).join('、')),
+    _ => ('ツールを実行しています', ''),
+  };
 
   /// The name and arguments of [call], so two identical requests look identical.
   static String _toolKey(ToolCall call) => switch (call) {

@@ -156,9 +156,10 @@ abstract final class ErrorPolicy {
       '通信に失敗', '回数制限', 'ほかのチャット', '送る前', '会話が長すぎ', 'トークン',
     ];
     if (theirs.any(t.contains)) return false;
-    // a request the provider refused as malformed, a reply the app could not read, or an exception of the
-    // program itself: these are the app's to fix
-    const ours = ['http 400', 'http 422', 'not json', 'exception', 'bad state', 'typeerror', 'rangeerror', 'nosuchmethod', "type '", 'unexpected'];
+    // a request the provider refused as malformed, a reply the app could not read (or that came back
+    // empty after the retries: a model and the app that do not fit), or an exception of the program
+    // itself: these are the app's to fix
+    const ours = ['http 400', 'http 422', 'not json', '返信が空', 'exception', 'bad state', 'typeerror', 'rangeerror', 'nosuchmethod', "type '", 'unexpected'];
     return ours.any(t.contains);
   }
 }
