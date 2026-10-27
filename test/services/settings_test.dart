@@ -53,6 +53,20 @@ void main() {
     expect(AppSettings.fromJson(const AppSettings(mcpResultMaxChars: 9000).toJson()).mcpResultMaxChars, 9000);
     expect(AppSettings.fromJson({'mcpResultMaxChars': 3}).mcpResultMaxChars, 500, reason: 'kept inside its range');
     expect(AgentSettings.isEditable('mcpResultMaxChars'), isTrue);
+    expect(d.errorReportEnabled, isTrue, reason: 'on, but nothing is sent without a token');
+    expect(d.errorReportRepo, AppSettings.defaultRepo);
+    expect((d.errorReportMinHours, d.errorReportMaxPerHour), (6, 5));
+    final reports = AppSettings.fromJson(const AppSettings(errorReportEnabled: false, errorReportRepo: 'me/app', errorReportMinHours: 12, errorReportMaxPerHour: 2).toJson());
+    expect((reports.errorReportEnabled, reports.errorReportRepo, reports.errorReportMinHours, reports.errorReportMaxPerHour), (false, 'me/app', 12, 2));
+    expect(AppSettings.fromJson({'errorReportMinHours': 0, 'errorReportMaxPerHour': 999}).errorReportMinHours, 1);
+    expect(AppSettings.fromJson({'errorReportMaxPerHour': 999}).errorReportMaxPerHour, 60);
+    // the on/off and the destination cannot be changed from a chat message (an injected text could
+    // otherwise send the reports somewhere else); the rates can
+    for (final key in ['errorReportEnabled', 'errorReportRepo']) {
+      expect(AgentSettings.isEditable(key), isFalse, reason: key);
+      expect(AgentSettings.normalize(key, 'x'), isA<SettingsChangeInvalid>(), reason: key);
+    }
+    expect(AgentSettings.isEditable('errorReportMinHours') && AgentSettings.isEditable('errorReportMaxPerHour'), isTrue);
     expect(d.codeFoldLines, 0, reason: 'no code block starts folded unless the user asks');
     expect(AppSettings.fromJson(const AppSettings(codeFoldLines: 40).toJson()).codeFoldLines, 40);
     expect(AgentSettings.isEditable('codeFoldLines'), isTrue);

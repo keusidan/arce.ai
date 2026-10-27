@@ -41,6 +41,7 @@ const _groups = [
   _Group(SettingsSection.search, ArceSvg.search, '検索設定', '検索サーバー・検索 API・結果の件数'),
   _Group(SettingsSection.display, ArceSvg.moon, '表示・プライバシー', 'テーマ・思考中のアイコン'),
   _Group(SettingsSection.update, ArceSvg.retry, 'アップデート', '自動で更新する・確認の間隔'),
+  _Group(SettingsSection.reports, ArceSvg.alert, 'エラーの報告', 'エラーを GitHub の issue に自動で送る（トークンを入れたときだけ）'),
 ];
 
 /// The settings, as a list of groups. A group opens downward under its own row, like a curtain,
@@ -279,6 +280,8 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
         );
+      case SettingsSection.reports:
+        return _ReportCard(app: app, s: s, set: set);
       case SettingsSection.update:
         return ArceCard(
           child: Column(
@@ -1470,6 +1473,151 @@ class _TextRowState extends State<_TextRow> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The settings of the error reports: what is sent, where, with which token, and a test.
+class _ReportCard extends StatefulWidget {
+  const _ReportCard({required this.app, required this.s, required this.set});
+
+  final AppController app;
+  final AppSettings s;
+  final void Function(AppSettings Function(AppSettings)) set;
+
+  @override
+  State<_ReportCard> createState() => _ReportCardState();
+}
+
+class _ReportCardState extends State<_ReportCard> {
+  String? _testResult;
+  bool _testing = false;
+
+  Future<void> _test() async {
+    setState(() {
+      _testing = true;
+      _testResult = null;
+    });
+    final outcome = await widget.app.errors.test(facts: widget.app.errorFacts());
+    if (!mounted) return;
+    setState(() {
+      _testing = false;
+      _testResult = outcome.ok ? 'つながりました（issue #${outcome.issue}）。送り先に、テストの issue ができています' : _reasonOf(outcome.status);
+    });
+  }
+
+  String _reasonOf(String status) {
+    if (status.startsWith('refused')) return '断られました。トークンの権限（そのリポジトリの Issues の書き込み）と、リポジトリの名前を確かめてください';
+    if (status == 'queued') return 'つながりませんでした。ネットワークを確かめてください（あとで送り直します）';
+    if (status == 'rate-limited') return '1 時間の上限に達しています';
+    return status;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final s = widget.s;
+    final app = widget.app;
+    final config = app.errors.config();
+    return ListenableBuilder(
+      listenable: Listenable.merge([app.errors, app.settings]),
+      builder: (context, _) {
+        final recent = app.errors.recent.take(5).toList();
+        return ArceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'アプリが想定していないエラー（読めなかった応答、プログラムの例外など）を、GitHub の issue に自動で送ります。'
+                  '回線・API キー・回数制限のようにあなたの側で直せるものは送りません。'
+                  '送るのは、種類・短いメッセージ・アプリ内の呼び出しの履歴・アプリのバージョン・OS・答えたモデルの名前と提供元のホスト名だけで、'
+                  '会話の内容（質問・答え・ファイル）は入りません。キー・トークン・アドレスの中身・端末内の場所は伏せ字にします。'
+                  '送り先が公開のリポジトリなら、issue も公開されます。同じ問題は 1 つの issue にまとめ、コメントで回数を足します。',
+                  style: ts(context, 10, color: c.muted, height: 1.6),
+                ),
+              ),
+              SettingRow(
+                icon: ArceSvg.alert,
+                title: 'エラーを自動で送る',
+                subtitle: config.problem == null ? '送れる状態です' : '送れません：${config.problem}',
+                trailing: ArceSwitch(value: s.errorReportEnabled, onChanged: (v) => widget.set((x) => x.copyWith(errorReportEnabled: v))),
+              ),
+              _TextRow(
+                icon: ArceSvg.globe,
+                title: '送り先のリポジトリ',
+                subtitle: 'owner/name。チャットからは変えられません',
+                value: s.errorReportRepo,
+                hint: AppSettings.defaultRepo,
+                onChanged: (v) => widget.set((x) => x.copyWith(errorReportRepo: v.trim())),
+              ),
+              _TextRow(
+                icon: ArceSvg.shield,
+                title: 'issue 用の GitHub トークン',
+                subtitle: 'そのリポジトリだけに、Issues の書き込み権限を付けた細かい権限のトークン（fine-grained）を作って入れてください。この端末の安全な領域に保存します。アップデート用のトークンとは別です',
+                value: app.settings.issueToken,
+                hint: 'github_pat_…',
+                obscure: true,
+                onChanged: app.settings.setIssueToken,
+              ),
+              SettingRow(
+                icon: ArceSvg.clock,
+                title: '同じ問題にコメントする間隔',
+                subtitle: 'この間は、同じ問題は数えるだけで送りません',
+                trailing: _Cycle<int>(
+                  value: s.errorReportMinHours,
+                  values: const [1, 3, 6, 12, 24, 72],
+                  label: (v) => '$v 時間',
+                  onChanged: (v) => widget.set((x) => x.copyWith(errorReportMinHours: v)),
+                ),
+              ),
+              SettingRow(
+                icon: ArceSvg.sliders2,
+                title: '1 時間に送る件数の上限',
+                subtitle: 'すべての報告の合計。多すぎるときは送りません',
+                last: true,
+                trailing: _Cycle<int>(
+                  value: s.errorReportMaxPerHour,
+                  values: const [1, 3, 5, 10, 20],
+                  label: (v) => '$v 件',
+                  onChanged: (v) => widget.set((x) => x.copyWith(errorReportMaxPerHour: v)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(children: [
+                SoftButton(label: _testing ? '送っています…' : 'テスト送信', svg: ArceSvg.send, onTap: _testing || config.problem != null ? null : _test),
+              ]),
+              if (_testResult != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(_testResult!, style: ts(context, 10, color: c.muted, height: 1.6)),
+                ),
+              if (recent.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text('最近の報告', style: ts(context, 11, weight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                for (final entry in recent)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(entry.report.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(context, 10.5, weight: FontWeight.w600)),
+                      Text(entry.status, style: ts(context, 9.5, color: c.muted, height: 1.5)),
+                    ]),
+                  ),
+                Text('送る内容の例（いちばん新しい報告）', style: ts(context, 10, color: c.muted, weight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10), border: Border.all(color: c.line)),
+                  child: SelectableText(recent.first.report.body, style: ts(context, 9.5, color: c.ink, height: 1.5, family: 'monospace')),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }

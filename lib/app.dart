@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'services/app_controller.dart';
+import 'services/error_hooks.dart';
 import 'ui/app_scope.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
@@ -15,7 +16,11 @@ class Bootstrap extends StatefulWidget {
 }
 
 class _BootstrapState extends State<Bootstrap> {
-  late final Future<AppController> _app = AppController.create();
+  late final Future<AppController> _app = AppController.create().then((app) {
+    // errors nobody caught are reported (only in the app itself: tests have their own handlers)
+    installErrorHooks((error, stack) => app.reportProblem('crash', '$error', error: error, stack: stack));
+    return app;
+  });
 
   @override
   Widget build(BuildContext context) => FutureBuilder<AppController>(

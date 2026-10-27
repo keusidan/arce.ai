@@ -88,6 +88,10 @@ class AppSettings {
     this.tokenPrecheck = true,
     this.thinkingExpanded = true,
     this.codeFoldLines = 0,
+    this.errorReportEnabled = true,
+    this.errorReportRepo = defaultRepo,
+    this.errorReportMinHours = 6,
+    this.errorReportMaxPerHour = 5,
     this.autoTitle = true,
     this.titleModel = '',
     this.titleMaxChars = 30,
@@ -236,6 +240,21 @@ class AppSettings {
   /// A code block longer than this many lines starts folded (0: no block starts folded).
   final int codeFoldLines;
 
+  // ---- error reports: an error goes to a GitHub issue, with the user's own token ----
+
+  /// Whether errors are reported. Nothing is sent without a token (secure storage) as well.
+  final bool errorReportEnabled;
+
+  /// `owner/name` of the repository the issues go to. Not reachable from a chat message: a text in a
+  /// chat could otherwise send the reports somewhere else.
+  final String errorReportRepo;
+
+  /// The same problem is commented on at most this often (hours); in between it is only counted.
+  final int errorReportMinHours;
+
+  /// All reports together, per hour.
+  final int errorReportMaxPerHour;
+
   /// Whether a model writes the title of a new conversation (the first question otherwise).
   final bool autoTitle;
 
@@ -369,6 +388,10 @@ class AppSettings {
     bool? tokenPrecheck,
     bool? thinkingExpanded,
     int? codeFoldLines,
+    bool? errorReportEnabled,
+    String? errorReportRepo,
+    int? errorReportMinHours,
+    int? errorReportMaxPerHour,
     bool? autoTitle,
     String? titleModel,
     int? titleMaxChars,
@@ -448,6 +471,10 @@ class AppSettings {
     tokenPrecheck: tokenPrecheck ?? this.tokenPrecheck,
     thinkingExpanded: thinkingExpanded ?? this.thinkingExpanded,
     codeFoldLines: codeFoldLines ?? this.codeFoldLines,
+    errorReportEnabled: errorReportEnabled ?? this.errorReportEnabled,
+    errorReportRepo: errorReportRepo ?? this.errorReportRepo,
+    errorReportMinHours: errorReportMinHours ?? this.errorReportMinHours,
+    errorReportMaxPerHour: errorReportMaxPerHour ?? this.errorReportMaxPerHour,
     autoTitle: autoTitle ?? this.autoTitle,
     titleModel: titleModel ?? this.titleModel,
     titleMaxChars: titleMaxChars ?? this.titleMaxChars,
@@ -529,6 +556,10 @@ class AppSettings {
     'tokenPrecheck': tokenPrecheck,
     'thinkingExpanded': thinkingExpanded,
     'codeFoldLines': codeFoldLines,
+    'errorReportEnabled': errorReportEnabled,
+    'errorReportRepo': errorReportRepo,
+    'errorReportMinHours': errorReportMinHours,
+    'errorReportMaxPerHour': errorReportMaxPerHour,
     'autoTitle': autoTitle,
     'titleModel': titleModel,
     'titleMaxChars': titleMaxChars,
@@ -639,6 +670,10 @@ class AppSettings {
       tokenPrecheck: flag('tokenPrecheck', d.tokenPrecheck),
       thinkingExpanded: flag('thinkingExpanded', d.thinkingExpanded),
       codeFoldLines: whole('codeFoldLines', d.codeFoldLines).clamp(0, 1000),
+      errorReportEnabled: flag('errorReportEnabled', d.errorReportEnabled),
+      errorReportRepo: text('errorReportRepo', d.errorReportRepo).trim(),
+      errorReportMinHours: whole('errorReportMinHours', d.errorReportMinHours).clamp(1, 168),
+      errorReportMaxPerHour: whole('errorReportMaxPerHour', d.errorReportMaxPerHour).clamp(1, 60),
       autoTitle: flag('autoTitle', d.autoTitle),
       titleModel: text('titleModel', d.titleModel),
       titleMaxChars: whole('titleMaxChars', d.titleMaxChars).clamp(8, 80),
@@ -738,6 +773,7 @@ class SettingsStore extends ChangeNotifier {
 
   static const _key = 'settings.v1';
   static const _tokenKey = 'github_token';
+  static const _issueTokenKey = 'github_issue_token';
   static const _legacyBraveKey = 'brave_api_key'; // 0.8.6, before the search services were a list
   static const _mcpTokenKey =
       'mcp_token'; // one server, before the list existed
@@ -752,6 +788,12 @@ class SettingsStore extends ChangeNotifier {
 
   /// Empty when none is set (or secure storage is unavailable on this system).
   String get githubToken => _token;
+
+  String _issueToken = '';
+
+  /// The token that writes issues for the error reports (a separate one from [githubToken], which only
+  /// needs to read releases: each has the rights it needs and no more). Empty when none is set.
+  String get issueToken => _issueToken;
 
   final Map<String, String> _searchKeys = {};
 
@@ -781,6 +823,7 @@ class SettingsStore extends ChangeNotifier {
     }
     try {
       store._token = await store._secure.read(key: _tokenKey) ?? '';
+      store._issueToken = await store._secure.read(key: _issueTokenKey) ?? '';
       for (final api in store._value.searchApis) {
         store._searchKeys[api.id] = await store._secure.read(key: api.keyRef) ?? '';
       }
@@ -883,6 +926,20 @@ class SettingsStore extends ChangeNotifier {
       await _secure.write(key: SearchApiConfig(id: 'brave-search', name: '', url: '').keyRef, value: legacy);
     }
     await _secure.delete(key: _legacyBraveKey);
+  }
+
+  Future<void> setIssueToken(String token) async {
+    _issueToken = token.trim();
+    notifyListeners();
+    try {
+      if (_issueToken.isEmpty) {
+        await _secure.delete(key: _issueTokenKey);
+      } else {
+        await _secure.write(key: _issueTokenKey, value: _issueToken);
+      }
+    } catch (_) {
+      // keep the token for this run only when the system keyring is missing
+    }
   }
 
   Future<void> setGithubToken(String token) async {

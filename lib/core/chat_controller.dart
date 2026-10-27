@@ -413,6 +413,7 @@ class ChatController extends ChangeNotifier {
     this._addProvider,
     this.delegateEnabled,
     this.delegateInstructions,
+    this.onFailure,
     StopSignal? stopSignal,
   }) : _stopSignal = stopSignal ?? StopSignal(),
        _settings = settings ?? (() => const GenerationSettings()),
@@ -455,6 +456,9 @@ class ChatController extends ChangeNotifier {
   final InferenceEngine _engine;
   final ToolRuntime _toolRuntime;
   final StopSignal _stopSignal;
+
+  /// Told why a reply failed (the text the screen shows), so the app can report it.
+  final void Function(String reason)? onFailure;
 
   /// Whether the coding mode can hand jobs to the developer model now. The `delegate` tool is
   /// offered to the coding agent only then.
@@ -1083,6 +1087,7 @@ class ChatController extends ChangeNotifier {
   }
 
   void _fail(int id, String reason) {
+    onFailure?.call(reason);
     _replace(id, (m) => m.copyWith(finish: FinishReason.error));
     _update((s) => s.copyWith(task: TaskState.error, error: reason));
     _store(snapshot(), generating: false);

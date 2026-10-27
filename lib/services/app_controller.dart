@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener, WidgetsFlutterBinding;
 
 import '../ai/cloud_engine.dart';
@@ -15,6 +17,7 @@ import '../ai/roles.dart';
 import '../ai/routing_engine.dart';
 import '../ai/titles.dart';
 import '../core/agents.dart';
+import '../core/error_report.dart';
 import '../core/chat_controller.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
@@ -33,6 +36,7 @@ import '../engine/native_engine.dart';
 import 'conversation_database.dart';
 import 'conversation_search.dart';
 import 'device_info.dart';
+import 'error_reporter.dart';
 import 'model_info_fetcher.dart';
 import 'foreground_service.dart';
 import 'kv_snapshots.dart';
@@ -58,6 +62,7 @@ enum SettingsSection {
   search,
   display,
   update,
+  reports,
 }
 
 /// A generation that was still running when the app last stopped (spec §25.1).
@@ -81,6 +86,7 @@ class AppController extends ChangeNotifier {
     required this.cloud,
     required this.engine,
     required this.preview,
+    required this.errors,
   }) {
     _current = _newSession();
     chat = ChatHandle(_current.chat);
@@ -98,6 +104,7 @@ class AppController extends ChangeNotifier {
       SessionEngine(engine, _lease),
       stopSignal: stop,
       delegateEnabled: _delegateAvailable,
+      onFailure: (reason) => reportProblem('chat', reason),
       delegateInstructions: () {
         final s = settings.value.coding;
         return CodingPrompts.plannerInstructions(maxTasks: s.maxTasks, reviewRounds: s.reviewRounds);
@@ -171,6 +178,9 @@ class AppController extends ChangeNotifier {
   final RoutingEngine engine;
   final PreviewServer preview;
 
+  /// Sends the errors to a GitHub issue (settings: エラーの報告).
+  final ErrorReporter errors;
+
   /// Shared with [updates]: a download keeps running when another app is in front.
   final ForegroundService foreground;
   late final ChatHandle chat;
@@ -211,6 +221,7 @@ class AppController extends ChangeNotifier {
   static Future<AppController> create({
     Directory? supportDirectory,
     UpdateService? updateService,
+    http.Client? reportClient,
   }) async {
     final settings = await SettingsStore.load();
     final providers = await ProviderStore.load();
@@ -244,6 +255,17 @@ class AppController extends ChangeNotifier {
         cloud: cloud,
       ),
       preview: PreviewServer(),
+      errors: ErrorReporter(
+        client: reportClient,
+        prefs: await SharedPreferences.getInstance(),
+        config: () => ErrorReportConfig(
+          enabled: settings.value.errorReportEnabled,
+          repo: settings.value.errorReportRepo,
+          token: settings.issueToken,
+          minHours: settings.value.errorReportMinHours,
+          maxPerHour: settings.value.errorReportMaxPerHour,
+        ),
+      ),
     );
     final local = app.engine.local;
     if (local is KvStatePersistence) {
@@ -375,7 +397,36 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  /// What the report says about the setting it happened in: the version, the system, who was
+  /// answering (the device or an online model: its host and its model name). Nothing of the
+  /// conversation, and no key.
+  Map<String, String> errorFacts() {
+    final config = providers.active;
+    final host = config == null ? '' : (Uri.tryParse(config.baseUrl.trim())?.host ?? '');
+    return {
+      'app': '${updates.currentVersion ?? ''}',
+      'os': '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+      'engine': config == null ? 'device' : 'online',
+      if (host.isNotEmpty) 'provider host': host,
+      if (config != null) 'model': providers.activeModelId,
+    };
+  }
+
+  /// Reports an error to the GitHub issue, if it is the kind that is the app's to fix (see
+  /// [ErrorPolicy]), the setting is on and a token is set. It runs in the background and never fails.
+  void reportProblem(String kind, String message, {Object? error, StackTrace? stack}) {
+    try {
+      if (!ErrorPolicy.shouldReport(kind, '$message ${error ?? ''}')) return;
+      final report = ErrorReport.of(kind: kind, message: message, error: error, stack: stack, facts: errorFacts());
+      unawaited(errors.report(report));
+    } catch (e) {
+      debugPrint('could not report an error: $e');
+    }
+  }
+
   Future<void> _start() async {
+    // reports that waited for the network go out now
+    unawaited(errors.flush());
     // a model download that the app was closed in the middle of carries on (a setting)
     if (settings.value.resumeDownloadsOnStart) {
       models.resumeInterrupted();

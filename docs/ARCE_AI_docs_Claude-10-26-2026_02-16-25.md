@@ -1,6 +1,6 @@
 # ARCE.AI ドキュメント（1 ファイルにまとめた版）
 
-- 整理した日：2026-10-26（日本時間 02:16）。内容は v0.10.2 時点（7.6 に 0.9.0・0.9.4・0.9.5、15.9 に 0.9.1、3 章に 0.9.2・0.9.6・0.9.7 を追記）。
+- 整理した日：2026-10-26（日本時間 02:16）。内容は v0.11.0 時点（7.6 に 0.9.0・0.9.4・0.9.5、15.9 に 0.9.1、3 章に 0.9.2・0.9.6・0.9.7 を追記）。
 - 目的：会話の履歴なしで、この文書だけを読んで作業を続けられるようにする。コードを読めば分かること（個々の関数の動き）は書かず、**意図・決定・制約・未確認のこと**を書く。
 - これは `docs/` にあった Claude 作成の文書 34 本（仕様書・リリース手順・機能ごとの記録・設計メモ・過去のレビュー）を 1 つにしたもの。**古くなっていた記述は、いまの実装に合わせて直した**。元の文書は git の履歴に残っている（コミット 36c4358 に全部ある。`git show 36c4358:docs/<ファイル名>`、一覧は `git ls-tree --name-only 36c4358 docs/`）。
 - `docs/` に残したもの：`ARCE.AI企画書.txt`（利用者の企画書）と `ARCE.AI助言書.txt`（利用者の実装アドバイス・失敗ログ。AI に読ませる運用の文書）。利用者が書いたものなので、まとめの対象にしていない。
@@ -18,7 +18,7 @@
 7. クラウドのモデル（プロバイダ）
 8. 設定の方針：機密情報以外は全て設定できる
 9. コーディングモード（プランナーモデル＋開発モデル）
-10. 外部との連携：MCP・Kaggle・検索
+10. 外部との連携：MCP・Kaggle・検索・エラーの報告
 11. 更新とダウンロード
 12. リリースと CI
 13. 環境の制約と、過去のセッションの環境メモ
@@ -298,7 +298,7 @@
 
 ---
 
-## 10. 外部との連携：MCP・Kaggle・検索
+## 10. 外部との連携：MCP・Kaggle・検索・エラーの報告
 
 ### 10.1 MCP（外部ツール。0.6.0 → 複数サーバー 0.8.0）
 
@@ -326,6 +326,19 @@
 - ひな形 13 件：Brave、Google カスタム検索、Tavily、Exa、Serper、Perplexity、Ollama、智谱（Zhipu）、Firecrawl、LinkUp、博查（Bocha）、Jina、秘塔（Metaso）。SearXNG は「SearXNG のアドレス」で使う。Tavily・Exa・Serper・Perplexity・Ollama・智谱は第三者の資料で形式が揃って見つかったもの、Firecrawl・LinkUp・Bocha・Jina・Metaso は一部の項目名が確かめられなかったので名前に「要確認」を付けた。
 - RikkaHub（Android の LLM アプリ）の検索サービスの一覧と比べて、**まだ対応していないもの**：Bing（検索ページを読む方式）、CustomJs、DeepSeek・Doubao・Grok（モデルに検索させる方式）、RikkaHub 自前、Tinyfish。使わなかった方法：DuckDuckGo の HTML ページの取得（公式の API ではなく、ブロックされやすい）。
 - 検索のオン/オフは、チャットの入力欄の「検索」ボタン（設定の「Search」の切り替えと、チャットのハンバーガーメニューの「詳細設定」は、重なるので消した）。
+
+### 10.4 エラーの自動報告（0.11.0。GitHub Issue）
+
+- きっかけ：「エラーログの内容は GitHub の issue に自動送信するように」。アプリが落ちたとき・返信に失敗したときに、**1 件の Issue**（既定は `keusidan/arce.ai`）を作る。実装は `lib/core/error_report.dart`（報告の形・隠す処理・送るかの方針）と `lib/services/error_reporter.dart`（送信・上限・待ち行列）、`lib/services/error_hooks.dart`（Flutter / Dart の捕まえ損ねたエラーの受け口）。
+- **送るもの**：エラーの種類（`crash` 捕まえ損ねた／`chat` 返信の失敗／`test` 設定画面の確認）、エラーのクラス名、短いメッセージ（400 字まで）、スタックのうちアプリ内の行（10 行まで）、状況（アプリの版・OS・端末か online か・プロバイダのホスト・モデル名）。**会話（質問・答え・ファイル）は送らない**。全ての文字列は `ErrorRedactor` を通す：キー・トークン・`Authorization`・既知のキーの形（`sk-`、`ghp_`、`github_pat_`、`AIza…`、`xox…`）・32 字以上の連続した英数字を `[removed]` / `[key]` / `[long-token]` に、URL はホストだけ残してログイン・パス・クエリを落とす。隠し過ぎる側に倒してある。
+- **送るかの方針**（`ErrorPolicy`）：捕まえ損ねたエラーは、ネットワークの失敗（接続切れ・名前解決・タイムアウト）以外は送る。返信の失敗は、**アプリ側の不具合らしいものだけ**（HTTP 400 / 422、`not JSON`、プログラムの例外など）。API キーの誤り・401・403・404・429・5xx・タイムアウト・トークン超過のような、利用者の設定や相手側の事情のものは送らない。
+- **同じ問題は 1 つの Issue**：署名（種類・クラス・数字や ID を除いたメッセージ・先頭のフレームの FNV-1a。HTTP の番号は残す＝400 と 422 は別の問題）が同じなら、新しい Issue を作らず**コメント**で件数を足す。同じ署名の報告は `errorReportMinHours`（既定 6 時間）に 1 回まで、全体で 1 時間に `errorReportMaxPerHour`（既定 5 件）まで。上限は設定画面（「エラーの報告」）とチャットの `AgentSettings` から変えられる。
+- **送れなかったとき**：401・403・404 は、トークンかリポジトリが変わるまで止める（毎回失敗しない）。429・5xx・ネットワークは**待ち行列**（最大 20 件、端末に保存）に入れ、次の機会に送る。それ以外の失敗は捨てる。設定画面に直近の結果の一覧と「テスト送信」がある。
+- **トークンは更新用と別**：Issue の作成には、**この 1 つのリポジトリだけ**に Issues: Read and write を付けた fine-grained のトークンを使う。リリースの更新用のトークンとは共有しない。secure storage（`github_issue_token`）に入り、設定の JSON・バックアップ・チャットには出ない。トークンが空なら送らない（設定画面に理由を表示）。
+- **チャットからは変えられない**：`errorReportEnabled` と `errorReportRepo`（送り先）は `blocked`。書き換えられると、エラーの内容が別のリポジトリに送られるため。分や件数の上限だけがチャットから変えられる。
+- **注意**：公開リポジトリの Issue は誰でも読める。メッセージにプロバイダのホストとモデル名が入る。非公開にしたいときは、送り先を非公開のリポジトリにする。
+- 出典：Issues の作成 https://docs.github.com/en/rest/issues/issues#create-an-issue ／ コメントの作成 https://docs.github.com/en/rest/issues/comments#create-an-issue-comment ／ fine-grained のトークンの権限 https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens ／ レート制限 https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api ／ Flutter のエラー処理 https://docs.flutter.dev/testing/errors
+- **未確認**：実際の GitHub への送信（テストは HTTP の応答を差し替えたもの）。トークンの権限が足りないときの応答、実機で捕まえ損ねたエラーが受け口に届くこと。
 
 ---
 
@@ -462,7 +475,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 ## 14. 確認できていること／できていないこと
 
 **確認済み**
-- `flutter analyze` と `flutter test`（約 570 件）が CI で成功。5 つの OS のリリースの workflow が、v0.8.19 で全部成功。
+- `flutter analyze` と `flutter test`（約 630 件）が CI で成功。5 つの OS のリリースの workflow が、v0.8.19 で全部成功。
 - Linux のリリースビルドと起動、デスクトップ配置とスマホ配置の見た目（Linux 上で撮影）、Linux の自己更新スクリプト。
 - Android の APK が GitHub Actions 上でビルド・署名の検証・公開まで通る（現在は約 7 分、ccache 有効）。
 - Kotlin のエンジンと橋渡しは、Android と Flutter の API だけ stub にしたコンパイルで型検査。C++（`arce_llama.cpp`）は、固定した llama.cpp のコミットのヘッダに対して `g++ -Wall -fsyntax-only` が警告なしで通る。
@@ -667,6 +680,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | 0.10.0 | 分担を作り直し：プランナーモデルが答えて `delegate` で開発モデルに仕事を渡す。アプリは同時実行・結果の番号・ファイルの表示だけ（9 章）。設計モデルの最大トークンの設定は廃止 |
 | 0.10.1 | 会話のタイトルをモデルに考えさせる（3 章） |
 | 0.10.2 | 思考の見え方（経過の秒数・流れ込む本文・折りたたみ・長さの保存）。コードブロックの折りたたみ（3 章） |
+| 0.11.0 | エラーの自動報告（GitHub Issue。隠す処理・方針・同じ問題は 1 件にまとめる・上限・待ち行列・専用トークン。10.4） |
 
 ---
 

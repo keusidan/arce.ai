@@ -366,6 +366,20 @@ abstract final class AgentSettings {
       min: 0,
       max: 1000,
     ),
+    'errorReportMinHours': SettingSpec(
+      key: 'errorReportMinHours',
+      label: 'エラー報告：同じ問題にコメントする間隔（時間）',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 168,
+    ),
+    'errorReportMaxPerHour': SettingSpec(
+      key: 'errorReportMaxPerHour',
+      label: 'エラー報告：1 時間に送る件数の上限',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 60,
+    ),
     'autoTitle': SettingSpec(
       key: 'autoTitle',
       label: '新しい会話のタイトルを、モデルに考えさせる',
@@ -454,7 +468,7 @@ abstract final class AgentSettings {
   static List<String> get keys => specs.keys.toList()..sort();
 
   /// The names of the settings that are deliberately not reachable from a chat message.
-  static const blocked = <String>{'lastModelPath', 'updateRepo', 'kvCache'};
+  static const blocked = <String>{'lastModelPath', 'updateRepo', 'kvCache', 'errorReportEnabled', 'errorReportRepo'};
 
   static bool isEditable(String key) => specs.containsKey(key);
 
@@ -590,7 +604,7 @@ abstract final class AgentSettings {
       b.write('\n');
     }
     b.write('次はチャットからは読むことも変えることもできません：APIキー（検索のキーも）とGitHubトークンは端末の'
-        '安全な領域にあり、${blocked.join('、')} はアプリの状態かアップデートの取得元だからです。');
+        '安全な領域にあり、${blocked.join('、')} はアプリの状態・アップデートの取得元・エラー報告の送り先だからです。');
     return b.toString();
   }
 

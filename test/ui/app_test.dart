@@ -18,7 +18,7 @@ import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<AppController> makeApp(WidgetTester tester) async {
+Future<AppController> makeApp(WidgetTester tester, {http.Client? reportClient}) async {
   SharedPreferences.setMockInitialValues({
     // no network in tests: skip the automatic update check
     'settings.v1': '{"autoUpdateCheck":false}',
@@ -31,6 +31,7 @@ Future<AppController> makeApp(WidgetTester tester) async {
     app = await AppController.create(
       supportDirectory: dir,
       updateService: UpdateService(settings, currentVersion: const Version(0, 4, 0)),
+      reportClient: reportClient,
     );
   });
   addTearDown(() async {
@@ -118,6 +119,9 @@ void main() {
     expect(find.text('ローカルモデルの設定'), findsOneWidget, reason: 'the other rows are still listed');
 
     // opening another group folds the first
+    // (the opened group scrolled to the top, so the row above it may be under the bar: bring it into view)
+    await tester.ensureVisible(find.text('ローカルモデルの設定'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('ローカルモデルの設定'));
     await tester.pumpAndSettle();
     expect(find.text('Thinking 表示'), findsNothing);
@@ -548,6 +552,96 @@ void main() {
     });
     expect(calls, 1, reason: 'the device model does not write titles by itself');
     await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('a reply that fails in the app\'s own way is reported to the GitHub issue, without the conversation or the key', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final issues = <Map<String, Object?>>[];
+    final reportClient = MockClient((request) async {
+      issues.add({'path': request.url.path, 'auth': request.headers['Authorization'], ...jsonDecode(request.body) as Map<String, Object?>});
+      return http.Response(jsonEncode({'number': 7}), 201);
+    });
+    final app = await makeApp(tester, reportClient: reportClient);
+    app.providers.clientFactory = () => MockClient.streaming((request, bodyStream) async {
+      await bodyStream.drain<void>();
+      if (!request.url.path.endsWith('chat/completions')) {
+        return http.StreamedResponse(Stream.value(utf8.encode('{"data":[]}')), 200, headers: const {'content-type': 'application/json'}, request: request);
+      }
+      return http.StreamedResponse(
+        Stream.value(utf8.encode('{"error":{"message":"Unknown parameter: reasoning_content at https://host.example/v1/secret-path?key=abc sk-abcdefgh12345678"}}')),
+        400,
+        request: request,
+      );
+    });
+    await app.providers.save(const ProviderConfig(id: 'host', label: 'ホスト', baseUrl: 'https://host.example/v1', models: [ModelConfig(id: 'm', name: 'm')]));
+    await app.providers.setActive('host');
+    // the secure storage is a platform channel: it needs the real event loop
+    await tester.runAsync(() => app.settings.setIssueToken('github_pat_reporting'));
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    await tester.runAsync(() async {
+      await app.chat.send('これは秘密の質問です');
+      for (var i = 0; i < 100 && issues.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    });
+    expect(issues, hasLength(1));
+    final issue = issues.single;
+    expect(issue['path'], '/repos/keusidan/arce.ai/issues');
+    expect(issue['auth'], 'Bearer github_pat_reporting');
+    expect(issue['title'], allOf(startsWith('[auto/chat]'), contains('HTTP 400')));
+    final text = '${issue['title']}\n${issue['body']}';
+    expect(text, contains('host.example'), reason: 'the host of the provider is said');
+    expect(text, contains('Unknown parameter'));
+    expect(text, isNot(contains('これは秘密の質問です')), reason: 'no conversation');
+    expect(text, isNot(contains('sk-abcdefgh')), reason: 'no key');
+    expect(text, isNot(contains('secret-path')), reason: 'no path or query of the address');
+    expect(text, isNot(contains('github_pat_reporting')));
+  });
+
+  testWidgets('what the user can fix is not reported (a wrong key, 429); nor is anything without a token', (tester) async {
+    setSize(tester, const Size(411, 860));
+    var reports = 0;
+    final reportClient = MockClient((request) async {
+      reports++;
+      return http.Response(jsonEncode({'number': 1}), 201);
+    });
+    final app = await makeApp(tester, reportClient: reportClient);
+    var status = 401;
+    app.providers.clientFactory = () => MockClient.streaming((request, bodyStream) async {
+      await bodyStream.drain<void>();
+      if (!request.url.path.endsWith('chat/completions')) {
+        return http.StreamedResponse(Stream.value(utf8.encode('{"data":[]}')), 200, request: request);
+      }
+      return http.StreamedResponse(Stream.value(utf8.encode('{"error":{"message":"bad"}}')), status, request: request);
+    });
+    await app.providers.save(const ProviderConfig(id: 'host', label: 'ホスト', baseUrl: 'https://host.example/v1', models: [ModelConfig(id: 'm', name: 'm')]));
+    await app.providers.setActive('host');
+    // the secure storage is a platform channel: it needs the real event loop
+    await tester.runAsync(() => app.settings.setIssueToken('github_pat_reporting'));
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    await tester.runAsync(() async {
+      await app.chat.send('一つ目');
+      app.newConversation();
+      status = 429;
+      await app.chat.send('二つ目');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    });
+    expect(reports, 0, reason: 'a wrong key and a rate limit are the user\'s to fix');
+
+    // without a token, even the app's own errors stay on the device
+    await tester.runAsync(() => app.settings.setIssueToken(''));
+    await tester.runAsync(() async {
+      app.newConversation();
+      status = 400;
+      await app.chat.send('三つ目');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    });
+    expect(reports, 0);
+    expect(app.errors.recent.first.status, contains('トークンが未設定'));
   });
 
   testWidgets('the text size is a setting and applies to the whole screen', (tester) async {
