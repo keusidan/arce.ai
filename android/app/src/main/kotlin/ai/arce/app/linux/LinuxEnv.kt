@@ -55,7 +55,8 @@ class LinuxEnv(
             }
             DiskUsage.delete(partial)
             try {
-                val result = TarGz.extract(archive, partial, maxBytes, onProgress)
+                // 0 (or less) is "no limit": what Ubuntu Base ships is the system, not the work
+                val result = TarGz.extract(archive, partial, if (maxBytes <= 0) Long.MAX_VALUE else maxBytes, onProgress)
                 finish(partial, dnsServers)
                 DiskUsage.delete(rootfs)
                 rootfs.parentFile?.mkdirs()

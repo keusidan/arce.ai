@@ -28,6 +28,49 @@ class GenerationService : Service() {
 
         private const val CHANNEL_ID = "generation"
         private const val NOTIFICATION_ID = 4101
+
+        // Android crashes the app when a service started with startForegroundService() is stopped before it
+        // has called startForeground() ("did not then call Service.startForeground()"). The app does exactly
+        // that when a reply starts and ends within one turn of its event loop (approving a tool: the work
+        // starts, the tool answers, the next request has not begun yet). So a stop that arrives while a start
+        // has not been served yet waits for it, and the service stops itself right after startForeground().
+        // Everything here runs on the main thread; the lock is for the sake of the reader.
+        private var pendingStarts = 0
+        private var stopWhenStarted = false
+
+        /** Called before startForegroundService(): one more start whose onStartCommand has not run. */
+        @Synchronized
+        fun starting() {
+            pendingStarts++
+            stopWhenStarted = false
+        }
+
+        /** startForegroundService() itself failed: that start will never be served. */
+        @Synchronized
+        fun startFailed() {
+            if (pendingStarts > 0) pendingStarts--
+        }
+
+        /** Whether the service may be stopped now. When a start is still on its way, the stop is kept for it. */
+        @Synchronized
+        fun mayStopNow(): Boolean {
+            if (pendingStarts > 0) {
+                stopWhenStarted = true
+                return false
+            }
+            return true
+        }
+
+        /** Called in onStartCommand after startForeground(); true when a stop was asked for in the meantime. */
+        @Synchronized
+        fun served(): Boolean {
+            if (pendingStarts > 0) pendingStarts--
+            if (pendingStarts == 0 && stopWhenStarted) {
+                stopWhenStarted = false
+                return true
+            }
+            return false
+        }
     }
 
     override fun onCreate() {
@@ -51,6 +94,8 @@ class GenerationService : Service() {
             return START_NOT_STICKY
         }
         startForeground(NOTIFICATION_ID, notification(intent?.getStringExtra(EXTRA_KIND)))
+        // a stop that came before this start was served: it is safe now, startForeground() has been called
+        if (served()) stopSelf()
         return START_NOT_STICKY
     }
 

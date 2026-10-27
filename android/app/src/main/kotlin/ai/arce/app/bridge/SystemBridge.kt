@@ -68,10 +68,16 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                     val intent = Intent(context, GenerationService::class.java)
                         .setAction(GenerationService.ACTION_START)
                         .putExtra(GenerationService.EXTRA_KIND, call.argument<String>("kind"))
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
-                    } else {
-                        context.startService(intent)
+                    GenerationService.starting()
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(intent)
+                        } else {
+                            context.startService(intent)
+                        }
+                    } catch (e: Throwable) {
+                        GenerationService.startFailed()
+                        throw e
                     }
                     result.success(null)
                 }
@@ -81,7 +87,8 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                     Handler(Looper.getMainLooper()).post { result.success(answer) }
                 }.start()
                 "stopForeground" -> {
-                    context.stopService(Intent(context, GenerationService::class.java))
+                    // not while a start is still on its way: see GenerationService.mayStopNow
+                    if (GenerationService.mayStopNow()) context.stopService(Intent(context, GenerationService::class.java))
                     result.success(null)
                 }
                 // The Linux environment. Every one of these reads or writes the file system and runs

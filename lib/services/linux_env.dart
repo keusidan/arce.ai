@@ -226,16 +226,17 @@ typedef RootfsDownload = Future<File> Function(
 /// one command at a time in it (the Android side serialises them: the workspace is shared).
 class LinuxEnvironment {
   LinuxEnvironment({
-    LinuxBridge bridge = const LinuxBridge(),
+    this._bridge = const LinuxBridge(),
     RootfsDownload? download,
-    Future<Directory> Function()? folder,
-  })  : _bridge = bridge,
-        _download = download ?? _downloadRootfs,
-        _folder = folder ?? _tempFolder;
+    bool? android,
+  })  : _download = download ?? _downloadRootfs,
+        _android = android ?? Platform.isAndroid;
 
   final LinuxBridge _bridge;
   final RootfsDownload _download;
-  final Future<Directory> Function() _folder;
+
+  /// Whether this is Android (a test says so for itself).
+  final bool _android;
 
   LinuxState _state = LinuxState.absent;
   double? _progress;
@@ -260,7 +261,7 @@ class LinuxEnvironment {
 
   /// Reads the state from the Android side (cheap: the workspace is measured on a block grid).
   Future<LinuxStatus> refresh(LinuxConfig config) async {
-    if (!supported) {
+    if (!_android) {
       _state = LinuxState.absent;
       _status = const LinuxStatus(prootPresent: false, installed: false, workspaceBytes: 0, workspaceLimitBytes: 0);
       return _status!;
@@ -283,7 +284,7 @@ class LinuxEnvironment {
   /// Downloads the root file system, checks its SHA-256 and has it unpacked. Its size is not in the
   /// workspace limit: it is the system, not the work (docs 19.5).
   Future<LinuxStatus> install(LinuxConfig config) async {
-    if (!supported) throw UnsupportedError('the Linux environment is Android only');
+    if (!_android) throw UnsupportedError('the Linux environment is Android only');
     _message = null;
     _progress = 0;
     _state = LinuxState.downloading;
@@ -312,6 +313,8 @@ class LinuxEnvironment {
         // 0 is "no limit": the entries are what Ubuntu Base ships
         maxBytes: 0,
       );
+      // the install is over: the folder decides what the state is (refresh keeps a running install's state)
+      _state = LinuxState.absent;
       return await refresh(config);
     } catch (e) {
       _state = LinuxState.failed;
@@ -362,15 +365,13 @@ class LinuxEnvironment {
         ? null
         : LinuxStatus(
             prootPresent: _status!.prootPresent,
-            installed: toBool(_state == LinuxState.ready),
+            installed: _status!.installed,
             workspaceBytes: outcome.workspaceBytes,
             workspaceLimitBytes: outcome.workspaceLimitBytes,
             rootfs: _status!.rootfs,
           );
     return outcome;
   }
-
-  static bool toBool(bool value) => value;
 
   static Future<Directory> _tempFolder() async {
     final base = await getTemporaryDirectory();
@@ -422,7 +423,7 @@ class LinuxEnvironment {
       );
       final file = File(p.join(folder.path, 'rootfs.tar.gz'));
       if (await file.exists()) await file.delete();
-      return part.rename(file.path);
+      return await part.rename(file.path);
     } finally {
       client.close();
     }
