@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/app_controller.dart';
 import '../services/conversation_search.dart';
+import 'arce_text_field.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -64,7 +65,7 @@ class _HistoryPanelState extends State<HistoryPanel> {
 
         final field = Padding(
           padding: const EdgeInsets.fromLTRB(2, 2, 2, 8),
-          child: TextField(
+          child: ArceTextField(
             controller: _controller,
             onChanged: (_) => setState(() {}),
             textInputAction: TextInputAction.search,

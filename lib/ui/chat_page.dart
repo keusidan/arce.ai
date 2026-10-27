@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../core/attachments.dart';
 import '../services/app_controller.dart';
+import 'arce_text_field.dart';
 import 'app_scope.dart';
 import 'chat_widgets.dart';
 import 'svg_icons.dart';
@@ -176,7 +177,7 @@ class _ChatPageState extends State<ChatPage> {
                 }
                 return KeyEventResult.ignored;
               },
-              child: TextField(
+              child: ArceTextField(
                 controller: _input,
                 focusNode: _focus,
                 minLines: 1,

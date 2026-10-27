@@ -11,6 +11,7 @@ import '../ai/thinking_config.dart';
 import '../services/app_controller.dart';
 import '../services/provider_store.dart';
 import 'app_scope.dart';
+import 'arce_text_field.dart';
 import 'model_detail_page.dart';
 import 'model_tree_view.dart';
 import 'svg_icons.dart';
@@ -500,12 +501,10 @@ class _ProviderEditorState extends State<_ProviderEditor> {
     int maxLines = 1,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
-    child: TextField(
+    child: ArceTextField(
       controller: controller,
-      obscureText: obscure,
-      maxLines: obscure ? 1 : maxLines,
-      autocorrect: false,
-      enableSuggestions: false,
+      obscure: obscure,
+      maxLines: maxLines,
       style: ts(context, 12),
       decoration: InputDecoration(
         labelText: label,
@@ -566,7 +565,7 @@ class _ModelsSheetState extends State<_ModelsSheet> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('モデルを追加'),
-        content: TextField(
+        content: ArceTextField(
           controller: controller,
           autofocus: true,
           decoration: const InputDecoration(
@@ -1102,11 +1101,9 @@ class _ModelEditorState extends State<ModelEditor> {
     int maxLines = 1,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
-    child: TextField(
+    child: ArceTextField(
       controller: controller,
       maxLines: maxLines,
-      autocorrect: false,
-      enableSuggestions: false,
       style: ts(context, 12),
       decoration: InputDecoration(
         labelText: label,

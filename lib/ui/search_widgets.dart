@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/search.dart';
 import '../services/app_controller.dart';
 import 'app_scope.dart';
+import 'arce_text_field.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -321,14 +322,12 @@ class _ApiEditorState extends State<_ApiEditor> {
     int lines = 1,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
-    child: TextField(
+    child: ArceTextField(
       controller: controller,
-      obscureText: obscure,
+      obscure: obscure,
       keyboardType: keyboard,
-      minLines: obscure ? 1 : lines,
-      maxLines: obscure ? 1 : lines,
-      autocorrect: false,
-      enableSuggestions: false,
+      minLines: lines,
+      maxLines: lines,
       style: ts(context, 12),
       decoration: InputDecoration(labelText: label, hintText: hint, isDense: true, border: const OutlineInputBorder()),
     ),

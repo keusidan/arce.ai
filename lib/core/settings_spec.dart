@@ -285,6 +285,13 @@ abstract final class AgentSettings {
       min: 5,
       max: 600,
     ),
+    'mcpResultMaxChars': SettingSpec(
+      key: 'mcpResultMaxChars',
+      label: 'MCP の道具の結果を、モデルに渡す文字数の上限',
+      kind: SettingKind.whole,
+      min: 500,
+      max: 1000000,
+    ),
     'providerTimeoutSeconds': SettingSpec(
       key: 'providerTimeoutSeconds',
       label: 'オンラインモデルの応答のタイムアウト（秒）',

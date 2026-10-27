@@ -82,8 +82,12 @@ class ListBlock extends Block {
 
 /// `> quoted text`; what is inside is read as blocks again.
 class Quote extends Block {
-  const Quote(this.blocks);
+  const Quote(this.blocks, {this.raw = ''});
   final List<Block> blocks;
+
+  /// The quoted text as written, without the `>` marks: what a copy button copies (a prompt that
+  /// was put in a quote to be handed to another AI).
+  final String raw;
 }
 
 enum ColumnAlign { left, center, right }
@@ -185,7 +189,7 @@ abstract final class MarkdownLite {
         }
         final nested = <Block>[];
         _addText(inner.join('\n'), nested);
-        blocks.add(Quote(nested));
+        blocks.add(Quote(nested, raw: inner.join('\n').trim()));
         continue;
       }
       if (_bullet.hasMatch(line)) {

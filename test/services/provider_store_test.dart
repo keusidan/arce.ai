@@ -47,6 +47,67 @@ void main() {
     expect(s.activeModelId, 'anthropic/claude-opus-5');
   });
 
+  group('選んだモデルは、再起動しても、別の提供元を保存しても戻らない', () {
+    ProviderConfig two() => const ProviderConfig(
+          id: 'two',
+          label: 'Two',
+          baseUrl: 'https://two.example/v1',
+          models: [ModelConfig(id: 'first', name: '1'), ModelConfig(id: 'second', name: '2')],
+        );
+
+    test('使っていない提供元を保存（一覧の自動取得・上限の補完）しても、使用中のモデルは変わらない', () async {
+      final s = await store();
+      await s.save(two());
+      await s.save(deepinfra());
+      await s.setActiveModel('two', 'second');
+      expect(s.activeModelId, 'second');
+
+      // what the background list read does at every start: it saves the other providers
+      await s.save(deepinfra().copyWith(catalogAt: 1));
+      await s.save(orca(catalog: const [ModelInfo('x/y')]));
+      expect(s.activeId, 'two');
+      expect(s.activeModelId, 'second', reason: 'saving another provider did not touch the choice');
+
+      final again = await ProviderStore.load();
+      expect(again.activeId, 'two');
+      expect(again.activeModelId, 'second', reason: 'and it is still there after a restart');
+    });
+
+    test('提供元ごとに、選んだモデルを覚える。別の提供元へ行って戻っても、そのまま', () async {
+      final s = await store();
+      await s.save(two());
+      await s.save(deepinfra());
+      await s.setActiveModel('two', 'second');
+      await s.setActive('deepinfra');
+      expect(s.activeModelId, 'deepseek-ai/DeepSeek-V3');
+      await s.setActive('two');
+      expect(s.activeModelId, 'second');
+      expect(s.modelOf('two')!.id, 'second', reason: 'modelOf answers for the provider asked, not for the one in use');
+      expect(s.modelOf('deepinfra')!.id, 'deepseek-ai/DeepSeek-V3');
+    });
+
+    test('選んだモデルが提供元から消えたら、その提供元の最初のモデルに戻る（ほかには影響しない）', () async {
+      final s = await store();
+      await s.save(two());
+      await s.save(deepinfra());
+      await s.setActiveModel('two', 'second');
+      await s.save(two().copyWith(models: const [ModelConfig(id: 'first', name: '1')]));
+      expect(s.activeModelId, 'first');
+      final again = await ProviderStore.load();
+      expect(again.activeModelId, 'first');
+    });
+
+    test('古い保存（使用中のモデルが 1 つだけ）も読み込める', () async {
+      SharedPreferences.setMockInitialValues({
+        'providers.v1': ProviderList.encode([two()]),
+        'providers.active': 'two',
+        'providers.activeModel': 'second',
+      });
+      final s = await ProviderStore.load();
+      expect(s.activeModelId, 'second');
+    });
+  });
+
   test('一覧にも設定にも無いモデルは選べない', () async {
     final s = await store();
     await s.save(orca());

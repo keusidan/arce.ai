@@ -2,6 +2,7 @@ import 'package:arce_ai/ui/chat_widgets.dart';
 import 'package:arce_ai/ui/theme.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _reply = '## 結論から\n\n'
@@ -79,5 +80,26 @@ void main() {
       await pumpReply(tester, partial);
       expect(tester.takeException(), isNull, reason: partial);
     }
+  });
+
+  testWidgets('a long quote and a long code block have copy buttons; a short quote does not', (tester) async {
+    final longCode = [for (var i = 0; i < 20; i++) 'line $i'].join('\n');
+    await pumpReply(tester, '> 短い引用\n\n> 一行目の指示です。\n> 二行目の指示です。\n> 三行目の指示です。\n\n```text\n$longCode\n```\n\n```text\nshort\n```');
+    expect(tester.takeException(), isNull);
+    // the long quote: one; the long code: two (header and end); the short code: one (header)
+    expect(find.text('コピー'), findsNWidgets(1 + 2 + 1));
+  });
+
+  testWidgets('the copy button of a quote puts the text without > on the clipboard', (tester) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String?;
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    await pumpReply(tester, '> 一行目の指示です。\n> 二行目の指示です。\n> 三行目の指示です。');
+    await tester.tap(find.text('コピー'));
+    await tester.pump();
+    expect(copied, '一行目の指示です。\n二行目の指示です。\n三行目の指示です。');
   });
 }

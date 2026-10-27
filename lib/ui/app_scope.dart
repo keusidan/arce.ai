@@ -9,6 +9,9 @@ class ArceScope extends InheritedWidget {
 
   final AppController app;
 
+  /// The controller, or null where no scope is above (a widget shown on its own).
+  static AppController? maybeOf(BuildContext context) => context.getInheritedWidgetOfExactType<ArceScope>()?.app;
+
   static AppController of(BuildContext context) {
     final scope = context.getInheritedWidgetOfExactType<ArceScope>();
     assert(scope != null, 'ArceScope is missing above this widget');

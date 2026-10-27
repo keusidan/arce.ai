@@ -51,6 +51,11 @@ void main() {
       expect((quote.blocks[0] as Paragraph).spans.first, const Span('注意', bold: true));
       expect((quote.blocks[1] as ListBlock).items, hasLength(2));
     });
+
+    test('引用は、> を外した元の文章も持つ（コピーボタンが写すもの）', () {
+      final quote = MarkdownLite.parse('> 次の指示に従ってください。\n> - 一つ目\n> - 二つ目\n>\n> 以上').single as Quote;
+      expect(quote.raw, '次の指示に従ってください。\n- 一つ目\n- 二つ目\n\n以上');
+    });
   });
 
   group('リスト', () {

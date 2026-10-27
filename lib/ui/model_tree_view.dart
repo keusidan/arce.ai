@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../ai/model_tree.dart';
+import 'arce_text_field.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -125,11 +126,9 @@ class ModelSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return TextField(
+    return ArceTextField(
       controller: controller,
       onChanged: onChanged,
-      autocorrect: false,
-      enableSuggestions: false,
       style: ts(context, 12),
       decoration: InputDecoration(
         hintText: hint,

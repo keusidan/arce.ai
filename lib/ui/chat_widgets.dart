@@ -11,6 +11,7 @@ import '../core/protocol.dart';
 import '../core/tool_runtime.dart';
 import '../services/app_controller.dart';
 import '../services/settings.dart';
+import 'arce_text_field.dart';
 import 'app_scope.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
@@ -18,9 +19,9 @@ import 'thinking_icon.dart';
 import 'widgets.dart';
 
 Future<void> copyToClipboard(BuildContext context, String text) async {
-  final app = ArceScope.of(context);
+  final app = ArceScope.maybeOf(context);
   await Clipboard.setData(ClipboardData(text: text));
-  app.showToast('コピーしました');
+  app?.showToast('コピーしました');
 }
 
 Future<void> openUrl(String url) => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
@@ -152,15 +153,22 @@ class MarkdownBlocks extends StatelessWidget {
       Rule() => Container(height: 1, margin: const EdgeInsets.symmetric(vertical: 4), color: c.line),
       CodeBlock() => CodeCard(block: block),
       ListBlock(:final items) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [for (final item in items) _listItem(context, item)]),
-      Quote(:final blocks) => Container(
+      Quote(:final blocks, :final raw) => Container(
           width: double.infinity,
           padding: const EdgeInsets.only(left: 11),
           decoration: BoxDecoration(border: Border(left: BorderSide(color: c.line, width: 3))),
-          child: MarkdownBlocks(blocks: blocks),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // a long quote is usually a prompt to hand to another AI: it can be copied as it is
+            if (_isLongQuote(raw)) Align(alignment: Alignment.centerRight, child: _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, raw))),
+            MarkdownBlocks(blocks: blocks),
+          ]),
         ),
       TableBlock() => _table(context, block),
     };
   }
+
+  /// Whether a quote gets a copy button: a few lines, or a long line.
+  static bool _isLongQuote(String raw) => raw.length >= 80 || '\n'.allMatches(raw).length >= 2;
 
   Widget _listItem(BuildContext context, ListItem item) {
     final c = context.c;
@@ -327,6 +335,12 @@ class CodeCard extends StatelessWidget {
               style: ts(context, 12, height: 1.5, family: 'monospace', color: c.ink),
             ),
           ),
+          // a long block has its button at the end too: the one in the header is far away by then
+          if (block.closed && '\n'.allMatches(block.code).length >= 14)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+              child: Align(alignment: Alignment.centerRight, child: _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, block.code))),
+            ),
         ],
       ),
     );
@@ -646,7 +660,7 @@ class _QuestionCardState extends State<QuestionCard> {
         ]),
         if (tile.allowFreeInput) ...[
           const SizedBox(height: 10),
-          TextField(
+          ArceTextField(
             controller: _free,
             style: ts(context, 12),
             decoration: InputDecoration(

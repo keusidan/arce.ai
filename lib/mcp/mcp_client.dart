@@ -36,6 +36,7 @@ class McpClient {
     this.clientVersion = '0.6.0',
     http.Client? client,
     this.timeout = const Duration(seconds: 40),
+    this.maxResultChars = 30000,
   }) : _client = client ?? http.Client();
 
   final String url;
@@ -45,6 +46,9 @@ class McpClient {
   final String clientName;
   final String clientVersion;
   final Duration timeout;
+
+  /// How much of a tool's result goes to the model (a setting); the rest is cut with a note.
+  final int maxResultChars;
   final http.Client _client;
 
   static const protocolVersion = '2025-06-18';
@@ -80,15 +84,60 @@ class McpClient {
   Future<String> callTool(String name, Map<String, Object?> arguments) async {
     await _ensureInitialized();
     final result = await _request('tools/call', {'name': name, 'arguments': arguments});
-    final content = result['content'];
-    final parts = <String>[
-      if (content is List)
-        for (final item in content)
-          if (item is Map && item['type'] == 'text' && item['text'] is String) item['text'] as String,
-    ];
-    final text = parts.join('\n').trim();
+    final text = describeResult(result, maxChars: maxResultChars);
     if (result['isError'] == true) throw McpException(text.isEmpty ? 'ツールが失敗しました' : text);
-    return text.isEmpty ? jsonEncode(result) : text;
+    return text.isEmpty ? '（結果は空でした）' : text;
+  }
+
+  /// A tool result as the text the model reads. Text is kept; a file the tool returned is described
+  /// (what it is, how big, where it is), because the model reads text only:
+  ///
+  /// - `text`: as it is;
+  /// - `resource` (a file inside the result): its text when it has one, otherwise a line about it;
+  /// - `resource_link`: a line with its name and address;
+  /// - `image` / `audio`: a line with the type and size. The bytes are never put in the text (a
+  ///   picture is hundreds of thousands of characters of base64 that the model cannot read);
+  /// - `structuredContent`: as JSON, when there is no other content.
+  ///
+  /// More than [maxChars] is cut, with a note of how much was left out.
+  static String describeResult(Map<String, Object?> result, {int maxChars = 30000}) {
+    String size(Object? base64) {
+      if (base64 is! String) return '';
+      final bytes = (base64.length * 3 / 4).round();
+      return bytes >= 1048576 ? ', ${(bytes / 1048576).toStringAsFixed(1)} MB' : ', ${(bytes / 1024).round().clamp(1, 1 << 30)} KB';
+    }
+
+    final parts = <String>[];
+    final content = result['content'];
+    if (content is List) {
+      for (final item in content) {
+        if (item is! Map) continue;
+        switch (item['type']) {
+          case 'text':
+            if (item['text'] is String) parts.add(item['text'] as String);
+          case 'image' || 'audio':
+            parts.add('[${item['type']}: ${item['mimeType'] ?? 'unknown type'}${size(item['data'])}。この結果の中身（バイト列）はモデルには送りません]');
+          case 'resource':
+            final resource = item['resource'];
+            if (resource is Map) {
+              final label = '${resource['uri'] ?? 'file'}${resource['mimeType'] == null ? '' : ' (${resource['mimeType']})'}';
+              if (resource['text'] is String) {
+                parts.add('[file: $label]\n${resource['text']}');
+              } else {
+                parts.add('[file: $label${size(resource['blob'])}。バイナリのため中身は送りません]');
+              }
+            }
+          case 'resource_link':
+            parts.add('[link: ${item['name'] ?? item['uri']} ${item['uri'] ?? ''}${item['mimeType'] == null ? '' : ' (${item['mimeType']})'}]');
+        }
+      }
+    }
+    if (parts.isEmpty && result['structuredContent'] != null) parts.add(jsonEncode(result['structuredContent']));
+    final text = parts.join('\n').trim();
+    if (maxChars > 0 && text.length > maxChars) {
+      return '${text.substring(0, maxChars)}\n…（${text.length - maxChars} 文字を省略しました。設定の「MCP の結果の上限」で変えられます）';
+    }
+    return text;
   }
 
   Future<void> _ensureInitialized() async {

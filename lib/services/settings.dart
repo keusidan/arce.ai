@@ -73,6 +73,7 @@ class AppSettings {
     this.searchResultCount = 5,
     this.httpTimeoutSeconds = 20,
     this.mcpTimeoutSeconds = 40,
+    this.mcpResultMaxChars = 30000,
     this.providerTimeoutSeconds = 120,
     this.toolRepeatLimit = 3,
     this.updateRetryAttempts = 5,
@@ -183,6 +184,9 @@ class AppSettings {
 
   /// Seconds before a call to an MCP server gives up.
   final int mcpTimeoutSeconds;
+
+  /// How many characters of an MCP tool's result go to the model; the rest is cut.
+  final int mcpResultMaxChars;
 
   /// Seconds an online model may take to answer a request before it gives up.
   final int providerTimeoutSeconds;
@@ -333,6 +337,7 @@ class AppSettings {
     int? searchResultCount,
     int? httpTimeoutSeconds,
     int? mcpTimeoutSeconds,
+    int? mcpResultMaxChars,
     int? providerTimeoutSeconds,
     int? toolRepeatLimit,
     int? updateRetryAttempts,
@@ -407,6 +412,7 @@ class AppSettings {
     searchResultCount: searchResultCount ?? this.searchResultCount,
     httpTimeoutSeconds: httpTimeoutSeconds ?? this.httpTimeoutSeconds,
     mcpTimeoutSeconds: mcpTimeoutSeconds ?? this.mcpTimeoutSeconds,
+    mcpResultMaxChars: mcpResultMaxChars ?? this.mcpResultMaxChars,
     providerTimeoutSeconds: providerTimeoutSeconds ?? this.providerTimeoutSeconds,
     toolRepeatLimit: toolRepeatLimit ?? this.toolRepeatLimit,
     updateRetryAttempts: updateRetryAttempts ?? this.updateRetryAttempts,
@@ -483,6 +489,7 @@ class AppSettings {
     'searchResultCount': searchResultCount,
     'httpTimeoutSeconds': httpTimeoutSeconds,
     'mcpTimeoutSeconds': mcpTimeoutSeconds,
+    'mcpResultMaxChars': mcpResultMaxChars,
     'providerTimeoutSeconds': providerTimeoutSeconds,
     'toolRepeatLimit': toolRepeatLimit,
     'updateRetryAttempts': updateRetryAttempts,
@@ -590,6 +597,7 @@ class AppSettings {
       searchResultCount: whole('searchResultCount', d.searchResultCount),
       httpTimeoutSeconds: whole('httpTimeoutSeconds', d.httpTimeoutSeconds),
       mcpTimeoutSeconds: whole('mcpTimeoutSeconds', d.mcpTimeoutSeconds),
+      mcpResultMaxChars: whole('mcpResultMaxChars', d.mcpResultMaxChars).clamp(500, 1000000),
       providerTimeoutSeconds: whole('providerTimeoutSeconds', d.providerTimeoutSeconds),
       toolRepeatLimit: whole('toolRepeatLimit', d.toolRepeatLimit),
       updateRetryAttempts: whole('updateRetryAttempts', d.updateRetryAttempts),

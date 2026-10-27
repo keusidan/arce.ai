@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../mcp/mcp_server.dart';
 import '../services/app_controller.dart';
 import 'app_scope.dart';
+import 'arce_text_field.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -381,12 +382,10 @@ class _ServerEditorState extends State<_ServerEditor> {
     TextInputType? keyboard,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
-    child: TextField(
+    child: ArceTextField(
       controller: controller,
-      obscureText: obscure,
+      obscure: obscure,
       keyboardType: keyboard,
-      autocorrect: false,
-      enableSuggestions: false,
       style: ts(context, 12),
       decoration: InputDecoration(
         labelText: label,

@@ -9,6 +9,7 @@ import '../core/engine.dart';
 import '../services/app_controller.dart';
 import '../services/settings.dart';
 import 'app_scope.dart';
+import 'arce_text_field.dart';
 import 'mcp_widgets.dart';
 import 'model_tree_view.dart';
 import 'search_widgets.dart';
@@ -525,6 +526,8 @@ class _SettingsPageState extends State<SettingsPage> {
               (x, v) => x.copyWith(httpTimeoutSeconds: v), unit: ' 秒'),
           cycle(ArceSvg.bolt, 'MCPサーバーのタイムアウト', '道具の呼び出しを待つ時間', s.mcpTimeoutSeconds, const [20, 40, 60, 120],
               (x, v) => x.copyWith(mcpTimeoutSeconds: v), unit: ' 秒'),
+          cycle(ArceSvg.bolt, 'MCP の結果の上限', 'MCP の道具の結果を、モデルに渡す文字数（超えた分は省きます。画像などのファイルは、中身ではなく説明を渡します）', s.mcpResultMaxChars, const [5000, 15000, 30000, 100000],
+              (x, v) => x.copyWith(mcpResultMaxChars: v), unit: ' 文字'),
           cycle(ArceSvg.cube, 'オンラインモデルの応答のタイムアウト', '最初の応答までに待つ時間', s.providerTimeoutSeconds, const [30, 60, 120, 300, 600],
               (x, v) => x.copyWith(providerTimeoutSeconds: v), unit: ' 秒'),
           cycle(ArceSvg.retry, 'ツールの繰り返しで止める回数', '同じ道具を同じ引数で、この回数呼んだら、ループとみなして止めます（引数が違えば数えません）', s.toolRepeatLimit, const [2, 3, 4, 5],
@@ -1376,11 +1379,11 @@ class _TextRowState extends State<_TextRow> {
             ],
           ),
           const SizedBox(height: 8),
-          TextField(
+          ArceTextField(
             controller: _controller,
-            obscureText: widget.obscure,
+            obscure: widget.obscure,
             keyboardType: widget.keyboardType,
-            maxLines: widget.obscure ? 1 : widget.maxLines,
+            maxLines: widget.maxLines,
             style: ts(context, 11.5),
             onChanged: widget.onChanged,
             decoration: InputDecoration(

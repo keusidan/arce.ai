@@ -28,6 +28,7 @@ class ProviderStore extends ChangeNotifier {
   static const _listKey = 'providers.v1';
   static const _activeKey = 'providers.active';
   static const _activeModelKey = 'providers.activeModel';
+  static const _chosenKey = 'providers.chosen';
   static const _fallbackKey = 'providers.fallback.v1';
   static const _recentKey = 'providers.recent';
 
@@ -37,7 +38,12 @@ class ProviderStore extends ChangeNotifier {
   List<ProviderConfig> _providers = const [];
   final Map<String, String> _keys = {};
   String _active = ProviderList.localId;
-  String _activeModel = '';
+  /// The model chosen in each provider (provider id -> model id). Each provider keeps its own, so
+  /// going to another provider and back finds the model that was chosen, and saving a provider that
+  /// is not in use never changes the one in use.
+  final Map<String, String> _chosen = {};
+
+  String get _activeModel => _chosen[_active] ?? '';
   List<FallbackRule> _fallback = const [];
   List<String> _recent = const [];
 
@@ -59,11 +65,11 @@ class ProviderStore extends ChangeNotifier {
     return provider.modelById(_activeModel) ?? provider.defaultModel;
   }
 
-  /// The model selected for [id]; the first one when nothing was picked yet.
+  /// The model chosen for provider [id]; its first one when nothing was picked yet.
   ModelConfig? modelOf(String id) {
     final provider = byId(id);
     if (provider == null) return null;
-    return provider.modelById(_activeModel) ?? provider.defaultModel;
+    return provider.modelById(_chosen[id] ?? '') ?? provider.defaultModel;
   }
 
   String get activeModelId => activeModel?.id ?? '';
@@ -91,7 +97,19 @@ class ProviderStore extends ChangeNotifier {
     store._active = store.byId(saved ?? '') != null
         ? saved!
         : ProviderList.localId;
-    store._activeModel = store._prefs.getString(_activeModelKey) ?? '';
+    try {
+      final chosen = jsonDecode(store._prefs.getString(_chosenKey) ?? '{}');
+      if (chosen is Map) {
+        for (final entry in chosen.entries) {
+          if (entry.key is String && entry.value is String) store._chosen[entry.key as String] = entry.value as String;
+        }
+      }
+    } catch (_) {
+      // a damaged note only means each provider starts at its first model
+    }
+    // an older save kept the one model of the provider in use
+    final legacy = store._prefs.getString(_activeModelKey) ?? '';
+    if (legacy.isNotEmpty && store._chosen[store._active] == null) store._chosen[store._active] = legacy;
     try {
       final raw = store._prefs.getString(_fallbackKey);
       if (raw != null && raw.isNotEmpty) store._fallback = FallbackRule.decodeList(jsonDecode(raw));
@@ -99,10 +117,8 @@ class ProviderStore extends ChangeNotifier {
       // a damaged list of rules only means no fallback until the user sets it again
     }
     store._recent = store._prefs.getStringList(_recentKey) ?? const [];
-    final active = store.active;
-    if (active != null && active.modelById(store._activeModel) == null) {
-      store._activeModel = active.model;
-    }
+    // a model that was removed from its provider is not chosen any more
+    store._chosen.removeWhere((id, model) => store.byId(id)?.modelById(model) == null);
     for (final provider in store._providers) {
       try {
         store._keys[provider.id] =
@@ -121,9 +137,12 @@ class ProviderStore extends ChangeNotifier {
         if (provider.id != config.id) provider,
       config,
     ];
-    if (config.modelById(_activeModel) == null) _activeModel = config.model;
+    // only this provider's own choice can be affected: a model that is gone is no longer chosen
+    final lostChoice = _chosen[config.id] != null && config.modelById(_chosen[config.id]!) == null;
+    if (lostChoice) _chosen.remove(config.id);
     notifyListeners();
     await _persistList();
+    if (lostChoice) await _persistActive();
   }
 
   Future<void> remove(String id) async {
@@ -132,6 +151,7 @@ class ProviderStore extends ChangeNotifier {
         if (provider.id != id) provider,
     ];
     _keys.remove(id);
+    _chosen.remove(id);
     if (_active == id) _active = ProviderList.localId;
     notifyListeners();
     await _persistList();
@@ -150,10 +170,6 @@ class ProviderStore extends ChangeNotifier {
     _active = id == ProviderList.localId || byId(id) == null
         ? ProviderList.localId
         : id;
-    final provider = active;
-    if (provider != null && provider.modelById(_activeModel) == null) {
-      _activeModel = provider.model;
-    }
     notifyListeners();
     await _persistActive();
   }
@@ -163,7 +179,7 @@ class ProviderStore extends ChangeNotifier {
     final provider = byId(providerId);
     if (provider == null || provider.modelById(id) == null) return;
     _active = providerId;
-    _activeModel = id;
+    _chosen[providerId] = id;
     notifyListeners();
     await _persistActive();
   }
@@ -311,5 +327,6 @@ class ProviderStore extends ChangeNotifier {
   Future<void> _persistActive() async {
     await _prefs.setString(_activeKey, _active);
     await _prefs.setString(_activeModelKey, _activeModel);
+    await _prefs.setString(_chosenKey, jsonEncode(_chosen));
   }
 }

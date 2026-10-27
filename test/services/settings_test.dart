@@ -49,6 +49,10 @@ void main() {
     expect(back.recentModelCount, 3);
     expect(back.toJson(), custom.toJson());
 
+    expect(d.mcpResultMaxChars, 30000);
+    expect(AppSettings.fromJson(const AppSettings(mcpResultMaxChars: 9000).toJson()).mcpResultMaxChars, 9000);
+    expect(AppSettings.fromJson({'mcpResultMaxChars': 3}).mcpResultMaxChars, 500, reason: 'kept inside its range');
+    expect(AgentSettings.isEditable('mcpResultMaxChars'), isTrue);
     expect(AgentSettings.isEditable('thinkingExpanded'), isTrue);
     expect(AgentSettings.normalize('thinkingExpanded', false), isA<SettingsChangeOk>());
   });

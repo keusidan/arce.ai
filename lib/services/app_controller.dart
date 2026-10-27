@@ -321,6 +321,7 @@ class AppController extends ChangeNotifier {
             url: server.url.trim(),
             token: settings.mcpTokenOf(server.id),
             timeout: Duration(seconds: settings.value.mcpTimeoutSeconds.clamp(5, 600)),
+            maxResultChars: settings.value.mcpResultMaxChars,
           ),
         ),
   ];
@@ -895,6 +896,7 @@ class _SettingsToolRuntime implements ToolRuntime {
                 url: server.url.trim(),
                 token: _settings.mcpTokenOf(server.id),
                 timeout: Duration(seconds: _settings.value.mcpTimeoutSeconds.clamp(5, 600)),
+                maxResultChars: _settings.value.mcpResultMaxChars,
               ),
             ),
       ];
