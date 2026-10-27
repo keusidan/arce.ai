@@ -87,6 +87,7 @@ class AppSettings {
     this.fallbackEnabled = true,
     this.tokenPrecheck = true,
     this.thinkingExpanded = true,
+    this.codeFoldLines = 0,
     this.autoTitle = true,
     this.titleModel = '',
     this.titleMaxChars = 30,
@@ -232,6 +233,9 @@ class AppSettings {
   /// Whether the model's thinking is shown open under the reply (true) or folded away (false).
   final bool thinkingExpanded;
 
+  /// A code block longer than this many lines starts folded (0: no block starts folded).
+  final int codeFoldLines;
+
   /// Whether a model writes the title of a new conversation (the first question otherwise).
   final bool autoTitle;
 
@@ -364,6 +368,7 @@ class AppSettings {
     bool? fallbackEnabled,
     bool? tokenPrecheck,
     bool? thinkingExpanded,
+    int? codeFoldLines,
     bool? autoTitle,
     String? titleModel,
     int? titleMaxChars,
@@ -442,6 +447,7 @@ class AppSettings {
     fallbackEnabled: fallbackEnabled ?? this.fallbackEnabled,
     tokenPrecheck: tokenPrecheck ?? this.tokenPrecheck,
     thinkingExpanded: thinkingExpanded ?? this.thinkingExpanded,
+    codeFoldLines: codeFoldLines ?? this.codeFoldLines,
     autoTitle: autoTitle ?? this.autoTitle,
     titleModel: titleModel ?? this.titleModel,
     titleMaxChars: titleMaxChars ?? this.titleMaxChars,
@@ -522,6 +528,7 @@ class AppSettings {
     'fallbackEnabled': fallbackEnabled,
     'tokenPrecheck': tokenPrecheck,
     'thinkingExpanded': thinkingExpanded,
+    'codeFoldLines': codeFoldLines,
     'autoTitle': autoTitle,
     'titleModel': titleModel,
     'titleMaxChars': titleMaxChars,
@@ -631,6 +638,7 @@ class AppSettings {
       fallbackEnabled: flag('fallbackEnabled', d.fallbackEnabled),
       tokenPrecheck: flag('tokenPrecheck', d.tokenPrecheck),
       thinkingExpanded: flag('thinkingExpanded', d.thinkingExpanded),
+      codeFoldLines: whole('codeFoldLines', d.codeFoldLines).clamp(0, 1000),
       autoTitle: flag('autoTitle', d.autoTitle),
       titleModel: text('titleModel', d.titleModel),
       titleMaxChars: whole('titleMaxChars', d.titleMaxChars).clamp(8, 80),

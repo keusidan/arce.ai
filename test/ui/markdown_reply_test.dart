@@ -1,3 +1,4 @@
+import 'package:arce_ai/core/markdown_lite.dart';
 import 'package:arce_ai/ui/chat_widgets.dart';
 import 'package:arce_ai/ui/theme.dart';
 import 'package:flutter/gestures.dart';
@@ -101,5 +102,62 @@ void main() {
     await tester.tap(find.text('コピー'));
     await tester.pump();
     expect(copied, '一行目の指示です。\n二行目の指示です。\n三行目の指示です。');
+  });
+
+  group('思考と、折りたたみ', () {
+    Future<void> pump(WidgetTester tester, Widget child) async {
+      tester.view.physicalSize = const Size(411, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: SingleChildScrollView(child: child))));
+    }
+
+    test('時間の表記：10 秒までは小数 1 桁、1 分を超えたら分と秒', () {
+      expect(ThinkingBlock.duration(3400), '3.4秒');
+      expect(ThinkingBlock.duration(12400), '12秒');
+      expect(ThinkingBlock.duration(65000), '1分05秒');
+    });
+
+    testWidgets('考えている間は秒数を数え、中身が流れ込む。終わると「思考（○秒）」になり、見出しで折りたためる', (tester) async {
+      final since = DateTime.now().millisecondsSinceEpoch - 5000;
+      await pump(tester, ThinkingBlock(text: '手順を考える', live: true, thinkingSince: since));
+      expect(find.textContaining('考えています… 5'), findsOneWidget, reason: 'the seconds so far');
+      expect(find.text('手順を考える'), findsOneWidget, reason: 'the thinking itself is open while it thinks');
+
+      await pump(tester, const ThinkingBlock(text: '手順を考えた', live: false, thinkingMs: 12400));
+      expect(find.text('思考（12秒）'), findsOneWidget);
+      expect(find.text('手順を考えた'), findsOneWidget, reason: 'open, as the setting says by default');
+      await tester.tap(find.text('思考（12秒）'));
+      await tester.pump();
+      expect(find.text('手順を考えた'), findsNothing, reason: 'folded');
+      await tester.tap(find.text('思考（12秒）'));
+      await tester.pump();
+      expect(find.text('手順を考えた'), findsOneWidget);
+    });
+
+    testWidgets('設定で折りたたむなら、思考が終わったあとは閉じている。考えている間は開いている', (tester) async {
+      await pump(tester, const ThinkingBlock(text: '中身', live: false, expanded: false, thinkingMs: 3000));
+      expect(find.text('中身'), findsNothing);
+      await pump(tester, ThinkingBlock(text: '中身', live: true, expanded: false, thinkingSince: DateTime.now().millisecondsSinceEpoch));
+      expect(find.text('中身'), findsOneWidget);
+    });
+
+    testWidgets('コードブロックは見出しで折りたためる。折りたたむと行数が出る', (tester) async {
+      final code = [for (var i = 0; i < 20; i++) 'line $i'].join('\n');
+      await pump(tester, CodeCard(block: CodeBlock('python', code, closed: true)));
+      expect(find.textContaining('line 3'), findsOneWidget);
+      await tester.tap(find.text('python'));
+      await tester.pump();
+      expect(find.textContaining('line 3'), findsNothing);
+      expect(find.text('python  ·  20行'), findsOneWidget);
+      await tester.tap(find.text('python  ·  20行'));
+      await tester.pump();
+      expect(find.textContaining('line 3'), findsOneWidget);
+    });
+
+    testWidgets('書いている途中のコードブロックは、いつも開いている', (tester) async {
+      await pump(tester, const CodeCard(block: CodeBlock('dart', 'void main() {', closed: false)));
+      expect(find.textContaining('void main'), findsOneWidget);
+    });
   });
 }

@@ -88,6 +88,7 @@ class ConversationSnapshotStore {
         'role': entry.message.role == MessageRole.assistant ? 'assistant' : 'user',
         'text': _textOf(parts),
         'thinking': _bodyOf(parts, PartKind.reasoning) ?? '',
+        'thinkingMs': _thinkingMsOf(parts),
         'question': _jsonOf(_payloadOf(parts, PartKind.question)),
         'finish': _finishOf(entry.message.finishReason),
         'activities': _jsonsOf(parts, PartKind.toolResult),
@@ -150,7 +151,10 @@ class ConversationSnapshotStore {
     final parts = <NewPart>[];
 
     final thinking = (message['thinking'] as String?) ?? '';
-    if (thinking.trim().isNotEmpty) parts.add(NewPart(PartKind.reasoning, text: thinking));
+    final thinkingMs = message['thinkingMs'];
+    if (thinking.trim().isNotEmpty) {
+      parts.add(NewPart(PartKind.reasoning, text: thinking, payload: thinkingMs is num && thinkingMs > 0 ? jsonEncode({'ms': thinkingMs.toInt()}) : null));
+    }
 
     final text = (message['text'] as String?) ?? '';
     if (text.isNotEmpty) parts.add(NewPart(PartKind.text, text: text));
@@ -230,6 +234,18 @@ class ConversationSnapshotStore {
       if (p.kind == kind && p.body != null) return p.body;
     }
     return null;
+  }
+
+  /// How long the model thought, kept in the payload of the reasoning part (0 when it was not noted).
+  static int _thinkingMsOf(List<PartRow> parts) {
+    final payload = _payloadOf(parts, PartKind.reasoning);
+    if (payload == null) return 0;
+    try {
+      final decoded = jsonDecode(payload);
+      return decoded is Map && decoded['ms'] is num ? (decoded['ms'] as num).toInt() : 0;
+    } on FormatException {
+      return 0;
+    }
   }
 
   static String? _payloadOf(List<PartRow> parts, String kind) {

@@ -359,6 +359,13 @@ abstract final class AgentSettings {
       label: '思考の内容を、開いたまま表示する',
       kind: SettingKind.flag,
     ),
+    'codeFoldLines': SettingSpec(
+      key: 'codeFoldLines',
+      label: 'この行数より長いコードブロックを、最初は折りたたむ（0で折りたたまない）',
+      kind: SettingKind.whole,
+      min: 0,
+      max: 1000,
+    ),
     'autoTitle': SettingSpec(
       key: 'autoTitle',
       label: '新しい会話のタイトルを、モデルに考えさせる',

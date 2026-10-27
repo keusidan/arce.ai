@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -101,7 +103,13 @@ class MessageView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (message.thinking.trim().isNotEmpty) ThinkingBlock(text: message.thinking, live: generating && message.text.isEmpty, expanded: ArceScope.of(context).settings.value.thinkingExpanded),
+        if (message.thinking.trim().isNotEmpty) ThinkingBlock(
+            text: message.thinking,
+            live: generating && message.thinkingSince > 0,
+            expanded: ArceScope.maybeOf(context)?.settings.value.thinkingExpanded ?? true,
+            thinkingMs: message.thinkingMs,
+            thinkingSince: message.thinkingSince,
+          ),
         for (final activity in message.activities) ActivityView(activity: activity),
         if (message.text.trim().isNotEmpty || message.finish == FinishReason.error)
           Padding(
@@ -295,13 +303,27 @@ class _InlineTextState extends State<InlineText> {
   }
 }
 
-class CodeCard extends StatelessWidget {
+/// A code block: copy, preview (HTML), and fold. A long block is folded from the start when the
+/// setting 長いコードブロックを折りたたむ行数 says so; a block that is still being written is open.
+class CodeCard extends StatefulWidget {
   const CodeCard({super.key, required this.block});
   final CodeBlock block;
 
   @override
+  State<CodeCard> createState() => _CodeCardState();
+}
+
+class _CodeCardState extends State<CodeCard> {
+  bool? _open;
+
+  int get _lines => '\n'.allMatches(widget.block.code).length + 1;
+
+  @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final block = widget.block;
+    final foldFrom = ArceScope.maybeOf(context)?.settings.value.codeFoldLines ?? 0;
+    final open = _open ?? (!block.closed || foldFrom <= 0 || _lines <= foldFrom);
     final isHtml = block.language.toLowerCase() == 'html';
     return Container(
       width: double.infinity,
@@ -310,37 +332,52 @@ class CodeCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+          Material(
             color: c.surface3.withValues(alpha: .6),
-            child: Row(children: [
-              Expanded(
-                child: Text(block.language.isEmpty ? 'code' : block.language, style: ts(context, 10, color: c.muted, weight: FontWeight.w600)),
+            child: InkWell(
+              onTap: () => setState(() => _open = !open),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+                child: Row(children: [
+                  ArceIcon(open ? ArceSvg.chevronDown : ArceSvg.chevronRight, size: 13, color: c.muted),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '${block.language.isEmpty ? 'code' : block.language}${open ? '' : '  ·  $_lines行'}',
+                      style: ts(context, 10, color: c.muted, weight: FontWeight.w600),
+                    ),
+                  ),
+                  if (!block.closed)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text('生成中…', style: ts(context, 10, color: c.muted)),
+                    ),
+                  if (isHtml && block.closed)
+                    _MiniAction(label: 'プレビュー', svg: ArceSvg.eye, onTap: () => previewHtml(context, block.code)),
+                  _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, block.code)),
+                ]),
               ),
-              if (!block.closed)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Text('生成中…', style: ts(context, 10, color: c.muted)),
-                ),
-              if (isHtml && block.closed)
-                _MiniAction(label: 'プレビュー', svg: ArceSvg.eye, onTap: () => previewHtml(context, block.code)),
-              _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, block.code)),
-            ]),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.all(10),
-            child: Text(
-              block.code,
-              style: ts(context, 12, height: 1.5, family: 'monospace', color: c.ink),
             ),
           ),
-          // a long block has its button at the end too: the one in the header is far away by then
-          if (block.closed && '\n'.allMatches(block.code).length >= 14)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
-              child: Align(alignment: Alignment.centerRight, child: _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, block.code))),
+          if (open) ...[
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.all(10),
+              child: Text(
+                block.code,
+                style: ts(context, 12, height: 1.5, family: 'monospace', color: c.ink),
+              ),
             ),
+            // a long block has its buttons at the end too: the ones in the header are far away by then
+            if (block.closed && _lines > 14)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+                child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  _MiniAction(label: '折りたたむ', svg: ArceSvg.chevronUp, onTap: () => setState(() => _open = false)),
+                  _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, block.code)),
+                ]),
+              ),
+          ],
         ],
       ),
     );
@@ -390,13 +427,40 @@ class MessageActions extends StatelessWidget {
   }
 }
 
-/// The model's reasoning: open (the setting 思考の内容を開いたまま表示), or folded away once the reply
-/// starts; it is open while it is still the only output either way. A tap opens and closes it.
+/// The model's reasoning, as the apps that run models on the device show it: a header that counts
+/// the seconds while the model thinks ("考えています… 12秒") and says how long it thought afterwards
+/// ("思考（12.3秒）"); under it the text itself, which streams in while the model thinks (in a box of
+/// limited height that follows the newest line) and stays to be read afterwards. A tap on the header
+/// folds and unfolds it. While the model thinks it is open; after that it follows the setting
+/// 思考の内容を開いたまま表示, unless the reader has opened or folded it.
 class ThinkingBlock extends StatefulWidget {
-  const ThinkingBlock({super.key, required this.text, required this.live, this.expanded = true});
+  const ThinkingBlock({
+    super.key,
+    required this.text,
+    required this.live,
+    this.expanded = true,
+    this.thinkingMs = 0,
+    this.thinkingSince = 0,
+  });
+
   final String text;
   final bool live;
   final bool expanded;
+
+  /// How long the thinking that has ended took.
+  final int thinkingMs;
+
+  /// When the thinking that is going on began (epoch milliseconds); 0 when it is not going on.
+  final int thinkingSince;
+
+  /// "12秒", "1分05秒"; one decimal under ten seconds ("3.4秒").
+  static String duration(int ms) {
+    final seconds = ms / 1000;
+    if (seconds < 10) return '${seconds.toStringAsFixed(1)}秒';
+    final whole = seconds.round();
+    if (whole < 60) return '$whole秒';
+    return '${whole ~/ 60}分${(whole % 60).toString().padLeft(2, '0')}秒';
+  }
 
   @override
   State<ThinkingBlock> createState() => _ThinkingBlockState();
@@ -404,11 +468,64 @@ class ThinkingBlock extends StatefulWidget {
 
 class _ThinkingBlockState extends State<ThinkingBlock> {
   bool? _open;
+  Timer? _tick;
+  final _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(ThinkingBlock old) {
+    super.didUpdateWidget(old);
+    _syncTimer();
+    // while it thinks, the box follows the newest line (unless the reader scrolled up to read)
+    if (widget.live && widget.text != old.text) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scroll.hasClients) return;
+        final position = _scroll.position;
+        if (position.maxScrollExtent - position.pixels < 80) _scroll.jumpTo(position.maxScrollExtent);
+      });
+    }
+  }
+
+  void _syncTimer() {
+    final running = widget.live && widget.thinkingSince > 0;
+    if (running && _tick == null) {
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!running && _tick != null) {
+      _tick!.cancel();
+      _tick = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  int get _elapsedMs {
+    if (widget.live && widget.thinkingSince > 0) {
+      return widget.thinkingMs + DateTime.now().millisecondsSinceEpoch - widget.thinkingSince;
+    }
+    return widget.thinkingMs;
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final open = _open ?? (widget.live || widget.expanded);
+    final text = widget.text.trim();
+    final elapsed = _elapsedMs;
+    final title = widget.live
+        ? (elapsed >= 1000 ? '考えています… ${ThinkingBlock.duration(elapsed)}' : '考えています…')
+        : (elapsed > 0 ? '思考（${ThinkingBlock.duration(elapsed)}）' : '思考プロセス');
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 6),
@@ -424,15 +541,27 @@ class _ThinkingBlockState extends State<ThinkingBlock> {
               child: Row(children: [
                 ArceIcon(ArceSvg.brainLabel, size: 14, color: c.accent),
                 const SizedBox(width: 6),
-                Expanded(child: Text(widget.live ? '考えています…' : '思考プロセス（${widget.text.trim().length}文字）', style: ts(context, 11, weight: FontWeight.w600, color: c.muted))),
+                Expanded(child: Text(title, style: ts(context, 11, weight: FontWeight.w600, color: c.muted))),
+                Text('${text.length}文字', style: ts(context, 9.5, color: c.faint)),
+                const SizedBox(width: 6),
                 ArceIcon(open ? ArceSvg.chevronUp : ArceSvg.chevronDown, size: 15, color: c.muted),
               ]),
             ),
           ),
           if (open)
             Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-              child: Text(widget.text.trim(), style: ts(context, 11.5, color: c.muted, height: 1.65)),
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+              child: Container(
+                padding: const EdgeInsets.only(left: 9),
+                decoration: BoxDecoration(border: Border(left: BorderSide(color: c.line, width: 2))),
+                // while it thinks the box is as high as it needs, up to a limit, and scrolls; afterwards
+                // a long thought has a limit too, so it does not push the answer off the screen
+                constraints: BoxConstraints(maxHeight: widget.live ? 190 : 340),
+                child: SingleChildScrollView(
+                  controller: _scroll,
+                  child: Text(text, style: ts(context, 11.5, color: c.muted, height: 1.65)),
+                ),
+              ),
             ),
         ],
       ),

@@ -273,7 +273,11 @@ class _Messages extends StatelessWidget {
     final state = app.chat.state;
     final settings = app.settings.value;
     final last = state.messages.isEmpty ? null : state.messages.last;
-    final showThinkingCard = state.isGenerating && settings.thinking && (last?.text.trim().isEmpty ?? true);
+    // the animated card is for the time before anything arrives; the thinking block takes over then
+    final showThinkingCard = state.isGenerating &&
+        settings.thinking &&
+        (last?.text.trim().isEmpty ?? true) &&
+        (last?.thinking.trim().isEmpty ?? true);
     return SelectionArea(
       child: ListView(
         controller: scroll,

@@ -51,6 +51,17 @@ void main() {
   });
   tearDown(() => db.close());
 
+  test('思考の長さ（ミリ秒）も、思考の本文といっしょに保存して読み戻せる。長さを持たない古い保存は 0', () {
+    final withMs = snapshot();
+    ((withMs['messages']! as List)[1] as Map<String, Object?>)['thinkingMs'] = 12345;
+    final id = store.save(null, withMs, generating: false);
+    expect((store.read(id)!['messages']! as List)[1]['thinkingMs'], 12345);
+    expect((store.read(id)!['messages']! as List)[1]['thinking'], '考える');
+
+    final old = store.save(null, snapshot(), generating: false); // no thinkingMs in it
+    expect((store.read(old)!['messages']! as List)[1]['thinkingMs'], 0);
+  });
+
   group('保存', () {
     test('会話を新しく作り、一覧に出る', () {
       final id = store.save(null, snapshot(), generating: false);

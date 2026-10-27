@@ -21,6 +21,8 @@ class UiMessage {
     required this.role,
     required this.text,
     this.thinking = '',
+    this.thinkingMs = 0,
+    this.thinkingSince = 0,
     this.question,
     this.settings,
     this.provider,
@@ -36,6 +38,13 @@ class UiMessage {
   final Role role;
   final String text;
   final String thinking;
+
+  /// How long the model thought, in milliseconds, of the thinking that has ended.
+  final int thinkingMs;
+
+  /// When the thinking that is going on now began (milliseconds since the epoch); 0 when the model is
+  /// not thinking now. The screen counts the seconds from it.
+  final int thinkingSince;
   final QuestionTile? question;
 
   /// Set with [question] when the card asks the user to approve a settings change.
@@ -55,6 +64,8 @@ class UiMessage {
   UiMessage copyWith({
     String? text,
     String? thinking,
+    int? thinkingMs,
+    int? thinkingSince,
     QuestionTile? question,
     List<SettingsChangeOk>? settings,
     ProviderDraft? provider,
@@ -66,6 +77,8 @@ class UiMessage {
     role: role,
     text: text ?? this.text,
     thinking: thinking ?? this.thinking,
+    thinkingMs: thinkingMs ?? this.thinkingMs,
+    thinkingSince: thinkingSince ?? this.thinkingSince,
     question: question ?? this.question,
     settings: settings ?? this.settings,
     provider: provider ?? this.provider,
@@ -82,6 +95,7 @@ class UiMessage {
     'role': role.name,
     'text': text,
     'thinking': thinking,
+    'thinkingMs': thinkingMs,
     'question': question?.toJson(),
     'tool': tool == null
         ? null
@@ -105,6 +119,7 @@ class UiMessage {
     role: Role.values.byName(json['role'] as String),
     text: json['text'] as String,
     thinking: json['thinking'] as String? ?? '',
+    thinkingMs: json['thinkingMs'] is num ? (json['thinkingMs'] as num).toInt() : 0,
     question: json['question'] == null
         ? null
         : QuestionTile.fromJson((json['question'] as Map).cast()),
@@ -965,20 +980,35 @@ class ChatController extends ChangeNotifier {
     var thinkingText = '';
     var answer = prefill;
     String? toolCallJson;
+    // how long the model thinks: counted from its first thinking text to its first word of the reply
+    // (or the end), and added to what earlier rounds of this reply already thought
+    final earlierThinkingMs = _state.messages.where((m) => m.id == id).firstOrNull?.thinkingMs ?? 0;
+    var thoughtMs = 0;
+    DateTime? thinkingSince;
+
+    void endThinking() {
+      final since = thinkingSince;
+      if (since == null) return;
+      thoughtMs += DateTime.now().difference(since).inMilliseconds;
+      thinkingSince = null;
+    }
 
     void consume(List<StreamEvent> events) {
       for (final event in events) {
         switch (event) {
           case ThinkingText(:final text):
             thinkingText += text;
+            thinkingSince ??= DateTime.now();
             task.moveTo(TaskState.thinking);
           case PlainText(:final text):
+            endThinking();
             answer += text;
             task.moveTo(TaskState.generation);
           case ToolCallEnd(:final json):
             // one call is run per round; of several calls in one reply (parallel calls) the first is the one
             toolCallJson ??= json;
           case ToolCallStart() || ToolCallDelta():
+            endThinking();
             task.moveTo(TaskState.generation);
         }
       }
@@ -987,6 +1017,8 @@ class ChatController extends ChangeNotifier {
         (m) => m.copyWith(
           text: _join(earlierText, answer),
           thinking: thinkingText,
+          thinkingMs: earlierThinkingMs + thoughtMs,
+          thinkingSince: thinkingSince?.millisecondsSinceEpoch ?? 0,
         ),
       );
       _update((s) => s.copyWith(task: task.state));
@@ -999,15 +1031,23 @@ class ChatController extends ChangeNotifier {
         task: request.thinking ? TaskState.thinking : TaskState.generation,
       ),
     );
-    await for (final event in _engine.generate(request)) {
-      switch (event) {
-        case Piece(:final text):
-          consume(segmenter.feed(text));
-        case Finished(reason: final r):
-          reason = r;
+    try {
+      await for (final event in _engine.generate(request)) {
+        switch (event) {
+          case Piece(:final text):
+            consume(segmenter.feed(text));
+          case Finished(reason: final r):
+            reason = r;
+        }
+      }
+      consume(segmenter.finish());
+    } finally {
+      // a reply that was only thinking (or stopped or failed while thinking) still ends its thinking
+      if (thinkingSince != null) {
+        endThinking();
+        _replace(id, (m) => m.copyWith(thinkingMs: earlierThinkingMs + thoughtMs, thinkingSince: 0));
       }
     }
-    consume(segmenter.finish());
     return _Attempt(
       reason,
       thinkingText,

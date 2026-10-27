@@ -169,9 +169,20 @@ class _SettingsPageState extends State<SettingsPage> {
                   SettingRow(
                     icon: ArceSvg.brainOutline,
                     title: '思考の内容を開いたまま表示',
-                    subtitle: 'オフにすると、返信が始まったあとは折りたたみます（タップで開けます）',
-                    last: true,
+                    subtitle: 'オフにすると、思考が終わったあとは折りたたみます（見出しをタップで開け閉めできます）',
                     trailing: ArceSwitch(value: s.thinkingExpanded, onChanged: (v) => set((x) => x.copyWith(thinkingExpanded: v))),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.codeEdit,
+                    title: '長いコードブロックを折りたたむ行数',
+                    subtitle: 'この行数より長いコードは、最初は折りたたみます（見出しをタップで開け閉めできます）。0 なら折りたたみません',
+                    last: true,
+                    trailing: _Cycle<int>(
+                      value: s.codeFoldLines,
+                      values: const [0, 20, 40, 80, 150],
+                      label: (v) => v == 0 ? 'なし' : '$v 行',
+                      onChanged: (v) => set((x) => x.copyWith(codeFoldLines: v)),
+                    ),
                   ),
                 ],
               ),

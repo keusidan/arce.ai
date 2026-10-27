@@ -53,6 +53,9 @@ void main() {
     expect(AppSettings.fromJson(const AppSettings(mcpResultMaxChars: 9000).toJson()).mcpResultMaxChars, 9000);
     expect(AppSettings.fromJson({'mcpResultMaxChars': 3}).mcpResultMaxChars, 500, reason: 'kept inside its range');
     expect(AgentSettings.isEditable('mcpResultMaxChars'), isTrue);
+    expect(d.codeFoldLines, 0, reason: 'no code block starts folded unless the user asks');
+    expect(AppSettings.fromJson(const AppSettings(codeFoldLines: 40).toJson()).codeFoldLines, 40);
+    expect(AgentSettings.isEditable('codeFoldLines'), isTrue);
     expect(d.autoTitle, isTrue, reason: 'a model writes the title of a new conversation unless it is turned off');
     expect(d.titleModel, isEmpty, reason: 'empty: the online model in use');
     expect(d.titleMaxChars, 30);

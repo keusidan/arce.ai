@@ -197,6 +197,37 @@ void main() {
     expect(chat.state.messages.last.text, 'done');
   });
 
+  test('how long the model thought is counted from its first thinking text to its first word, and the live mark is cleared', () async {
+    final engine = _SlowThinker();
+    final chat = ChatController(engine, store: (_, {required generating}) {});
+    final seen = <int>[]; // the live marks the screen saw
+    chat.addListener(() {
+      if (chat.state.messages.isNotEmpty) seen.add(chat.state.messages.last.thinkingSince);
+    });
+    await chat.send('こんにちは');
+    final reply = chat.state.messages.last;
+    expect(reply.thinking, contains('考え中'));
+    expect(reply.text, '答えです');
+    expect(reply.thinkingMs, greaterThanOrEqualTo(90), reason: 'it thought for 120 ms');
+    expect(reply.thinkingMs, lessThan(2000));
+    expect(reply.thinkingSince, 0, reason: 'no longer thinking');
+    expect(seen.any((v) => v > 0), isTrue, reason: 'while it thought, the screen could count the seconds');
+    // and it survives a save and a load of the message
+    expect(UiMessage.fromJson(reply.toJson()).thinkingMs, reply.thinkingMs);
+  });
+
+  test('a reply that is only thinking, and is stopped, ends its thinking too', () async {
+    final engine = _SlowThinker(answer: false);
+    final chat = ChatController(engine, store: (_, {required generating}) {});
+    final sending = chat.send('こんにちは');
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(chat.state.messages.last.thinkingSince, greaterThan(0));
+    engine.stop = true;
+    await sending;
+    expect(chat.state.messages.last.thinkingSince, 0);
+    expect(chat.state.messages.last.thinkingMs, greaterThan(0));
+  });
+
   test('a stop pressed before the request is sent (the tools are still being listed) is not forgotten', () async {
     final engine = ScriptedEngine([('この返信は届かない', FinishReason.eog)]);
     final listing = Completer<List<ToolDefinition>>();
@@ -434,4 +465,34 @@ void main() {
     expect(saved.first, contains('時刻を調べる'));
     expect(saved.last, contains('答える'));
   });
+}
+
+/// Thinks for 120 ms (a think block) and then answers; with [answer] false it thinks until stopped.
+class _SlowThinker implements InferenceEngine {
+  _SlowThinker({this.answer = true});
+  final bool answer;
+  bool stop = false;
+
+  @override
+  bool get isLoaded => true;
+  @override
+  Future<void> load(LoadParams params) async {}
+  @override
+  void cancel() => stop = true;
+  @override
+  Future<void> unload() async {}
+
+  @override
+  Stream<GenerationEvent> generate(GenerateRequest request) async* {
+    yield const Piece('<think>考え中');
+    if (answer) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      yield const Piece('</think>答えです');
+    } else {
+      while (!stop) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+    yield Finished(answer ? FinishReason.eog : FinishReason.cancelled);
+  }
 }
