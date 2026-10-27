@@ -1,5 +1,6 @@
 package ai.arce.app.bridge
 
+import ai.arce.app.linux.LinuxEnv
 import ai.arce.app.linux.ProotProbe
 import ai.arce.app.service.GenerationService
 import ai.arce.app.update.ApkInstaller
@@ -15,9 +16,18 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
-/** Device facts and APK installation for the Dart side (`ai.arce.app/system`). */
+/** Device facts, APK installation and the Linux environment, for the Dart side (`ai.arce.app/system`). */
 class SystemBridge(private val context: Context, messenger: BinaryMessenger) : MethodChannel.MethodCallHandler {
     private val installer = ApkInstaller(context)
+
+    /** proot runs as a child process, so the app's own folders are all it needs (see [LinuxEnv]). */
+    private val linux by lazy {
+        LinuxEnv(
+            prootLibraryDir = File(context.applicationInfo.nativeLibraryDir),
+            baseDir = context.filesDir,
+            tmpDir = context.cacheDir,
+        )
+    }
 
     init {
         MethodChannel(messenger, "ai.arce.app/system").setMethodCallHandler(this)
@@ -74,10 +84,53 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                     context.stopService(Intent(context, GenerationService::class.java))
                     result.success(null)
                 }
+                // The Linux environment. Every one of these reads or writes the file system and runs
+                // child processes (proot, tar), so each runs on its own thread and answers on the main one.
+                "linuxStatus" -> {
+                    val limit = call.argument<Number>("workspaceLimitBytes")?.toLong() ?: 0L
+                    offMain(result) { linux.status(limit) }
+                }
+                "linuxInstall" -> {
+                    val archive = File(call.argument<String>("path")!!)
+                    val sha256 = call.argument<String>("sha256")
+                    val dns = call.argument<List<String>>("dns").orEmpty()
+                    val maxBytes = call.argument<Number>("maxBytes")?.toLong() ?: 0L
+                    offMain(result) {
+                        // a zero limit would refuse every entry: 0 means "no limit" here, and the
+                        // download already asked the device for the room
+                        linux.install(archive, sha256, dns, maxBytes, null)
+                    }
+                }
+                "linuxRemove" -> offMain(result) { linux.remove(); null }
+                "workspaceClear" -> offMain(result) { linux.clearWorkspace(); null }
+                "linuxRun" -> {
+                    val params = LinuxEnv.RunParams(
+                        command = call.argument<String>("command")!!,
+                        cwd = call.argument<String>("cwd") ?: "/workspace",
+                        timeoutSeconds = (call.argument<Number>("timeoutSeconds")?.toInt() ?: 120).coerceIn(1, 3600),
+                        maxOutputChars = (call.argument<Number>("maxOutputChars")?.toInt() ?: 20000).coerceIn(500, 1000000),
+                        workspaceLimitBytes = call.argument<Number>("workspaceLimitBytes")?.toLong() ?: 0L,
+                        noSeccomp = call.argument<Boolean>("noSeccomp") == true,
+                    )
+                    offMain(result) { linux.run(params) }
+                }
                 else -> result.notImplemented()
             }
         } catch (e: Throwable) {
             result.error("system_error", e.message ?: e.javaClass.simpleName, null)
         }
+    }
+
+    /** Runs [block] on its own thread and hands [result] its value (or an error) on the main thread. */
+    private fun offMain(result: MethodChannel.Result, block: () -> Any?) {
+        Thread {
+            val handler = Handler(Looper.getMainLooper())
+            try {
+                val answer = block()
+                handler.post { result.success(answer) }
+            } catch (e: Throwable) {
+                handler.post { result.error("linux_error", e.message ?: e.javaClass.simpleName, null) }
+            }
+        }.start()
     }
 }
