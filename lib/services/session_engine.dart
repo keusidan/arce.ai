@@ -5,7 +5,8 @@ import '../core/engine.dart';
 import '../core/generation.dart';
 
 /// Who may use what only one chat can use at a time: the device model (one set of weights and one
-/// KV cache) and the coding mode (which drives it). Online models are not shared like this.
+/// KV cache). Online models are not shared like this; the coding mode's developer model, when it is
+/// the device model, takes the lease for the time of its work.
 class ExclusiveLease {
   Object? _owner;
 
@@ -28,7 +29,7 @@ class ExclusiveLease {
 /// the request of another chat:
 ///
 /// - an online model answers any number of chats at once; "stop" ends only this chat's stream;
-/// - the device model and the coding mode answer one chat at a time. A second chat that asks
+/// - the device model answers one chat at a time. A second chat that asks
 ///   is told so, instead of mixing its prompt into the first one's cache.
 class SessionEngine implements InferenceEngine {
   SessionEngine(this._router, this._lease);
@@ -42,7 +43,7 @@ class SessionEngine implements InferenceEngine {
   /// that thinks for a long time sends nothing) stops at once, not at the next word.
   var _cancelSignal = Completer<void>();
 
-  /// Whether the request in progress uses the device model or the coding mode.
+  /// Whether the request in progress is answered by the device model.
   bool _exclusive = false;
 
   @override
@@ -60,8 +61,7 @@ class SessionEngine implements InferenceEngine {
     _cancelSignal = Completer<void>();
     // the online request is told to drop its connection when the user stops (see GenerateRequest.abort)
     request = request.withAbort(_cancelSignal.future);
-    final split = _router.coding;
-    _exclusive = !_router.isCloud || (split != null && split.handles(request));
+    _exclusive = _router.usesDevice(request);
     if (_exclusive && !_lease.acquire(this)) {
       throw EngineException('端末のモデル（または分担）を、ほかのチャットが使っています。そのチャットの生成が終わってから、もう一度送ってください');
     }
@@ -102,9 +102,6 @@ class SessionEngine implements InferenceEngine {
     if (!_cancelSignal.isCompleted) _cancelSignal.complete();
     // only what this chat is using is stopped: stopping the shared online engine would end the
     // replies of the other chats too
-    if (_exclusive) {
-      _router.local.cancel();
-      _router.coding?.cancel();
-    }
+    if (_exclusive) _router.local.cancel();
   }
 }

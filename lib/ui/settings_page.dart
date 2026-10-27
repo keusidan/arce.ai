@@ -34,7 +34,7 @@ const _groups = [
   _Group(SettingsSection.providers, ArceSvg.cube, 'オンライン接続（プロバイダ）', 'API の接続先と、使うモデル'),
   _Group(SettingsSection.online, ArceSvg.globe, 'オンラインモデルの設定', 'temperature・最大トークン・追加プロンプト'),
   _Group(SettingsSection.local, ArceSvg.sliders, 'ローカルモデルの設定', 'サンプリング・コンテキスト長・スレッド・GPU'),
-  _Group(SettingsSection.coding, ArceSvg.codeEdit, 'コーディングモード', '設計モデルが開発モデルに指示して、安く実装する'),
+  _Group(SettingsSection.coding, ArceSvg.codeEdit, 'コーディングモード', 'プランナーモデルが開発モデルに仕事を渡して、安く実装する'),
   _Group(SettingsSection.limits, ArceSvg.sliders2, '上限とタイムアウト', '添付・検索・通信・更新の上限と待ち時間'),
   _Group(SettingsSection.mcp, ArceSvg.bolt, 'MCP サーバー', '外部の道具（GitHub など）をつなぐ'),
   _Group(SettingsSection.basic, ArceSvg.settings, 'モデル全般設定', 'ローカルとオンライン共通：思考・回答・最大トークン・再試行'),
@@ -557,7 +557,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!coding.enabled) {
       problem = null;
     } else if (coding.planner.isEmpty || coding.developer.isEmpty) {
-      problem = '設計モデルと開発モデルの両方を選ぶと、分担が始まります。';
+      problem = 'プランナーモデルと開発モデルの両方を選ぶと、分担が始まります。';
     } else if ((coding.planner.startsWith('${CodingSettings.localProvider}|') ||
             coding.developer.startsWith('${CodingSettings.localProvider}|')) &&
         !app.models.isLoaded) {
@@ -578,15 +578,17 @@ class _SettingsPageState extends State<SettingsPage> {
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: Text(
-              'Coding エージェントのとき、高性能な「設計モデル」が依頼をタスクに分け、安い「開発モデル」が同時に実装します。'
-              '設計モデルは短い計画とレビューだけを書くので、長いコードの費用を抑えられます。端末のモデルも選べます（その役は1つずつ動きます）。',
+              'Coding エージェントのとき、高性能な「プランナーモデル」があなたに答えます。プランナーは、分けるかどうか・どう分けるか・結果が良いか・直させるかを自分で決め、'
+              '「delegate」という道具で、安い「開発モデル」に仕事を渡します。アプリがするのは呼び出しの手伝いだけです'
+              '（同時に走らせる、結果に番号を付けて覚える、ファイルをあなたに見せる）。プランナーは短い指示と確認だけを書くので、長いコードの費用を抑えられます。'
+              '端末のモデルも選べます（その役は1つずつ動きます）。',
               style: ts(context, 10, color: c.muted, height: 1.6),
             ),
           ),
           SettingRow(
             icon: ArceSvg.codeEdit,
             title: 'コーディングモード',
-            subtitle: '設計モデルと開発モデルで分担します',
+            subtitle: 'プランナーモデルが、開発モデルに仕事を渡します',
             trailing: ArceSwitch(value: s.codingPlanEnabled, onChanged: (v) => set((x) => x.copyWith(codingPlanEnabled: v))),
           ),
           if (problem != null)
@@ -594,14 +596,14 @@ class _SettingsPageState extends State<SettingsPage> {
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(problem, style: ts(context, 10, color: c.amber, height: 1.6)),
             ),
-          pick(ArceSvg.compass, '設計モデル', '依頼を分けて、結果をレビューします（高性能なモデル向き）', s.plannerModel,
+          pick(ArceSvg.compass, 'プランナーモデル', 'あなたに答え、仕事を分けて渡し、結果を確認します（高性能なモデル向き）', s.plannerModel,
               (v) => set((x) => x.copyWith(plannerModel: v))),
           pick(ArceSvg.bolt, '開発モデル', 'コードを書きます（安いモデル・端末のモデル向き）', s.developerModel,
               (v) => set((x) => x.copyWith(developerModel: v))),
           SettingRow(
             icon: ArceSvg.grid,
             title: 'タスクの最大数',
-            subtitle: '依頼をいくつまでに分けるか',
+            subtitle: 'プランナーが 1 回の依頼に入れてよい仕事の数（超えた分は断ります）',
             trailing: _Cycle<int>(
               value: coding.maxTasks,
               values: const [1, 2, 3, 4, 6, 8],
@@ -623,7 +625,7 @@ class _SettingsPageState extends State<SettingsPage> {
           SettingRow(
             icon: ArceSvg.retry,
             title: 'レビューの回数',
-            subtitle: '設計モデルが書き直しを指示できる回数。0 ならレビューしません',
+            subtitle: 'プランナーが直しを指示してよい回数（プランナーへの指示に書きます）。0 なら直させません',
             trailing: _Cycle<int>(
               value: coding.reviewRounds,
               values: const [0, 1, 2, 3],
@@ -632,14 +634,14 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           SettingRow(
-            icon: ArceSvg.file,
-            title: '設計モデルの最大トークン',
-            subtitle: '計画とレビューの長さ。自動は、モデルの推奨と上限に合わせます',
+            icon: ArceSvg.eye,
+            title: 'プランナーが読む結果の長さ',
+            subtitle: '開発モデルの結果を、プランナーに渡す文字数（1 件ごと。あなたには全部見せます）',
             trailing: _Cycle<int>(
-              value: coding.plannerMaxTokens,
-              values: const [0, 4096, 8192, 16384, 32768, 65536, 131072, 262144],
-              label: (v) => v == 0 ? '自動' : '$v',
-              onChanged: (v) => set((x) => x.copyWith(codingPlannerMaxTokens: v)),
+              value: coding.resultChars,
+              values: const [3000, 6000, 12000, 24000, 50000],
+              label: (v) => '$v',
+              onChanged: (v) => set((x) => x.copyWith(codingResultChars: v)),
             ),
           ),
           SettingRow(

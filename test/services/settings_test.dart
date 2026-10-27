@@ -166,17 +166,22 @@ void main() {
     expect(AppSettings.fromJson({'kvCache': 'q4_0'}).kvCache, KvCacheType.q4_0);
   });
 
-  test('the coding token budgets are automatic (0) unless the user picked one; 0.8.1 defaults migrate', () {
-    expect(const AppSettings().coding.plannerMaxTokens, 0);
+  test('the developer token budget is automatic (0) unless the user picked one; 0.8.1 defaults migrate', () {
     expect(const AppSettings().coding.developerMaxTokens, 0);
-    // 0.8.1 wrote its fixed defaults (2048 / 4096) into every saved settings document
-    final old = AppSettings.fromJson({'codingPlannerMaxTokens': 2048, 'codingDeveloperMaxTokens': 4096});
-    expect(old.coding.plannerMaxTokens, 0);
+    // 0.8.1 wrote its fixed default (4096) into every saved settings document
+    final old = AppSettings.fromJson({'codingDeveloperMaxTokens': 4096});
     expect(old.coding.developerMaxTokens, 0);
-    final chosen = AppSettings.fromJson({'codingPlannerMaxTokens': 16384, 'codingDeveloperMaxTokens': 262144});
-    expect(chosen.coding.plannerMaxTokens, 16384);
+    final chosen = AppSettings.fromJson({'codingDeveloperMaxTokens': 262144});
     expect(chosen.coding.developerMaxTokens, 262144, reason: 'a 256K budget is allowed now');
     expect(AppSettings.fromJson(chosen.toJson()).coding.developerMaxTokens, 262144);
+  });
+
+  test('the planner works with its own limit set in the chat: the result length is a setting; the old planner budget is gone', () {
+    expect(const AppSettings().coding.resultChars, 12000);
+    expect(AppSettings.fromJson(const AppSettings(codingResultChars: 6000).toJson()).coding.resultChars, 6000);
+    expect(AppSettings.fromJson({'codingResultChars': 5}).coding.resultChars, 500, reason: 'kept inside its range');
+    expect(AppSettings.fromJson({'codingPlannerMaxTokens': 16384}).toJson().containsKey('codingPlannerMaxTokens'), isFalse, reason: 'an old save is read, and the key is dropped');
+    expect(AgentSettings.isEditable('codingResultChars'), isTrue);
   });
 
   test('model info lookup is on by default, and the user-set reply length is passed on', () {

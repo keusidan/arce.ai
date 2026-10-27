@@ -1,6 +1,5 @@
 import '../core/engine.dart';
 import 'cloud_engine.dart';
-import 'coding_engine.dart';
 import 'provider.dart';
 
 /// Sends each request to either the device model or a cloud provider, so the chat never has to
@@ -15,9 +14,18 @@ class RoutingEngine implements InferenceEngine {
   final InferenceEngine local;
   final CloudEngine cloud;
 
-  /// The coding mode: when it handles a request, two models share the work instead of the one
-  /// in use. Null until the app sets it up.
-  CodingEngine? coding;
+  /// The coding mode: the engine of the planner model, for the requests the planner answers (the
+  /// coding agent's, while the mode is on). Null, or null for a request, means the model in use
+  /// answers. The planner hands work to the developer model with the `delegate` tool, which the
+  /// chat runs like any other tool.
+  InferenceEngine? Function(GenerateRequest request)? planner;
+
+  /// Whether [request] is answered by the device model, which only one chat at a time can use.
+  bool usesDevice(GenerateRequest request) {
+    final answering = planner?.call(request);
+    if (answering != null) return identical(answering, local);
+    return !isCloud;
+  }
 
   AiProvider? _cloudProvider;
 
@@ -39,8 +47,8 @@ class RoutingEngine implements InferenceEngine {
 
   @override
   Stream<GenerationEvent> generate(GenerateRequest request) {
-    final split = coding;
-    if (split != null && split.handles(request)) return split.generate(request);
+    final answering = planner?.call(request);
+    if (answering != null) return answering.generate(request);
     return active.generate(request);
   }
 
@@ -49,7 +57,6 @@ class RoutingEngine implements InferenceEngine {
     // Whichever is answering stops; the other one has nothing running.
     cloud.cancel();
     local.cancel();
-    coding?.cancel();
   }
 
   @override

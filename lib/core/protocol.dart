@@ -110,6 +110,34 @@ class AddProvider extends ToolCall {
   final ProviderDraft draft;
 }
 
+/// One job the planner model gives to the developer model.
+class DelegateTask {
+  const DelegateTask({required this.title, required this.instructions, this.files = const [], this.revise});
+
+  final String title;
+
+  /// Complete and specific: the developer sees nothing else but this and the summary.
+  final String instructions;
+
+  /// The files this task writes, when the planner named them.
+  final List<String> files;
+
+  /// The id of an earlier result (`d3`) that this job corrects: [instructions] is then what to change
+  /// in it, and the developer is given its own earlier answer again.
+  final String? revise;
+}
+
+/// The coding mode: the planner model hands jobs to the developer model. The app only carries them
+/// out (all at the same time, up to the limit) and returns what came back; what to split, whether
+/// the result is good and whether to send work back are the planner's own decisions.
+class Delegate extends ToolCall {
+  const Delegate({required this.summary, required this.tasks});
+
+  /// What every task shares: the decisions, names and interfaces the tasks must agree on.
+  final String summary;
+  final List<DelegateTask> tasks;
+}
+
 /// A tool that comes from an MCP server. [arguments] is exactly what the server was sent.
 class McpCall extends ToolCall {
   const McpCall(this.name, this.arguments);
@@ -265,6 +293,45 @@ abstract final class Protocol {
     ),
   );
 
+  /// Most tasks one `delegate` call may carry (the grammar's limit; the setting can be lower).
+  static const maxDelegateTasks = 8;
+
+  static final delegate = ToolDefinition(
+    name: 'delegate',
+    description:
+        'Coding mode: hand jobs to the developer model, which writes the code. The jobs run at the same '
+        'time and cannot see each other, so put the names, signatures and data formats they must agree '
+        'on in summary and in every job that touches them. Each job must be complete: the developer sees '
+        'nothing else. You get each result back with an id. The user sees the developer\'s files as they '
+        'come, so do not copy them into your answer; read them, and if something is wrong call delegate '
+        'again with revise (the id of that result) and exactly what to change.',
+    parameters: _objectSchema(
+      required: ['tasks'],
+      properties: {
+        'summary': {'type': 'string'},
+        'tasks': {
+          'type': 'array',
+          'minItems': 1,
+          'maxItems': maxDelegateTasks,
+          'items': {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string'},
+              'instructions': {'type': 'string'},
+              'files': {
+                'type': 'array',
+                'items': {'type': 'string'},
+              },
+              'revise': {'type': 'string'},
+            },
+            'required': ['title', 'instructions'],
+            'additionalProperties': false,
+          },
+        },
+      },
+    ),
+  );
+
   /// JSON Schema for the body of one `<tool_call>` block restricted to [tools]:
   /// `{"name": <one of the tools>, "arguments": <that tool's parameters>}`.
   /// Each agent passes only the tools it may use, so the grammar cannot express any other call.
@@ -414,6 +481,9 @@ abstract final class ToolCallParser {
       if (name == Protocol.addProvider.name) {
         return _parseAddProvider(args);
       }
+      if (name == Protocol.delegate.name) {
+        return _parseDelegate(args);
+      }
       // a tool of the MCP server: the engine's schema already limited it to the tools this turn
       if (name.startsWith('mcp_')) {
         return ParseOk(McpCall(name, args.cast<String, Object?>()));
@@ -473,6 +543,32 @@ abstract final class ToolCallParser {
         ),
       ),
     );
+  }
+
+  static ParseResult _parseDelegate(Map<dynamic, dynamic> args) {
+    final raw = args['tasks'];
+    if (raw is! List) throw _WrongType('tasks');
+    final tasks = <DelegateTask>[];
+    for (final item in raw) {
+      if (item is! Map) throw _WrongType('tasks');
+      final instructions = _requiredText(item, 'instructions');
+      if (instructions == null) return const ParseInvalid('a task has no instructions');
+      final files = item['files'];
+      tasks.add(
+        DelegateTask(
+          title: _requiredText(item, 'title') ?? 'タスク ${tasks.length + 1}',
+          instructions: instructions,
+          files: [
+            if (files is List)
+              for (final f in files)
+                if (f is String && f.trim().isNotEmpty) f.trim(),
+          ],
+          revise: _requiredText(item, 'revise'),
+        ),
+      );
+    }
+    if (tasks.isEmpty) return const ParseInvalid('delegate has no tasks');
+    return ParseOk(Delegate(summary: _requiredText(args, 'summary') ?? '', tasks: tasks));
   }
 
   static ParseResult _parseAddProvider(Map<dynamic, dynamic> args) {

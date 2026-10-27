@@ -64,8 +64,8 @@ class AppSettings {
     this.codingMaxTasks = 4,
     this.codingParallel = 3,
     this.codingReviewRounds = 1,
-    this.codingPlannerMaxTokens = 0,
     this.codingDeveloperMaxTokens = 0,
+    this.codingResultChars = 12000,
     this.attachMaxFiles = 5,
     this.attachCharsPerFile = 8000,
     this.attachTotalChars = 16000,
@@ -163,8 +163,10 @@ class AppSettings {
   final int codingMaxTasks;
   final int codingParallel;
   final int codingReviewRounds;
-  final int codingPlannerMaxTokens;
   final int codingDeveloperMaxTokens;
+
+  /// How many characters of each developer result the planner reads (the user sees all of it).
+  final int codingResultChars;
 
   // ---- limits and timeouts that used to be fixed in the code ----
 
@@ -274,8 +276,8 @@ class AppSettings {
     maxTasks: codingMaxTasks.clamp(1, 8),
     parallel: codingParallel.clamp(1, 8),
     reviewRounds: codingReviewRounds.clamp(0, 3),
-    plannerMaxTokens: codingPlannerMaxTokens <= 0 ? 0 : codingPlannerMaxTokens.clamp(256, 1048576),
     developerMaxTokens: codingDeveloperMaxTokens <= 0 ? 0 : codingDeveloperMaxTokens.clamp(256, 1048576),
+    resultChars: codingResultChars.clamp(500, 1000000),
   );
 
   /// The MCP servers the chat may use (Streamable HTTP). Tokens live in secure storage.
@@ -328,8 +330,8 @@ class AppSettings {
     int? codingMaxTasks,
     int? codingParallel,
     int? codingReviewRounds,
-    int? codingPlannerMaxTokens,
     int? codingDeveloperMaxTokens,
+    int? codingResultChars,
     int? attachMaxFiles,
     int? attachCharsPerFile,
     int? attachTotalChars,
@@ -403,8 +405,8 @@ class AppSettings {
     codingMaxTasks: codingMaxTasks ?? this.codingMaxTasks,
     codingParallel: codingParallel ?? this.codingParallel,
     codingReviewRounds: codingReviewRounds ?? this.codingReviewRounds,
-    codingPlannerMaxTokens: codingPlannerMaxTokens ?? this.codingPlannerMaxTokens,
     codingDeveloperMaxTokens: codingDeveloperMaxTokens ?? this.codingDeveloperMaxTokens,
+    codingResultChars: codingResultChars ?? this.codingResultChars,
     attachMaxFiles: attachMaxFiles ?? this.attachMaxFiles,
     attachCharsPerFile: attachCharsPerFile ?? this.attachCharsPerFile,
     attachTotalChars: attachTotalChars ?? this.attachTotalChars,
@@ -480,8 +482,8 @@ class AppSettings {
     'codingMaxTasks': codingMaxTasks,
     'codingParallel': codingParallel,
     'codingReviewRounds': codingReviewRounds,
-    'codingPlannerMaxTokens': codingPlannerMaxTokens,
     'codingDeveloperMaxTokens': codingDeveloperMaxTokens,
+    'codingResultChars': codingResultChars,
     'attachMaxFiles': attachMaxFiles,
     'attachCharsPerFile': attachCharsPerFile,
     'attachTotalChars': attachTotalChars,
@@ -582,14 +584,12 @@ class AppSettings {
       codingMaxTasks: whole('codingMaxTasks', d.codingMaxTasks),
       codingParallel: whole('codingParallel', d.codingParallel),
       codingReviewRounds: whole('codingReviewRounds', d.codingReviewRounds),
-      // 0.8.1 saved its fixed defaults (2048 / 4096) with every settings write; they were never a
-      // choice, and they are far too small for a reasoning model, so they mean "decide" now
-      codingPlannerMaxTokens: whole('codingPlannerMaxTokens', d.codingPlannerMaxTokens) == 2048
-          ? 0
-          : whole('codingPlannerMaxTokens', d.codingPlannerMaxTokens),
+      // 0.8.1 saved its fixed default (4096) with every settings write; it was never a choice, and it
+      // is far too small for a reasoning model, so it means "decide" now
       codingDeveloperMaxTokens: whole('codingDeveloperMaxTokens', d.codingDeveloperMaxTokens) == 4096
           ? 0
           : whole('codingDeveloperMaxTokens', d.codingDeveloperMaxTokens),
+      codingResultChars: whole('codingResultChars', d.codingResultChars),
       attachMaxFiles: whole('attachMaxFiles', d.attachMaxFiles),
       attachCharsPerFile: whole('attachCharsPerFile', d.attachCharsPerFile),
       attachTotalChars: whole('attachTotalChars', d.attachTotalChars),

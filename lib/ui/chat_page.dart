@@ -220,14 +220,14 @@ class _ChatPageState extends State<ChatPage> {
                 svg: ArceSvg.codeEdit,
                 label: '分担',
                 on: settings.codingPlanEnabled,
-                tooltip: 'コーディングモード：設計モデルが開発モデルに指示します',
+                tooltip: 'コーディングモード：プランナーモデルが開発モデルに仕事を渡します',
                 onTap: () {
                   app.settings.update((s) => s.copyWith(codingPlanEnabled: !s.codingPlanEnabled));
                   if (settings.codingPlanEnabled) {
                     app.showToast('コーディングモードをオフ');
                   } else if (!app.settings.value.coding.isReady) {
                     // on, but it cannot work until both models are chosen: take the user there
-                    app.showToast('設計モデルと開発モデルを選んでください');
+                    app.showToast('プランナーモデルと開発モデルを選んでください');
                     app.openSettings(SettingsSection.coding);
                   } else {
                     app.showToast('コーディングモードをオン');

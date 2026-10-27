@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -50,9 +52,31 @@ class ToolActivity {
 
 /// [response] goes back to the model inside `<tool_response>`; [activity] goes to the UI.
 class ToolOutcome {
-  const ToolOutcome(this.response, this.activity);
+  const ToolOutcome(this.response, this.activity, {this.shown});
   final String response;
   final ToolActivity activity;
+
+  /// Text the chat adds to the reply the user reads, besides what the model says (the files the
+  /// developer model wrote, in the coding mode). The model gets [response], not this, so a long
+  /// result does not have to be copied into its answer.
+  final String? shown;
+}
+
+/// Fired when the user presses stop. A tool that takes long (the developer model working) listens to
+/// it, because nothing else tells it. [reset] clears it when a new reply starts.
+class StopSignal {
+  Completer<void> _completer = Completer<void>();
+
+  Future<void> get future => _completer.future;
+  bool get isStopped => _completer.isCompleted;
+
+  void fire() {
+    if (!_completer.isCompleted) _completer.complete();
+  }
+
+  void reset() {
+    if (_completer.isCompleted) _completer = Completer<void>();
+  }
 }
 
 /// Runs every tool except ask_user, which needs the user and is handled by the chat itself.
@@ -114,6 +138,7 @@ class DefaultToolRuntime implements ToolRuntime {
       'add_provider is answered by the user, not run as a tool',
     ),
     McpCall() => throw StateError('MCP tools are run by the MCP runtime'),
+    Delegate() => throw StateError('delegate is run by the coding mode, which holds the developer model'),
   };
 
   ToolOutcome _settings() {

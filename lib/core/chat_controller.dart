@@ -396,7 +396,11 @@ class ChatController extends ChangeNotifier {
     this._applySettings,
     this._mcpApproval,
     this._addProvider,
-  }) : _settings = settings ?? (() => const GenerationSettings()),
+    this.delegateEnabled,
+    this.delegateInstructions,
+    StopSignal? stopSignal,
+  }) : _stopSignal = stopSignal ?? StopSignal(),
+       _settings = settings ?? (() => const GenerationSettings()),
        _store = store ?? ((_, {required generating}) {}) {
     _router = AgentRouter((prompt, schema) async {
       final out = StringBuffer();
@@ -435,6 +439,15 @@ class ChatController extends ChangeNotifier {
 
   final InferenceEngine _engine;
   final ToolRuntime _toolRuntime;
+  final StopSignal _stopSignal;
+
+  /// Whether the coding mode can hand jobs to the developer model now. The `delegate` tool is
+  /// offered to the coding agent only then.
+  final bool Function()? delegateEnabled;
+
+  /// What the planner is told about its team (see [CodingPrompts.plannerInstructions]); read when
+  /// the coding agent starts a reply with `delegate` available.
+  final String Function()? delegateInstructions;
   final GenerationSettings Function() _settings;
   final ConversationStore _store;
   final SettingsApplier? _applySettings;
@@ -639,7 +652,10 @@ class ChatController extends ChangeNotifier {
   /// chosen, an MCP server is being asked, a tool is running) is kept, and ends the reply before the
   /// next request is sent; the engine alone would forget it, as a new request starts it afresh.
   void stop() {
-    if (_busy) _stopRequested = true;
+    if (_busy) {
+      _stopRequested = true;
+      _stopSignal.fire();
+    }
     _engine.cancel();
   }
 
@@ -694,6 +710,7 @@ class ChatController extends ChangeNotifier {
   Future<void> _start(String prefill) async {
     _busy = true;
     _stopRequested = false;
+    _stopSignal.reset();
     try {
       await _generate(prefill);
     } catch (e) {
@@ -718,9 +735,10 @@ class ChatController extends ChangeNotifier {
     final extra = _extraTools == null
         ? const <ToolDefinition>[]
         : await _extraTools();
+    final canDelegate = delegateEnabled?.call() ?? false;
     final tools = [
       for (final t in agent.tools)
-        if (config.searchEnabled || t != Protocol.webSearch) t,
+        if ((config.searchEnabled || t != Protocol.webSearch) && (t != Protocol.delegate || canDelegate)) t,
       ...extra,
     ];
     final schema = tools.isEmpty
@@ -729,6 +747,7 @@ class ChatController extends ChangeNotifier {
     final retry = RetryPolicy(config.retryLimit);
     final instructions = [
       'Current role: ${agent.displayName}. ${agent.instructions}',
+      if (canDelegate && agent.tools.contains(Protocol.delegate) && delegateInstructions != null) delegateInstructions!(),
       if (config.maxChars > 0)
         'Keep each reply under ${config.maxChars} characters.',
       if (config.extraPrompt.isNotEmpty) config.cleanExtraPrompt(),
@@ -922,7 +941,7 @@ class ChatController extends ChangeNotifier {
           final outcome = await _toolRuntime.run(call);
           activities.add(outcome.activity);
           _history.add(ToolResponseTurn(outcome.response));
-          earlierText = shown;
+          earlierText = outcome.shown == null ? shown : _join(shown, outcome.shown!);
           roundPrefill = '';
           _replace(
             id,
@@ -1009,6 +1028,7 @@ class ChatController extends ChangeNotifier {
       'update_settings:${call.changes.map((c) => '${c.key}=${c.value}').join(',')}',
     AddProvider() => 'add_provider:${call.draft.baseUrl}',
     McpCall() => '${call.name}:${jsonEncode(call.arguments)}',
+    Delegate() => 'delegate:${call.summary}|${[for (final t in call.tasks) '${t.revise ?? ''}/${t.title}/${t.instructions}'].join('|')}',
   };
 
   String _join(String earlier, String current) {

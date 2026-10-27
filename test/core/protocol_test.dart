@@ -52,4 +52,36 @@ void main() {
     expect(reason, startsWith('not JSON: '));
     expect(reason, contains('{"name":"web_search","arguments":{"query":"a"}}{'));
   });
+
+  group('delegate（分担の道具）', () {
+    ParseResult parse(String arguments) => ToolCallParser.parse('{"name":"delegate","arguments":$arguments}', [Protocol.delegate]);
+
+    test('要約とタスクを読む。revise と files も', () {
+      final ok = parse('{"summary":"S","tasks":[{"title":"A","instructions":"Aを作る","files":["a.py"," "],"revise":"d2"},{"title":"B","instructions":"Bを作る"}]}') as ParseOk;
+      final call = ok.call as Delegate;
+      expect(call.summary, 'S');
+      expect(call.tasks.map((t) => t.title), ['A', 'B']);
+      expect(call.tasks.first.files, ['a.py'], reason: 'a blank file name is dropped');
+      expect(call.tasks.first.revise, 'd2');
+      expect(call.tasks.last.revise, isNull);
+    });
+
+    test('要約は無くてもよい。タイトルが無ければ番号で補う', () {
+      final call = (parse('{"tasks":[{"instructions":"やる"}]}') as ParseOk).call as Delegate;
+      expect(call.summary, isEmpty);
+      expect(call.tasks.single.title, 'タスク 1');
+    });
+
+    test('指示の無いタスクと、タスクが空の依頼は受け付けない', () {
+      expect(parse('{"tasks":[{"title":"A","instructions":"  "}]}'), isA<ParseInvalid>());
+      expect(parse('{"tasks":[]}'), isA<ParseInvalid>());
+    });
+
+    test('道具の定義は、タスクの数に上限があり、指示を必須にする（ローカルの文法が守らせる）', () {
+      final tasks = (Protocol.delegate.parameters['properties']! as Map)['tasks']! as Map;
+      expect(tasks['maxItems'], Protocol.maxDelegateTasks);
+      expect(((tasks['items']! as Map)['required']! as List), containsAll(['title', 'instructions']));
+      expect(Protocol.toolCallSchema([Protocol.delegate, Protocol.webSearch]), isNotEmpty);
+    });
+  });
 }

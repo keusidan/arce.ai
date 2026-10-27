@@ -321,7 +321,7 @@ void main() {
 
     app.openSettings(SettingsSection.coding);
     await tester.pumpAndSettle();
-    expect(find.text('設計モデル'), findsOneWidget);
+    expect(find.text('プランナーモデル'), findsOneWidget);
     expect(find.text('開発モデル'), findsOneWidget);
     expect(find.textContaining('両方を選ぶと'), findsNothing, reason: 'no warning while the mode is off');
 
@@ -348,7 +348,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(app.settings.value.codingPlanEnabled, isTrue);
     expect(app.page, AppPage.settings, reason: 'it cannot work yet, so the settings open');
-    expect(find.text('設計モデル'), findsOneWidget);
+    expect(find.text('プランナーモデル'), findsOneWidget);
     await tester.pump(const Duration(seconds: 3)); // the toast's timer
   });
 

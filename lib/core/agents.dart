@@ -48,7 +48,7 @@ abstract final class Agents {
     instructions: 'You are writing code. Give complete, runnable files, each in its own fenced block '
         'with the language (```kotlin, ```python, ```html ...). Ask with ask_user when a key choice '
         '(language, platform, scope) is missing instead of guessing.',
-    tools: [Protocol.askUser, Protocol.webSearch, Protocol.getSettings, Protocol.updateSettings, Protocol.addProvider],
+    tools: [Protocol.askUser, Protocol.webSearch, Protocol.getSettings, Protocol.updateSettings, Protocol.addProvider, Protocol.delegate],
     minModelParamsB: 4.0,
     keywords: const [
       '作って', '実装', 'コード', 'プログラム', '関数', 'バグ', 'エラー', 'code', 'implement',

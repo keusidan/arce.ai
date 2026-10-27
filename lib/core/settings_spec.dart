@@ -191,18 +191,18 @@ abstract final class AgentSettings {
       kind: SettingKind.text,
       maxLength: 2000,
     ),
-    // Coding mode: a design model and a developer model share the coding agent's work. A model is
+    // Coding mode: the planner model answers and hands jobs to the developer model. A model is
     // written `providerId|modelId` (`local|` is the model on the device).
     'codingPlanEnabled': SettingSpec(
       key: 'codingPlanEnabled',
-      label: 'コーディングモード（設計＋開発の分担）',
+      label: 'コーディングモード（プランナー＋開発の分担）',
       kind: SettingKind.flag,
     ),
-    'plannerModel': SettingSpec(key: 'plannerModel', label: '設計モデル（provider|model）', kind: SettingKind.text, maxLength: 120),
+    'plannerModel': SettingSpec(key: 'plannerModel', label: 'プランナーモデル（provider|model）', kind: SettingKind.text, maxLength: 120),
     'developerModel': SettingSpec(key: 'developerModel', label: '開発モデル（provider|model）', kind: SettingKind.text, maxLength: 120),
     'codingMaxTasks': SettingSpec(
       key: 'codingMaxTasks',
-      label: 'コーディング: タスクの最大数',
+      label: 'コーディング: 1 回の依頼に入れるタスクの最大数',
       kind: SettingKind.whole,
       min: 1,
       max: 8,
@@ -216,17 +216,17 @@ abstract final class AgentSettings {
     ),
     'codingReviewRounds': SettingSpec(
       key: 'codingReviewRounds',
-      label: 'コーディング: レビューの回数',
+      label: 'コーディング: プランナーが書き直しを指示できる回数',
       kind: SettingKind.whole,
       min: 0,
       max: 3,
     ),
-    'codingPlannerMaxTokens': SettingSpec(
-      key: 'codingPlannerMaxTokens',
-      label: 'コーディング: 設計モデルの最大トークン（0で自動）',
+    'codingResultChars': SettingSpec(
+      key: 'codingResultChars',
+      label: 'コーディング: プランナーが読む、開発モデルの結果の文字数（1 件ごと）',
       kind: SettingKind.whole,
-      min: 0,
-      max: 1048576,
+      min: 500,
+      max: 1000000,
     ),
     'codingDeveloperMaxTokens': SettingSpec(
       key: 'codingDeveloperMaxTokens',

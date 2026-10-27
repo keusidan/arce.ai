@@ -8,10 +8,12 @@ import 'package:flutter/widgets.dart' show AppLifecycleListener, WidgetsFlutterB
 import '../ai/cloud_engine.dart';
 import '../ai/model_info.dart';
 import '../ai/openai_compatible.dart';
-import '../ai/coding_engine.dart';
+import '../ai/delegation.dart';
 import '../ai/provider.dart';
 import '../ai/provider_config.dart';
+import '../ai/roles.dart';
 import '../ai/routing_engine.dart';
+import '../core/agents.dart';
 import '../core/chat_controller.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
@@ -89,9 +91,16 @@ class AppController extends ChangeNotifier {
   /// generating are in [_background].
   _Session _newSession() {
     final session = _Session();
+    final stop = StopSignal();
     session.chat = ChatController(
       SessionEngine(engine, _lease),
-      toolRuntime: _toolRuntime,
+      stopSignal: stop,
+      delegateEnabled: _delegateAvailable,
+      delegateInstructions: () {
+        final s = settings.value.coding;
+        return CodingPrompts.plannerInstructions(maxTasks: s.maxTasks, reviewRounds: s.reviewRounds);
+      },
+      toolRuntime: _SessionToolRuntime(_toolRuntime, _delegate, stop, _lease),
       settings: () => settings.value.toGeneration(
         models.loadedParamsB,
         cloud: engine.isCloud,
@@ -242,10 +251,7 @@ class AppController extends ChangeNotifier {
         config: () => settings.value.kvSnapshot,
       );
     }
-    app.engine.coding = CodingEngine(
-      settings: () => settings.value.coding,
-      roleFor: app._roleFor,
-    );
+    app.engine.planner = app._plannerEngine;
     unawaited(app._start());
     return app;
   }
@@ -421,9 +427,47 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  /// Carries out the planner's `delegate` calls with the developer model (see [DelegateRunner]).
+  late final _delegate = DelegateRunner(
+    settings: () => settings.value.coding,
+    developer: () => _roleFor(settings.value.coding.developer),
+  );
+
+  /// Whether the coding mode can work now: it is on, and both the planner and the developer model
+  /// can be used. Only then is the `delegate` tool offered and the planner the one that answers.
+  bool _delegateAvailable() {
+    final s = settings.value.coding;
+    return s.isReady && _roleFor(s.developer, note: false) != null && _plannerEngine(null, note: false) != null;
+  }
+
+  /// The engine of the planner model for [request], or null when the model in use answers: the
+  /// coding mode is off or not ready, or the request is not the coding agent's.
+  InferenceEngine? _plannerEngine(GenerateRequest? request, {bool note = true}) {
+    final s = settings.value.coding;
+    if (!s.isReady) return null;
+    if (request != null && request.agentId != Agents.coding.id) return null;
+    if (_roleFor(s.developer, note: false) == null) return null;
+    final parsed = CodingSettings.parseRef(s.planner);
+    if (parsed == null) return null;
+    final (providerId, modelId) = parsed;
+    if (providerId == CodingSettings.localProvider) return models.isLoaded ? engine.local : null;
+    final config = providers.byId(providerId);
+    if (config == null || !config.isComplete) return null;
+    final provider = providers.build(config, model: config.resolveModel(modelId) ?? config.defaultModel);
+    final keep = settings.value.recentModelCount;
+    if (note && keep > 0) unawaited(providers.markUsed(providerId, provider.modelId, keep: keep));
+    final s2 = settings.value;
+    // answers like the model in use would: the same bridging, tool style, thinking and stop
+    return CloudEngine(provider)
+      ..fallbackFor = s2.fallbackEnabled ? providers.fallbackPlanFor : null
+      ..onFallback = _announceFallback
+      ..tokenPrecheck = s2.tokenPrecheck
+      ..overheadRatio = s2.tokenOverheadPercent / 100;
+  }
+
   /// The model behind a `provider|model` reference of the coding mode, or null when it cannot be
   /// used now: the provider was removed or is incomplete, or the device model is not loaded.
-  RoleModel? _roleFor(String ref) {
+  RoleModel? _roleFor(String ref, {bool note = true}) {
     final parsed = CodingSettings.parseRef(ref);
     if (parsed == null) return null;
     final (providerId, modelId) = parsed;
@@ -437,7 +481,7 @@ class AppController extends ChangeNotifier {
     // a model that is only in the provider's catalog works as it is, with what the list says of it
     final provider = providers.build(config, model: config.resolveModel(modelId) ?? config.defaultModel);
     final keep = settings.value.recentModelCount;
-    if (keep > 0) unawaited(providers.markUsed(providerId, provider.modelId, keep: keep));
+    if (note && keep > 0) unawaited(providers.markUsed(providerId, provider.modelId, keep: keep));
     return ProviderRole(
       provider,
       fallback: settings.value.fallbackEnabled ? providers.fallbackPlanFor(provider) : null,
@@ -835,6 +879,31 @@ class AppController extends ChangeNotifier {
     unawaited(preview.dispose());
     updates.dispose();
     super.dispose();
+  }
+}
+
+/// The tools of one chat. Everything goes to the shared runtime except `delegate`, which needs this
+/// chat's stop button (the developer model may work for minutes) and, when the developer is the
+/// device model, the device lease.
+class _SessionToolRuntime implements ToolRuntime {
+  _SessionToolRuntime(this._base, this._delegate, this._stop, this._lease);
+
+  final ToolRuntime _base;
+  final DelegateRunner _delegate;
+  final StopSignal _stop;
+  final ExclusiveLease _lease;
+
+  @override
+  Future<ToolOutcome> run(ToolCall call) {
+    if (call is Delegate) {
+      return _delegate.run(
+        call,
+        stop: _stop.future,
+        acquireDevice: () => _lease.acquire(this),
+        releaseDevice: () => _lease.release(this),
+      );
+    }
+    return _base.run(call);
   }
 }
 
