@@ -503,7 +503,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 
 ## 15. 設計メモ：アプリ内の Linux 環境（proot）
 
-状態：**段階 1 の前半（proot のビルド）まで**。アプリ（`lib/`・`android/`）には、まだ proot・rootfs のコードは入っていない。CI で proot が arm64 向けにビルドできることは確認した（15.7）。機能拡張の草案の P7「エージェント環境」の続き。利用者の決定（2026-10-26）：**rootfs は Ubuntu を使ってよい。このままの方針で進める。**
+状態：**段階 1（proot のビルドと APK への同梱）まで。段階 2・3 の Kotlin の部品は `dfcf967` に入ったが、アプリには接続しておらず、未検証。残りの依頼書は 19.5**（2026-10-28）。アプリ（`lib/`・`android/`）には、まだ proot・rootfs のコードは入っていない。CI で proot が arm64 向けにビルドできることは確認した（15.7）。機能拡張の草案の P7「エージェント環境」の続き。利用者の決定（2026-10-26）：**rootfs は Ubuntu を使ってよい。このままの方針で進める。**
 
 ### 15.1 目的
 
@@ -804,7 +804,42 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - **03:03**：「分担をすると思考の後消えます／また、思考中の概要、通信回数なども対応しているなら表示してください／進んでいるのか分かりません」（画像：送ったプロンプトだけが残り、返信が何も無い）→ 思考がラウンドごとに置き換わる不具合・空の返信が何も出ない不具合の修正と、返信の進み具合の表示（0.11.1。`c725c91`。3 章）。**実際に空だった原因は未確認**（空の返信か、思考で上限に達したか。次は画面に出る文言で分かる）。
 - **03:22**：「私が支持したこと含めできる限り多く情報をgitに残してください」→ この 19 章と、AGENTS.md の約束（指示は原文のまま、ここへ追記する）。
 
+- **03:41**：（貼り付け：ARCE.AI 内のモデルらしき回答。「GitHub MCP でファイルを 1 つずつ取る方式は遅く、読んだ全文が履歴に溜まってトークンを使う。ローカルに `git clone` して `grep` などで部分だけ読むほうが速くて安い」という説明と、「案A：`delegate` の自由化と思考中 UI の表示だけ、最小限の呼び出しで直す／案B：アプリに『ローカル作業環境（コマンド実行・ローカルファイル操作ツール）』を実装する（15 章の proot の計画の続き）」の二択）「まだprootのコマンド類が使えないんですけ／また、2GBの全チャット共通ワークスペースを用意してあげてください」→ **案B を選んだ**ことになる。0.12.0 として、proot で `run_command` を使えるようにし、全チャット共通の 2GB のワークスペースを置く。**この版は未実装**。Kotlin の部品だけを `dfcf967` に入れた（接続なし・未検証）。次の担当への依頼は 19.5 の先頭。
+- **04:00**：「現在のarce.aiに支持する文章だけ残してくれれば、あとはやらせます」→ 実装はこのセッションではやらず、**指示を git に残して、別のセッションにやらせる**。19.5 の「次の担当への依頼」がその文章。同じ日に、私（Claude）の試験コードがクラウドの作業環境のファイルを消す事故があった（AGENTS.md に規則を追加。GitHub は無事）。
+
 ### 19.5 保留・利用者の返事待ち・確認待ち
+
+#### 次の担当への依頼：0.12.0「proot で run_command を使えるようにする」（利用者の指示は 19.4 の 03:41）
+
+**頼まれたこと**：「まだprootのコマンド類が使えない」ので、アプリ内のモデルが proot の中でコマンドを実行できるようにする。**全チャット共通で 2GB のワークスペース**を用意する。プラットフォームは Android だけ（他の OS は変えない）。設計は 15.3・15.4（このリストが優先。15.3 の `-w` や HOME の書き方と違うところは下のとおり）。
+
+**すでに git にあるもの（`dfcf967`。Android のビルドには入るが、どこからも呼ばれていない。実行して確かめた結果はまだ無い）**：`android/app/src/main/kotlin/ai/arce/app/linux/` の `TarGz.kt`（tar.gz の安全な展開）、`DiskUsage.kt`（4 KiB 単位の容量・symlink を安全に消す）、`ShellRunner.kt`（時間・出力・入力・監視つきのプロセス実行）、`LinuxEnv.kt`（rootfs の導入・共有ワークスペース・proot の引数）。Android のクラスを使わないので、普通の JVM で動かして試せる。コンパイルは `kotlin-compiler-embeddable` 2.4.0 で通ることを確かめた。**最初にやること**：これらを、使い捨てのフォルダの中で、実物の Ubuntu Base で試す（下の「試すこと」）。**禁止**：`File.deleteRecursively()`、symlink をたどる削除（AGENTS.md。これで環境が壊れた）。
+
+**やること**（どれもまだ無い）：
+1. Kotlin：`SystemBridge`（`ai.arce.app/system` のチャンネル）に `linuxStatus`・`linuxInstall`（rootfs の tar.gz のパス・SHA-256・DNS・展開の上限を受け取って `LinuxEnv.install`）・`linuxRun`（`LinuxEnv.run`）・`linuxRemove`・`workspaceClear` を足す。子プロセスを使うので、メインスレッドでは呼ばない（`prootCheck` と同じ形）。
+2. Dart：`lib/services/linux_env.dart`（チャンネルの薄い橋 `LinuxBridge` と、状態を持つ `LinuxEnvironment`。状態：未導入／ダウンロード中（割合）／展開中／使える／失敗）。ダウンロードは `FileDownloader.fetch`（再開・複数接続）で、`HEAD` で大きさを取り、SHA-256 を `FileDownloader.sha256Of` で確かめてから `linuxInstall` を呼ぶ。テストでは橋を偽物にする。
+3. 設定（`lib/services/settings.dart`・`lib/core/settings_spec.dart`・設定画面）。名前と既定値：`shellEnabled`（true）、`shellConfirm`（true。**毎回、実際のコマンドを見せて承認を取る**）、`shellTimeoutSeconds`（120）、`shellMaxTimeoutSeconds`（600。モデルが `timeout_seconds` で伸ばせる上限）、`shellMaxOutputChars`（20000）、`workspaceLimitMb`（**2048**）、`linuxRootfsUrl`、`linuxRootfsSha256`、`linuxDns`（`1.1.1.1 8.8.8.8`）、`shellCompatMode`（false。`PROOT_NO_SECCOMP=1`）。**チャットから変えられないもの（`blocked`。理由を書く）**：`shellEnabled`・`shellConfirm`（書き換えられると、確認なしでコマンドが走る）、`linuxRootfsUrl`・`linuxRootfsSha256`（別の rootfs を入れられる）、`linuxDns`。ほかは `AgentSettings` から変えられるようにする（AGENTS.md の約束）。
+4. 道具 `run_command`：引数 `command`（必須）・`cwd`（既定 `/workspace`）・`timeout_seconds`。**`McpCall` として扱う**のが差し込みやすい（`ToolCallParser` は許可された名前を `McpCall` にする。`McpTools` の名前は `mcp_` で始まるので衝突しない）。道具の定義は、環境が「使える」状態で `shellEnabled` のときだけ `_mcpDefinitions`（`AppController`）に足す。承認：`_mcpApprovalRequired` が `shellConfirm` を返す。実行：`_SessionToolRuntime.run` で `McpCall` の名前が `run_command` なら `LinuxBridge` を呼ぶ。**確認カード**（`ToolApproval.tile`）は、`run_command` のとき「`$ コマンド`・作業フォルダ・時間の上限」を見せる（いまは `name` と引数を `toString` するだけ）。結果は「終了コード／stdout／stderr」に、時間切れ・出力の省略・容量超過の注記を付けて、モデルに返す。`ToolActivity('Shell', …)` を返して画面に出す。道具の説明に、環境の事実（Ubuntu 24.04 の arm64、proot の疑似 root、systemd なし、`/workspace` は全チャット共通で永続、上限 N MB、コマンドは 1 つずつ）を書く。
+5. 設定画面：「Linux 環境」のカード（既存の `ProotCheckRow` を含める）。導入・削除、ワークスペースの使用量（`123 MB / 2048 MB`）と「空にする」（確認ダイアログ）、上の設定の行。Android 以外では出さない。
+6. テスト：`run_command` の読み取り、確認カードの文、設定の `specs`/`blocked` の網羅（既存のテストが漏れを見つける）、`LinuxEnvironment` の状態遷移（偽の橋）、結果の整形。`flutter analyze` と `flutter test` を通す。
+7. docs：15 章の状態・15.6 の段階 2・3 を更新、17 章に 0.12.0 の行、19 章に結果。`pubspec.yaml` を `0.12.0+1`。5 つの OS をすべて確認してから `main` を進める。
+
+**決めたこと（`LinuxEnv.kt` の実装）**：
+- **ワークスペース**：`filesDir/workspace`（全チャット共通）を、proot の中で `/workspace` に見せる。`HOME=/workspace/home`（`pip --user` やキャッシュも上限の中に入る）。**rootfs の容量は、この上限に入らない**（`filesDir/linux/rootfs`。apt で入れた分は数えない。必要なら別の設定を足す）。
+- **容量の数え方**：4 KiB のブロック単位（小さいファイルを大量に作っても数えられる）。symlink はたどらない。コマンドの実行中に 2 秒ごとに測り、**上限を超え、かつ実行前より増えているときだけ**止める（上限を超えた状態から `rm` で減らす命令は通す）。止めたら `killedBy = workspace`。
+- **proot の引数**：`--kill-on-exit --link2symlink -0 -r <rootfs> -b /dev -b /proc -b <workspace>:/workspace -w <cwd> /usr/bin/env -i HOME=… PATH=… LANG=C.UTF-8 TERM=dumb TMPDIR=/tmp SHELL=/bin/bash /bin/bash -c <command>`。15.3 の例との違い：`-0`（疑似 root。apt・dpkg のため）、`/dev` と `/proc` の bind。環境変数は `env -i` で空にしてから渡す。
+- **仕上げ**：`etc/resolv.conf`（設定の DNS の平文）、`etc/hosts`、`etc/hostname`、`etc/apt/apt.conf.d/99arce` に `APT::Sandbox::User "root";`（apt が専用ユーザーに落ちられないため。出典：https://manpages.ubuntu.com/manpages/noble/man5/apt.conf.5.html）、`/workspace` と `/tmp` の作成。
+- **コマンドは 1 つずつ**（`LinuxEnv` の `synchronized`）。複数のチャットが同時に頼むと、順番を待つ。
+- 出力は、先頭と末尾を残して中間を省く（エラーは末尾に出るため）。標準入力は閉じる。
+- **proot は sandbox ではない**：コマンドはアプリと同じユーザーで走る。proot が変えるのはパスだけ。守りは、毎回の確認カード・容量の上限・時間の上限・出力の上限。**ネットワークは止められない**（proot にその機能は無い。15.4 の「通信を止める設定」は作れない。docs に書く）。
+
+**rootfs（確認済み）**：Ubuntu Base 24.04.5 の arm64。`https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.5-base-arm64.tar.gz`、29,936,675 バイト、SHA-256 `a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2`（同じフォルダの `SHA256SUMS` と一致し、実際にダウンロードして計算しても一致した）。中身：通常ファイル 2562、フォルダ 655、symlink 194（絶対パスのものを含む）、ハードリンク 2、デバイスファイルなし。展開後は約 100 MB 台のはず（実測は未）。
+
+**試すこと（`TarGz` / `DiskUsage` / `ShellRunner` / `LinuxEnv`。普通の JVM で、使い捨てのフォルダの中だけで）**：実物の tar.gz を展開して、ファイル数・`bash` の大きさ・実行ビット・`bin -> usr/bin`・`etc/alternatives/awk -> /usr/bin/mawk`（絶対 symlink のまま）・ハードリンクを確かめる。SHA-256 が違うと拒否され、導入済みのものが残る。上限を小さくすると展開が止まり、`rootfs.partial` が消える。悪意のある tar（`../`・`a -> /` のあとに `a/x`・外を指すハードリンク・壊れたヘッダ）が拒否される。`DiskUsage` が 4 KiB 単位で数え、`/` への symlink をたどらない。`ShellRunner` が終了コード・標準出力と標準エラーの分離・時間切れ・出力の先頭と末尾・入力の閉鎖・監視による停止・空の環境を満たす。
+
+**実機でしか分からないこと（利用者に試してもらう）**：proot が rootfs の中で `bash` を起動できるか（seccomp の設定が厳しい端末では `shellCompatMode`）、`apt`・`pip`・`git` が動くか、`/proc` の bind で支障がないか、展開にかかる時間、ハードリンクの作成が端末の SELinux に拒否されないか（拒否されたらコピーに切り替わる実装）。
+
+
 
 - **通信ログ（利用者の質問への、こちらからの提案。返事待ち）**：メタデータだけ（時刻・提供元・モデル・状態・時間・トークン数・フォールバック・エラー。本文とキーは持たない）を端末に残し、設定画面で見て・書き出せるようにする。モデルが読む道具は読み取り専用にする。メッセージ本文も記録するか（記録しないと再現が難しい／記録するとプライバシーが重い）の判断を待っている。0.11.1 の「返信の進み具合」は、この途中の形（1 回の返信の中の数字だけで、保存しない）。
 - **実機での確認待ち（利用者の端末で試してもらう）**：0.9.1 の proot の起動（設定 → ローカルモデルの設定 →「Linux 環境（試験）：proot の確認」の出力）、Gemini の 400（0.9.5 以降）、Markdown 描画・思考の見え方・折りたたみの見た目、停止ボタン、背景で続くチャット、モデルの選択が再起動で戻らないこと、設定画面の予測変換、エラーの自動報告（設定にトークンを入れて「テスト送信」）、分担の実際の動き（プランナーが `delegate` を呼ぶか。14 章）。
