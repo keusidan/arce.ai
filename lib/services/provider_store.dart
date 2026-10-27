@@ -293,6 +293,9 @@ class ProviderStore extends ChangeNotifier {
   /// built after it changes use the new value.
   Duration requestTimeout = const Duration(seconds: 120);
 
+  /// Makes the HTTP client of a provider that is built without one (tests give a scripted one).
+  http.Client Function()? clientFactory;
+
   AiProvider? buildActive({http.Client? client}) {
     final config = active;
     if (config == null || !config.isComplete) return null;
@@ -316,7 +319,7 @@ class ProviderStore extends ChangeNotifier {
       headers: config.headers,
       body: config.body,
       supportsTools: config.supportsTools,
-      client: client,
+      client: client ?? clientFactory?.call(),
       timeout: requestTimeout,
     );
   }

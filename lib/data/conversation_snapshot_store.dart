@@ -69,6 +69,9 @@ class ConversationSnapshotStore {
     return id;
   }
 
+  /// Gives the conversation a title of its own (the history list shows it). [save] never touches it.
+  void rename(String conversationId, String title) => db.renameConversation(conversationId, title);
+
   /// The conversation in the shape [save] took, or null when nothing is stored under
   /// [conversationId].
   Map<String, Object?>? read(String conversationId) {

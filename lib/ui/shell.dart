@@ -45,13 +45,7 @@ String _pageTitle(AppController app) => switch (app.page) {
       AppPage.history => 'チャット履歴',
     };
 
-String _threadTitle(AppController app) {
-  for (final m in app.chat.state.messages) {
-    final text = m.text.trim();
-    if (m.role.name == 'user' && text.isNotEmpty) return text.length > 24 ? '${text.substring(0, 24)}…' : text;
-  }
-  return '新しい会話';
-}
+String _threadTitle(AppController app) => app.currentTitle;
 
 Widget _pageBody(AppController app) => switch (app.page) {
       AppPage.chat => const ChatPage(),
@@ -132,7 +126,7 @@ class ThreadTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: app.chat,
+        listenable: Listenable.merge([app, app.chat]),
         builder: (context, _) => Row(mainAxisSize: MainAxisSize.min, children: [
           Flexible(
             child: Text(_pageTitle(app), overflow: TextOverflow.ellipsis, maxLines: 1, style: ts(context, 14, weight: FontWeight.w700)),

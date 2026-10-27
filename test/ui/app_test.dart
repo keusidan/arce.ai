@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:arce_ai/ai/provider_config.dart';
@@ -13,6 +14,8 @@ import 'package:arce_ai/ui/theme.dart';
 import 'package:arce_ai/ui/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/testing.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<AppController> makeApp(WidgetTester tester) async {
@@ -446,6 +449,105 @@ void main() {
     expect(app.conversationId, id);
     expect(app.chat.state.messages.length, 2, reason: 'the question and the finished reply');
     expect(app.chat.state.messages.last.text, isNotEmpty);
+  });
+
+  testWidgets('a new conversation gets its title from the model after the first answer; the first question is the title until then', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    final asked = <String>[];
+    app.providers.clientFactory = () => MockClient.streaming((request, bodyStream) async {
+      final body = await utf8.decodeStream(bodyStream);
+      // the model list (read in the background when a provider is saved) is not a chat request
+      if (!request.url.path.endsWith('chat/completions')) {
+        return http.StreamedResponse(Stream.value(utf8.encode('{"data":[]}')), 200, headers: const {'content-type': 'application/json'}, request: request);
+      }
+      asked.add(body);
+      final isTitle = body.contains('Write a short title');
+      final text = isTitle ? '「LCT の実装相談」' : 'Link-Cut Tree はこう書きます。';
+      return http.StreamedResponse(
+        Stream.value(utf8.encode('data: ${jsonEncode({
+              'choices': [
+                {'delta': {'content': text}},
+              ],
+            })}\n\ndata: [DONE]\n\n')),
+        200,
+        headers: const {'content-type': 'text/event-stream'},
+        request: request,
+      );
+    });
+    await app.providers.save(const ProviderConfig(
+      id: 'host',
+      label: 'ホスト',
+      baseUrl: 'https://host.example/v1',
+      models: [ModelConfig(id: 'm', name: 'm')],
+    ));
+    await app.providers.setActive('host');
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    await tester.runAsync(() async {
+      await app.chat.send('Link-Cut Tree を実装してほしい');
+      for (var i = 0; i < 100 && !app.conversations.any((c) => c.title == 'LCT の実装相談'); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await app.refreshConversations();
+      }
+    });
+    expect(asked, hasLength(2), reason: 'the answer, then the title');
+    expect(app.conversations.single.title, 'LCT の実装相談', reason: 'the quotes of the model\'s answer are taken off');
+    expect(app.currentTitle, 'LCT の実装相談', reason: 'the header shows it too');
+    expect(asked.last, allOf(contains('Link-Cut Tree を実装してほしい'), contains('Link-Cut Tree はこう書きます')));
+
+    // a second answer in the same conversation does not ask for another title
+    await tester.runAsync(() async {
+      await app.chat.send('もう少し詳しく');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    expect(asked, hasLength(3), reason: 'only the answer');
+  });
+
+  testWidgets('with the setting off, or for the device model, no title is asked for', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    var calls = 0;
+    app.providers.clientFactory = () => MockClient.streaming((request, bodyStream) async {
+      await bodyStream.drain<void>();
+      if (!request.url.path.endsWith('chat/completions')) {
+        return http.StreamedResponse(Stream.value(utf8.encode('{"data":[]}')), 200, headers: const {'content-type': 'application/json'}, request: request);
+      }
+      calls++;
+      return http.StreamedResponse(
+        Stream.value(utf8.encode('data: ${jsonEncode({
+              'choices': [
+                {'delta': {'content': 'はい'}},
+              ],
+            })}\n\ndata: [DONE]\n\n')),
+        200,
+        headers: const {'content-type': 'text/event-stream'},
+        request: request,
+      );
+    });
+    await app.providers.save(const ProviderConfig(id: 'host', label: 'ホスト', baseUrl: 'https://host.example/v1', models: [ModelConfig(id: 'm', name: 'm')]));
+    await app.providers.setActive('host');
+    await app.settings.update((s) => s.copyWith(autoTitle: false));
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await app.chat.send('こんにちは');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    expect(calls, 1, reason: 'the setting is off: only the answer');
+    expect(app.currentTitle, 'こんにちは');
+
+    // the device model: nothing to write a title with
+    await app.settings.update((s) => s.copyWith(autoTitle: true));
+    await app.providers.setActive('local');
+    app.newConversation();
+    await tester.runAsync(() async {
+      await app.chat.send('こんにちは');
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+    });
+    expect(calls, 1, reason: 'the device model does not write titles by itself');
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('the text size is a setting and applies to the whole screen', (tester) async {

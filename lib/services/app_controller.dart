@@ -13,10 +13,12 @@ import '../ai/provider.dart';
 import '../ai/provider_config.dart';
 import '../ai/roles.dart';
 import '../ai/routing_engine.dart';
+import '../ai/titles.dart';
 import '../core/agents.dart';
 import '../core/chat_controller.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
+import '../core/generation.dart';
 import '../core/http_get.dart';
 import '../core/protocol.dart';
 import '../core/search.dart';
@@ -676,6 +678,8 @@ class AppController extends ChangeNotifier {
     // a chat that is still answering goes on in the background; an idle one is emptied and reused
     final session = _freeCurrent();
     session.id = null;
+    session.titled = false;
+    session.titleTries = 0;
     session.chat.clear();
     chat.show(session.chat);
     goTo(AppPage.chat);
@@ -709,6 +713,7 @@ class AppController extends ChangeNotifier {
     final session = _freeCurrent();
     session.chat.restore(snapshot);
     session.id = id;
+    session.titled = true; // it has its title already
     chat.show(session.chat);
     goTo(AppPage.chat);
     notifyListeners();
@@ -745,6 +750,7 @@ class AppController extends ChangeNotifier {
     final session = _freeCurrent();
     session.chat.restore(snapshot);
     session.id = item.id;
+    session.titled = true;
     chat.show(session.chat);
     goTo(AppPage.chat);
     notifyListeners();
@@ -838,6 +844,65 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The title of the conversation on the screen: the one the history list shows (a model's, once
+  /// it has written one), or what the user first typed while the conversation is new.
+  String get currentTitle {
+    final id = _current.id;
+    if (id != null) {
+      for (final meta in conversations) {
+        if (meta.id == id && meta.title.trim().isNotEmpty) return meta.title;
+      }
+    }
+    for (final m in chat.state.messages) {
+      final text = m.text.trim();
+      if (m.role == Role.user && text.isNotEmpty) return text.length > 24 ? '${text.substring(0, 24)}…' : text;
+    }
+    return '新しい会話';
+  }
+
+  /// The provider that writes titles: the one named in the settings, or the online model in use.
+  /// Null for the device model, which does not write titles by itself: the request would take the
+  /// place of the conversation in its cache, and the next reply would start from the beginning.
+  AiProvider? _titleProvider() {
+    final ref = settings.value.titleModel.trim();
+    if (ref.isEmpty) return providers.buildActive();
+    final parsed = CodingSettings.parseRef(ref);
+    if (parsed == null) return null;
+    final (providerId, modelId) = parsed;
+    if (providerId == CodingSettings.localProvider) return null;
+    final config = providers.byId(providerId);
+    if (config == null || !config.isComplete) return null;
+    return providers.build(config, model: config.resolveModel(modelId) ?? config.defaultModel);
+  }
+
+  /// Once a new conversation has its first answer, a model writes its title (the setting
+  /// `autoTitle`). It is tried twice at most; a failure leaves the first question as the title.
+  void _maybeTitle(_Session session, String id, ConversationSnapshot snapshot) {
+    final s = settings.value;
+    if (session.titled || !s.autoTitle || session.titleTries >= 2) return;
+    String? question;
+    String? answer;
+    for (final m in snapshot.messages) {
+      if (m.role == Role.user && question == null && m.text.trim().isNotEmpty) question = m.text;
+      if (m.role == Role.assistant && answer == null && m.text.trim().isNotEmpty && m.finish != FinishReason.error) answer = m.text;
+    }
+    if (question == null || answer == null) return;
+    final provider = _titleProvider();
+    if (provider == null) return;
+    session.titleTries++;
+    unawaited(() async {
+      final title = await TitleMaker.make(provider, question: question!, answer: answer!, maxChars: s.titleMaxChars);
+      if (title == null) return;
+      session.titled = true;
+      try {
+        await history.rename(id, title);
+        await refreshConversations();
+      } catch (e) {
+        debugPrint('could not set the title: $e');
+      }
+    }());
+  }
+
   void _persist(_Session session, ConversationSnapshot snapshot, bool generating) {
     if (snapshot.messages.isEmpty) return;
     if (generating) _noteModelUsed();
@@ -859,6 +924,7 @@ class AppController extends ChangeNotifier {
         // the device model has just worked on this conversation: its cache is the one to keep
         if (!generating && !providers.isCloud && models.isLoaded) _kvOwner = id;
         await refreshConversations();
+        if (!generating) _maybeTitle(session, id, snapshot);
       } catch (e) {
         debugPrint('could not save the conversation: $e');
       }
@@ -911,6 +977,10 @@ class _SessionToolRuntime implements ToolRuntime {
 class _Session {
   late final ChatController chat;
   String? id;
+
+  /// Whether this conversation has its title (written by a model, or one it already had when opened).
+  bool titled = false;
+  int titleTries = 0;
 }
 
 /// Stands in until the user adds a provider: a request would reach nobody, so it says so.

@@ -146,6 +146,9 @@ class ConversationDatabase {
 
   Future<void> clearGenerating(String id) async => store.clearGenerating(id);
 
+  /// Replaces the title of conversation [id].
+  Future<void> rename(String id, String title) async => store.rename(id, title);
+
   /// Message text across every conversation.
   List<SearchHit> search(String query, {int limit = 50}) => store.search(query, limit: limit);
 

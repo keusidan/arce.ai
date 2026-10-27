@@ -176,6 +176,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
+            _subheading(context, 'チャットのタイトル'),
+            _titleCard(app, s, set),
             _subheading(context, '回答（口調・速度と精度・エージェント・返信の長さ）'),
             _answerCard(context, app, s, set),
             _subheading(context, '最大トークンと再試行（共通）'),
@@ -544,6 +546,49 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: 'アプリを閉じて止まったモデルのダウンロードを、起動したときに続きから取ります（モバイル回線でも始まります）',
             last: true,
             trailing: ArceSwitch(value: s.resumeDownloadsOnStart, onChanged: (v) => set((x) => x.copyWith(resumeDownloadsOnStart: v))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _titleCard(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
+    return ArceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              '新しい会話の最初の答えが終わると、モデルが短いタイトルを考えて、履歴に付けます（失敗したときは、最初の質問がタイトルのままです）。'
+              '端末のモデルでは自動では付けません（次の返信が最初から読み直しになり、遅くなるため）。'
+              'タイトル用にオンラインのモデルを選ぶと、端末のモデルで話しているときも付きます。',
+              style: ts(context, 10, color: context.c.muted, height: 1.6),
+            ),
+          ),
+          SettingRow(
+            icon: ArceSvg.pencil,
+            title: 'タイトルをモデルに考えさせる',
+            subtitle: 'オフにすると、最初の質問がそのままタイトルになります',
+            trailing: ArceSwitch(value: s.autoTitle, onChanged: (v) => set((x) => x.copyWith(autoTitle: v))),
+          ),
+          SettingRow(
+            icon: ArceSvg.cube,
+            title: 'タイトルを考えるモデル',
+            subtitle: '未選択なら、使用中のオンラインモデル（安いモデルにすると節約できます）',
+            trailing: _ModelRefField(app: app, value: s.titleModel, title: 'タイトルを考えるモデル', width: 168, onChanged: (v) => set((x) => x.copyWith(titleModel: v))),
+          ),
+          SettingRow(
+            icon: ArceSvg.sliders2,
+            title: 'タイトルの最大文字数',
+            subtitle: '長いタイトルは、この長さで切ります',
+            last: true,
+            trailing: _Cycle<int>(
+              value: s.titleMaxChars,
+              values: const [15, 20, 30, 40, 60],
+              label: (v) => '$v',
+              onChanged: (v) => set((x) => x.copyWith(titleMaxChars: v)),
+            ),
           ),
         ],
       ),

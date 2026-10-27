@@ -359,6 +359,24 @@ abstract final class AgentSettings {
       label: '思考の内容を、開いたまま表示する',
       kind: SettingKind.flag,
     ),
+    'autoTitle': SettingSpec(
+      key: 'autoTitle',
+      label: '新しい会話のタイトルを、モデルに考えさせる',
+      kind: SettingKind.flag,
+    ),
+    'titleModel': SettingSpec(
+      key: 'titleModel',
+      label: 'タイトルを考えるモデル（provider|model。空なら使用中のオンラインモデル）',
+      kind: SettingKind.text,
+      maxLength: 120,
+    ),
+    'titleMaxChars': SettingSpec(
+      key: 'titleMaxChars',
+      label: 'タイトルの最大文字数',
+      kind: SettingKind.whole,
+      min: 8,
+      max: 80,
+    ),
     'tokenOverheadPercent': SettingSpec(
       key: 'tokenOverheadPercent',
       label: '指示とツール定義が使ってよい文脈の割合（%）',

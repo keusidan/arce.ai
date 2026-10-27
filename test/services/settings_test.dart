@@ -53,6 +53,13 @@ void main() {
     expect(AppSettings.fromJson(const AppSettings(mcpResultMaxChars: 9000).toJson()).mcpResultMaxChars, 9000);
     expect(AppSettings.fromJson({'mcpResultMaxChars': 3}).mcpResultMaxChars, 500, reason: 'kept inside its range');
     expect(AgentSettings.isEditable('mcpResultMaxChars'), isTrue);
+    expect(d.autoTitle, isTrue, reason: 'a model writes the title of a new conversation unless it is turned off');
+    expect(d.titleModel, isEmpty, reason: 'empty: the online model in use');
+    expect(d.titleMaxChars, 30);
+    final titled = AppSettings.fromJson(const AppSettings(autoTitle: false, titleModel: 'host|small', titleMaxChars: 20).toJson());
+    expect((titled.autoTitle, titled.titleModel, titled.titleMaxChars), (false, 'host|small', 20));
+    expect(AppSettings.fromJson({'titleMaxChars': 1}).titleMaxChars, 8, reason: 'kept inside its range');
+    expect(AgentSettings.isEditable('autoTitle') && AgentSettings.isEditable('titleModel') && AgentSettings.isEditable('titleMaxChars'), isTrue);
     expect(AgentSettings.isEditable('thinkingExpanded'), isTrue);
     expect(AgentSettings.normalize('thinkingExpanded', false), isA<SettingsChangeOk>());
   });

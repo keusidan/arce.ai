@@ -87,6 +87,9 @@ class AppSettings {
     this.fallbackEnabled = true,
     this.tokenPrecheck = true,
     this.thinkingExpanded = true,
+    this.autoTitle = true,
+    this.titleModel = '',
+    this.titleMaxChars = 30,
     this.tokenOverheadPercent = 80,
     this.recentModelCount = 8,
     this.localDryMultiplier = -1,
@@ -228,6 +231,14 @@ class AppSettings {
 
   /// Whether the model's thinking is shown open under the reply (true) or folded away (false).
   final bool thinkingExpanded;
+
+  /// Whether a model writes the title of a new conversation (the first question otherwise).
+  final bool autoTitle;
+
+  /// The model that writes titles, as `provider|model`; empty uses the online model in use. The
+  /// device model never writes titles by itself (it would disturb its cache for the next reply).
+  final String titleModel;
+  final int titleMaxChars;
   final int tokenOverheadPercent;
 
   /// How many of the models used last are offered first in the model lists (0 turns it off).
@@ -353,6 +364,9 @@ class AppSettings {
     bool? fallbackEnabled,
     bool? tokenPrecheck,
     bool? thinkingExpanded,
+    bool? autoTitle,
+    String? titleModel,
+    int? titleMaxChars,
     int? tokenOverheadPercent,
     int? recentModelCount,
     double? localDryMultiplier,
@@ -428,6 +442,9 @@ class AppSettings {
     fallbackEnabled: fallbackEnabled ?? this.fallbackEnabled,
     tokenPrecheck: tokenPrecheck ?? this.tokenPrecheck,
     thinkingExpanded: thinkingExpanded ?? this.thinkingExpanded,
+    autoTitle: autoTitle ?? this.autoTitle,
+    titleModel: titleModel ?? this.titleModel,
+    titleMaxChars: titleMaxChars ?? this.titleMaxChars,
     tokenOverheadPercent: tokenOverheadPercent ?? this.tokenOverheadPercent,
     recentModelCount: recentModelCount ?? this.recentModelCount,
     localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
@@ -505,6 +522,9 @@ class AppSettings {
     'fallbackEnabled': fallbackEnabled,
     'tokenPrecheck': tokenPrecheck,
     'thinkingExpanded': thinkingExpanded,
+    'autoTitle': autoTitle,
+    'titleModel': titleModel,
+    'titleMaxChars': titleMaxChars,
     'tokenOverheadPercent': tokenOverheadPercent,
     'recentModelCount': recentModelCount,
     'localDryMultiplier': localDryMultiplier,
@@ -611,6 +631,9 @@ class AppSettings {
       fallbackEnabled: flag('fallbackEnabled', d.fallbackEnabled),
       tokenPrecheck: flag('tokenPrecheck', d.tokenPrecheck),
       thinkingExpanded: flag('thinkingExpanded', d.thinkingExpanded),
+      autoTitle: flag('autoTitle', d.autoTitle),
+      titleModel: text('titleModel', d.titleModel),
+      titleMaxChars: whole('titleMaxChars', d.titleMaxChars).clamp(8, 80),
       tokenOverheadPercent: whole('tokenOverheadPercent', d.tokenOverheadPercent).clamp(10, 100),
       recentModelCount: whole('recentModelCount', d.recentModelCount).clamp(0, 30),
       localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),
