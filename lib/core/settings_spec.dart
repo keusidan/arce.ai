@@ -462,13 +462,70 @@ abstract final class AgentSettings {
       min: 64,
       max: 100000,
     ),
+    // The Linux environment on the device (docs 15 and 19.5). Two of them are missing on purpose:
+    // `shellConfirm` decides whether a command is shown before it runs, and `linuxRootfsUrl` /
+    // `linuxRootfsSha256` decide which system is downloaded: a chat message must not be able to
+    // turn the first off or point the second somewhere else.
+    'shellEnabled': SettingSpec(
+      key: 'shellEnabled',
+      label: 'Linux 環境のコマンド実行を使う',
+      kind: SettingKind.flag,
+    ),
+    'shellTimeoutSeconds': SettingSpec(
+      key: 'shellTimeoutSeconds',
+      label: 'Linux 環境: コマンドのタイムアウト（秒）',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 3600,
+    ),
+    'shellMaxTimeoutSeconds': SettingSpec(
+      key: 'shellMaxTimeoutSeconds',
+      label: 'Linux 環境: モデルが指定できるタイムアウトの上限（秒）',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 3600,
+    ),
+    'shellMaxOutputChars': SettingSpec(
+      key: 'shellMaxOutputChars',
+      label: 'Linux 環境: コマンドの出力をモデルに渡す文字数の上限',
+      kind: SettingKind.whole,
+      min: 500,
+      max: 1000000,
+    ),
+    'workspaceLimitMb': SettingSpec(
+      key: 'workspaceLimitMb',
+      label: 'Linux 環境: 全チャット共通のワークスペースの上限（MB。0で上限なし）',
+      kind: SettingKind.whole,
+      min: 0,
+      max: 65536,
+    ),
+    'linuxDns': SettingSpec(
+      key: 'linuxDns',
+      label: 'Linux 環境: DNS（空白区切り）',
+      kind: SettingKind.text,
+      maxLength: 200,
+    ),
+    'shellCompatMode': SettingSpec(
+      key: 'shellCompatMode',
+      label: 'Linux 環境: 互換モード（seccomp を切る）',
+      kind: SettingKind.flag,
+    ),
   };
 
   /// Sorted, so the grammar and the prompt show the same order every time.
   static List<String> get keys => specs.keys.toList()..sort();
 
   /// The names of the settings that are deliberately not reachable from a chat message.
-  static const blocked = <String>{'lastModelPath', 'updateRepo', 'kvCache', 'errorReportEnabled', 'errorReportRepo'};
+  static const blocked = <String>{
+    'lastModelPath',
+    'updateRepo',
+    'kvCache',
+    'errorReportEnabled',
+    'errorReportRepo',
+    'shellConfirm',
+    'linuxRootfsUrl',
+    'linuxRootfsSha256',
+  };
 
   static bool isEditable(String key) => specs.containsKey(key);
 
