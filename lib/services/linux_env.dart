@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -230,7 +231,10 @@ typedef RootfsDownload = Future<File> Function(
 
 /// The Linux environment as the app sees it: whether it is there, installing it once, and running
 /// one command at a time in it (the Android side serialises them: the workspace is shared).
-class LinuxEnvironment {
+///
+/// It tells its listeners when the state changes, so the settings screen can show the download's
+/// progress and the workspace's size without asking again.
+class LinuxEnvironment extends ChangeNotifier {
   /// The public way in: it fills in the download and the platform. (A plain constructor cannot
   /// assign the private fields without a lint, and a private field cannot be a named parameter.)
   factory LinuxEnvironment({
@@ -240,7 +244,6 @@ class LinuxEnvironment {
   }) =>
       LinuxEnvironment._(bridge, download ?? _downloadRootfs, android ?? Platform.isAndroid);
 
-  /// Not const: the state below changes while the environment is used.
   LinuxEnvironment._(this._bridge, this._download, this._android);
 
   final LinuxBridge _bridge;
@@ -270,11 +273,26 @@ class LinuxEnvironment {
   /// False on iOS, Windows, macOS and Linux: proot is Android's.
   static bool get supported => Platform.isAndroid;
 
+  /// Tells the screen that something changed (never from inside a build).
+  void _changed() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   /// Reads the state from the Android side (cheap: the workspace is measured on a block grid).
   Future<LinuxStatus> refresh(LinuxConfig config) async {
     if (!_android) {
       _state = LinuxState.absent;
       _status = const LinuxStatus(prootPresent: false, installed: false, workspaceBytes: 0, workspaceLimitBytes: 0);
+      _changed();
       return _status!;
     }
     try {
@@ -284,10 +302,12 @@ class LinuxEnvironment {
       if (_state != LinuxState.downloading && _state != LinuxState.unpacking) {
         _state = status.installed ? LinuxState.ready : LinuxState.absent;
       }
+      _changed();
       return status;
     } catch (e) {
       _state = LinuxState.failed;
       _message = '$e';
+      _changed();
       rethrow;
     }
   }
@@ -299,6 +319,7 @@ class LinuxEnvironment {
     _message = null;
     _progress = 0;
     _state = LinuxState.downloading;
+    _changed();
     File? lasting;
     try {
       final archive = await _download(
@@ -306,6 +327,7 @@ class LinuxEnvironment {
         connections: config.connections,
         onProgress: (done, total) {
           _progress = total > 0 ? (done / total).clamp(0.0, 1.0).toDouble() : null;
+          _changed();
         },
       );
       lasting = archive;
@@ -316,6 +338,7 @@ class LinuxEnvironment {
       }
       _state = LinuxState.unpacking;
       _progress = null;
+      _changed();
       await _bridge.install(
         path: archive.path,
         sha256: config.rootfsSha256,
@@ -325,10 +348,12 @@ class LinuxEnvironment {
       );
       // the install is over, so the folder decides the state (refresh keeps a running install's)
       _state = LinuxState.absent;
+      _changed();
       return await refresh(config);
     } catch (e) {
       _state = LinuxState.failed;
       _message = '$e';
+      _changed();
       rethrow;
     } finally {
       _progress = null;
@@ -347,6 +372,8 @@ class LinuxEnvironment {
     await _bridge.remove();
     _state = LinuxState.absent;
     _status = null;
+    _message = null;
+    _changed();
   }
 
   /// Empties the shared workspace; every chat sees the same folder.
@@ -381,6 +408,7 @@ class LinuxEnvironment {
         workspaceLimitBytes: outcome.workspaceLimitBytes,
         rootfs: previous.rootfs,
       );
+      _changed();
     }
     return outcome;
   }
