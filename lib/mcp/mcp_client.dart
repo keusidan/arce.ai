@@ -155,7 +155,14 @@ class McpClient {
   Future<Map<String, Object?>> _request(String method, Map<String, Object?> params) async {
     final id = ++_nextId;
     final response = await _post({'jsonrpc': '2.0', 'id': id, 'method': method, 'params': params});
-    final message = pick(response.body, response.headers['content-type'] ?? '', id);
+    // Read the bytes as UTF-8, not through `response.body`: that uses the charset the server
+    // announces, and package:http falls back to Latin-1 when it announces none. Japanese in a file
+    // the server returned then came back as mojibake in every file the model read.
+    final message = pick(
+      utf8.decode(response.bodyBytes, allowMalformed: true),
+      response.headers['content-type'] ?? '',
+      id,
+    );
     if (message == null) throw McpException('$method の応答を読み取れませんでした');
     final error = message['error'];
     if (error is Map) {
