@@ -227,8 +227,8 @@ class McpTools {
     }
     final cwd = '${arguments['cwd'] ?? '/workspace'}'.trim();
     final wanted = arguments['timeout_seconds'];
-    final seconds = (wanted is num ? wanted.toInt() : _shellTimeoutSeconds)
-        .clamp(1, _shellMaxTimeoutSeconds);
+    final asked = wanted is num ? wanted.toInt() : _shellTimeoutSeconds;
+    final seconds = asked.clamp(1, _shellMaxTimeoutSeconds).toInt();
     try {
       // the first command installs the environment; the user approved this call already
       if (!_shell.ready) {
