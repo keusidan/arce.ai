@@ -164,7 +164,7 @@ class ParseInvalid extends ParseResult {
 abstract final class Protocol {
   /// Bumped whenever a tool schema changes. Stored with each generation so a regeneration
   /// can tell whether it runs under the same protocol as the original.
-  static const schemaVersion = 4;
+  static const schemaVersion = 5;
 
   static final askUser = ToolDefinition(
     name: 'ask_user',
@@ -332,6 +332,38 @@ abstract final class Protocol {
     ),
   );
 
+  // ---------------------------------------------------------------- the app's own shell
+
+  /// The app's own shell tool: one command in the Linux environment on the device (docs 15 and
+  /// 19.5). It is parsed as an [McpCall] and run by the MCP runtime, which is where the chat looks
+  /// for calls it cannot run itself.
+  static const runCommandName = 'run_command';
+
+  static final runCommand = ToolDefinition(
+    name: runCommandName,
+    description:
+        'Run one shell command in the Linux environment (Ubuntu 24.04, arm64) that lives inside this '
+        'app, in the root file system under proot. It is a pseudo root, not a sandbox, and there is no '
+        'systemd. /workspace is shared by every chat and kept between them (up to 2048 MB); HOME is '
+        '/workspace/home. apt, pip (use --user) and git work, and there is no switch for the network. '
+        'Commands run one at a time and cannot ask for input. The output is cut when it is long, and '
+        'the command is stopped when it runs longer than timeout_seconds or when it fills the '
+        'workspace. The first command installs the environment (about 30 MB, a few minutes) if the '
+        'user has not done it yet; the user approves every command first.',
+    parameters: _objectSchema(
+      required: ['command'],
+      properties: {
+        'command': {'type': 'string'},
+        'cwd': {'type': 'string'},
+        'timeout_seconds': {'type': 'integer'},
+      },
+    ),
+  );
+
+  /// The tools that parse as an [McpCall]: the MCP servers' own, and the app's [runCommand].
+  static bool isMcpLike(String name) =>
+      name.startsWith('mcp_') || name == runCommandName;
+
   /// JSON Schema for the body of one `<tool_call>` block restricted to [tools]:
   /// `{"name": <one of the tools>, "arguments": <that tool's parameters>}`.
   /// Each agent passes only the tools it may use, so the grammar cannot express any other call.
@@ -396,19 +428,32 @@ abstract final class ProviderApproval {
   static bool isApproval(List<String> selected) => selected.contains(approve);
 }
 
-/// The card the chat shows for an [McpCall] that changes something outside the device.
+/// The card the chat shows for an [McpCall] that changes something outside the device, and for
+/// every `run_command` (a command can do anything the app itself can).
 abstract final class ToolApproval {
   static const approve = '実行する';
   static const reject = 'やめる';
 
   static QuestionTile tile(McpCall call) => QuestionTile(
-    title:
-        'この道具を実行します。${call.name}\n'
-        '${call.arguments.isEmpty ? '' : call.arguments.toString()}',
+    title: _title(call),
     options: const [approve, reject],
     allowFreeInput: false,
     multiSelect: false,
   );
+
+  /// A command is shown as it is (`$ command`), with where and for how long: the model's words
+  /// about it are not what the user approves. Everything else keeps the name and the arguments.
+  static String _title(McpCall call) {
+    if (call.name == Protocol.runCommandName) {
+      final command = '${call.arguments['command'] ?? ''}'.trim();
+      final cwd = '${call.arguments['cwd'] ?? '/workspace'}'.trim();
+      final seconds = call.arguments['timeout_seconds'];
+      final limit = seconds is num ? '・最大 ${seconds.toInt()} 秒' : '';
+      return 'このコマンドを実行します。\n\$ $command\n場所: $cwd$limit';
+    }
+    return 'この道具を実行します。${call.name}\n'
+        '${call.arguments.isEmpty ? '' : call.arguments.toString()}';
+  }
 
   static bool isApproval(List<String> selected) => selected.contains(approve);
 
@@ -484,8 +529,10 @@ abstract final class ToolCallParser {
       if (name == Protocol.delegate.name) {
         return _parseDelegate(args);
       }
-      // a tool of the MCP server: the engine's schema already limited it to the tools this turn
-      if (name.startsWith('mcp_')) {
+      // a tool of an MCP server, or the app's own run_command: the engine's schema already limited
+      // it to the tools this turn allows
+      if (Protocol.isMcpLike(name)) {
+        if (name == Protocol.runCommandName) return _parseRunCommand(args);
         return ParseOk(McpCall(name, args.cast<String, Object?>()));
       }
       return ParseInvalid("tool '$name' has no handler");
@@ -542,6 +589,26 @@ abstract final class ToolCallParser {
           multiSelect: _flag(args, 'multi_select'),
         ),
       ),
+    );
+  }
+
+  /// The command is the one thing that matters: a blank one is refused, and the rest is passed on
+  /// as it came (the runner bounds the time and the output).
+  static ParseResult _parseRunCommand(Map<dynamic, dynamic> args) {
+    final command = _requiredText(args, 'command');
+    if (command == null) return const ParseInvalid('the command is blank');
+    final cwd = _requiredText(args, 'cwd');
+    if (cwd != null && !cwd.startsWith('/')) {
+      return const ParseInvalid('cwd must be an absolute path inside the environment');
+    }
+    final timeout = args['timeout_seconds'];
+    if (timeout != null && timeout is! num) throw _WrongType('timeout_seconds');
+    return ParseOk(
+      McpCall(Protocol.runCommandName, {
+        'command': command,
+        if (cwd != null) 'cwd': cwd,
+        if (timeout is num) 'timeout_seconds': timeout.toInt(),
+      }),
     );
   }
 
