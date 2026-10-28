@@ -1,6 +1,6 @@
 # ARCE.AI ドキュメント（1 ファイルにまとめた版）
 
-- 整理した日：2026-10-26（日本時間 02:16）。内容は v0.11.2 時点（19 章に、利用者の指示を時系列で追記。7.6 に 0.9.0・0.9.4・0.9.5、15.9 に 0.9.1、3 章に 0.9.2・0.9.6・0.9.7 を追記）。
+- 整理した日：2026-10-26（日本時間 02:16）。内容は v0.11.2 時点（19 章に、利用者の指示を時系列で追記。7.6 に 0.9.0・0.9.4・0.9.5、15.9 に 0.9.1、3 章に 0.9.2・0.9.6・0.9.7 を追記）。2026-10-28 に、0.12.0・0.12.1 の分（Linux 環境の設定と設定画面、`ci_status`、文字化けの修正）を追記した。
 - 目的：会話の履歴なしで、この文書だけを読んで作業を続けられるようにする。コードを読めば分かること（個々の関数の動き）は書かず、**意図・決定・制約・未確認のこと**を書く。
 - これは `docs/` にあった Claude 作成の文書 34 本（仕様書・リリース手順・機能ごとの記録・設計メモ・過去のレビュー）を 1 つにしたもの。**古くなっていた記述は、いまの実装に合わせて直した**。元の文書は git の履歴に残っている（コミット 36c4358 に全部ある。`git show 36c4358:docs/<ファイル名>`、一覧は `git ls-tree --name-only 36c4358 docs/`）。
 - `docs/` に残したもの：`ARCE.AI企画書.txt`（利用者の企画書）と `ARCE.AI助言書.txt`（利用者の実装アドバイス・失敗ログ。AI に読ませる運用の文書）。利用者が書いたものなので、まとめの対象にしていない。
@@ -50,10 +50,10 @@
 | `lib/ai/` | プロバイダ抽象（`provider.dart`）、OpenAI 互換の通信（`openai_compatible.dart`）、`CloudEngine`、ChatML の分解（`chatml_bridge.dart`）、`RoutingEngine`、`roles.dart`（開発・プランナーの役）、`delegation.dart`（`delegate` の実行）、モデルの上限と推奨（`model_info.dart`、`model_hints.dart`）、思考の送り方（`thinking_config.dart`） |
 | `lib/engine/` | `InferenceEngine` の実装：`NativeEngine`（Android への橋渡し）、`DemoEngine`、`HybridEngine`（読み込み済みなら native、なければ demo） |
 | `lib/data/` | 会話の DB（`llm_db.dart`、`conversation_snapshot_store.dart`、旧 JSON の取り込み）。Flutter に依存しない |
-| `lib/services/` | 設定、プロバイダの保存、会話 DB・検索、KV スナップショット、モデルの管理とダウンロード、共通のダウンローダー、更新、差分更新（`bspatch.dart`）、端末情報、HTML プレビューのサーバー、全体をまとめる `app_controller.dart` |
+| `lib/services/` | 設定、プロバイダの保存、会話 DB・検索、KV スナップショット、モデルの管理とダウンロード、共通のダウンローダー、更新、差分更新（`bspatch.dart`）、端末情報、HTML プレビューのサーバー、Linux 環境（`linux_env.dart`）、GitHub Actions の読み取り（`ci_client.dart`）、全体をまとめる `app_controller.dart` |
 | `lib/mcp/` | MCP クライアント（Streamable HTTP）と、サーバーのツールをアプリの道具に変換する部分 |
 | `lib/ui/` | 画面。トークンは `theme.dart`、アイコン（SVG）は `svg_icons.dart` |
-| `android/` | ネイティブ側。`src/main/cpp`（llama.cpp の JNI）、`kotlin/ai/arce/app/engine`（エンジン）、`bridge`（Flutter との橋渡し）、`service`（前面サービス）、`update`（APK インストーラー） |
+| `android/` | ネイティブ側。`src/main/cpp`（llama.cpp の JNI）、`kotlin/ai/arce/app/engine`（エンジン）、`bridge`（Flutter との橋渡し）、`service`（前面サービス）、`update`（APK インストーラー）、`linux`（Linux 環境：`TarGz`・`DiskUsage`・`ShellRunner`・`LinuxEnv`） |
 | `third_party/llama.cpp` | サブモジュール（Android のビルドにだけ必要） |
 | `third_party/proot` | サブモジュール（Termux の fork の proot、v5.1.107.101。15 章。`.github/workflows/proot-build.yml` だけが使う） |
 | `test/` | `core/`（Kotlin から移したテスト＋追加）、`ai/`、`data/`、`mcp/`、`services/`、`ui/`（約 460 件） |
@@ -88,11 +88,11 @@
 - **ページ**：チャット、モデル管理、生成物、詳細設定、チャット履歴（`AppPage`）。
 - **チャット**（0.8.18 で Claude のような文書型にした）：
   - 返信は、アイコン・名前・エージェント名・時刻・吹き出しの枠が無い。思考・ツールの表示・本文・操作ボタン（コピー・再試行・続行）を、上から幅いっぱい（最大 920px）に並べる。ユーザーの発言だけが吹き出し（右寄せ、幅は画面の 88% まで）。左右の余白は 12。
-  - 歓迎画面（4 つのチップ）、思考プロセス（折りたたみ）、ツールの結果（検索はリンク付きで折りたたみ）、`ask_user` の質問カード、承認カード（設定の変更・MCP の書き込み・プロバイダの追加）、エラーと注意の帯。
+  - 歓迎画面（4 つのチップ）、思考プロセス（折りたたみ）、ツールの結果（検索はリンク付きで折りたたみ）、`ask_user` の質問カード、承認カード（設定の変更・MCP の書き込み・プロバイダの追加・**Linux 環境のコマンド**）、エラーと注意の帯。
   - 生成中は「考えています…」のカード（エージェント名は出さない）。アイコンは 5 種（基本・リング・パルス・ドット・ローテーション）から設定で選ぶ。
   - 入力欄：ファイル添付（画像と UTF-8 のテキスト。6 章）、思考・検索・分担（コーディングモード）のスイッチ、送信/停止。**モデルのボタンは無い**（モデルの管理は下のタブとヘッダーのモデル名から）。デスクトップは Enter で送信、Shift+Enter で改行。
   - **返信は Markdown として描画する**（0.9.2。`lib/core/markdown_lite.dart` が読み、`lib/ui/chat_widgets.dart` の `RichReply` が描く）：見出し（`#`〜`######`）、**太字**・*斜体*・~~取り消し線~~・`コード`（入れ子もよい）、リンク（`[文](https://…)` と、文中の http(s) のアドレス。タップでブラウザ。`javascript:` などは**リンクにしない**）、箇条書き・番号つき・タスクリスト（字下げで入れ子）、引用、区切り線、表（`|---|` の行が届いたら表。列の揃え `:--:` に対応。幅が足りなければ横にスクロールし、1 セルは最大 280）、コードブロック。読まないもの（そのまま文字で出す）：HTML、画像、脚注、LaTeX、setext 見出し（`===`）。ストリーミング中の途中の記法（閉じていない `**` や `` ` ``、表の区切り行の前）はそのまま見え、閉じたら記法になる。
-  - **モデルに求める形は、普通の Markdown だけ**（`ChatMlPromptBuilder.baseSystemPrompt`）：「Markdown で書く（リスト・太字・比較には表・見出しは長い回答だけ）」「プログラムやファイルは言語つきのコードブロックに」。0.9.2 までは「太字は `**text**` で書く」とだけ書いていて、モデルが見出しや表を避けやすかった。アプリ独自の書き方をモデルに強いてはいない（独自なのは、端末のモデルが `<tool_call>` で道具を呼ぶ形（Qwen の標準）と、`<think>` の思考だけで、どちらも本文ではない）。
+  - **モデルに求める形は、普通の Markdown だけ**（`ChatMlPromptBuilder.baseSystemPrompt`）：「Markdown で書く（リスト・太字・比較には表・見出しは長い回答だけ）」「プログラムやファイルは言語つきのコードブロックに」。0.9.2 までは「太字は `**text**` で書く」とだけ書いていて、モデルが見出しや表を避けやすかった。アプリ独自の書き方をモデルに強いてはいない（独自なのは、端末のモデルが `<tool_call>` で道具を呼ぶ形（Qwen の標準）と、` thinking` の思考だけで、どちらも本文ではない）。
   - **生成中でも別のチャットへ移れる**（0.9.6）：以前は 1 つの `ChatController` を使い回していて、生成中は「新しい会話」も履歴も開けなかった（移るとその会話の状態が消えるため、止めていた）。いまは会話ごとに `ChatController` があり（`AppController` の `_Session`）、画面に出ているチャットを離れても、生成中のチャットは**裏で続けて保存まで終える**。画面は、窓口の `ChatHandle`（`lib/services/chat_handle.dart`。常に同じオブジェクトで、中身の向き先だけが変わる）を通して、表のチャットを見る。履歴の一覧には、生成中の会話に「生成中」の印が出て、タップすると裏のチャットがそのまま表に出る。前面サービスは、どれかが生成中の間は動かす。ルール：(1) **オンラインのモデルは同時にいくつでも**答えられる。「停止」はそのチャットだけに効く（共有の `CloudEngine` には cancel を送らない。送ると他のチャットの返信まで止まるため）。(2) **端末のモデルと分担（コーディングモード）は同時に 1 つのチャットだけ**（重みと KV キャッシュが 1 つのため）。使用中に別のチャットが送ると「ほかのチャットが使っています」とエラーを出す（`SessionEngine`、`ExclusiveLease`。`lib/services/session_engine.dart`）。(3) 生成中の間は、モデル（プロバイダ）の切り替えは断る。(4) 生成中のチャットの会話を削除すると、その生成を止めてから消す。(5) 「生成中」の判定は `ChatController.isRunning`（返信の途中の、エージェントを選ぶ・MCP に聞く間も含む）。`ChatState.isGenerating` だけでは、その間に裏のチャットを片付けてしまう。**未確認**：実機での、オンラインの 2 つのチャットの同時生成と、端末のモデルの排他。
   - **停止ボタンはすぐに効く**（0.9.7）：以前は、オンラインのモデルが考え込んで何も送ってこない間（思考中）、「停止」を押しても、**次のデータが届くまで**止まらなかった（届いたところで初めてキャンセルに気づく作りだったため）。直したこと：(1) `GenerateRequest.abort` / `AiRequest.abort`（停止で完了する Future）を作り、`OpenAiCompatibleProvider` は `http.AbortableRequest(abortTrigger)` で送り、停止されたら**接続を切って**「止めた」で終える（`RequestAbortedException`）。無駄なトークンを使い続けない。(2) `SessionEngine` は、停止の合図と次のデータを競わせ、先に合図が来れば待たずにストリームを閉じる。(3) 返信の準備中（エージェントを選ぶ、MCP の道具の一覧を聞く、道具を実行する）に押した停止は、以前は忘れられていた（本番のリクエストが新しく始まって、エンジンの中断の印が消えるため）。`ChatController` が `_stopRequested` を覚え、次のリクエストを送らずに「止めた」で終える。端末のモデルは、エンジンが次のトークンで気づいて止まる（長いプロンプトの評価中は少し待つことがある。**未確認**）。
   - **「実行する」を押すとアプリごと落ちる不具合の修正**（0.11.2）：承認カード（MCP の道具など）の「実行する」を押すと、アプリが強制終了した。**原因（推定。端末のログは未確認）**：`answer()` は、道具の実行の間 `_busy` を立てて通知する（→ 前面サービスの**開始**）。実行が終わると同じ処理の続きで `_busy` を戻し、メッセージを足す通知が来る（→ **停止**）。サービスが `startForeground()` を呼ぶ前に `stopService` が届き、Android が「`startForegroundService()` のあとに `startForeground()` が呼ばれなかった」として**アプリを落とす**（[Context.startForegroundService](https://developer.android.com/reference/android/content/Context#startForegroundService(android.content.Intent)) の説明：開始したサービスは `startForeground()` を呼ぶ必要がある）。普通の送信は、生成が数秒続くので起きない。**直し方（タイマーなし）**：`GenerationService` が「まだ応じていない開始の数」を持ち、その間に来た停止は**覚えておく**。サービスは `startForeground()` を呼んだあとで、覚えていた停止を実行して自分で止まる。同じ競合は、生成が一瞬で終わる場合（すぐ失敗するなど）でも起きえたので、それも直る。**未確認**：実機で「実行する」が落ちなくなること。
@@ -106,7 +106,7 @@
   - コードブロックはコピーできる。HTML は「プレビュー」で、`PreviewServer`（127.0.0.1）経由でシステムのブラウザに表示する（サンドボックス付き）。
 - **生成物**：会話の中の完成したコードブロックの一覧（コピー・保存・HTML プレビュー）。無いときはサンプルを出す。
 - **モデル管理**：現在の状態、基本モデルの 1 タップ導入、カタログ、ダウンロード（一時停止・再開・SHA-256 検証・整合性チェック・削除）、ファイルからの取り込み、メモリ不足の警告。Android 以外ではカタログを表示するだけ。
-- **詳細設定**：押した項目だけがその下に開くアコーディオン（同時に開くのは 1 つ。以前の「1 つの縦長の画面にスクロール」は、ほかの設定が混ざる原因だったので廃止した）。サイドバーなど外から開くときも、その項目だけを開く（`AppController.openSettings`）。項目：プロバイダ、オンラインモデル、ローカルモデル、コーディングモード、上限とタイムアウト、MCP、**モデル全般設定**（ローカルとオンライン共通：Thinking 表示・回答の口調・速度⇔精度・エージェント・返信の長さ・最大トークン・再試行・ツール呼び出しの上限）、**検索設定**（SearXNG のアドレス・検索結果の件数・検索 API の一覧）、表示（文字の大きさを含む）、アップデート。値の保存は `SettingsStore`（JSON 1 つ）。
+- **詳細設定**：押した項目だけがその下に開くアコーディオン（同時に開くのは 1 つ。以前の「1 つの縦長の画面にスクロール」は、ほかの設定が混ざる原因だったので廃止した）。サイドバーなど外から開くときも、その項目だけを開く（`AppController.openSettings`）。項目：プロバイダ、オンラインモデル、ローカルモデル、コーディングモード、**Linux 環境**（0.12.1。Android だけ）、上限とタイムアウト、MCP、**モデル全般設定**（ローカルとオンライン共通：Thinking 表示・回答の口調・速度⇔精度・エージェント・返信の長さ・最大トークン・再試行・ツール呼び出しの上限）、**検索設定**（SearXNG のアドレス・検索結果の件数・検索 API の一覧）、表示（文字の大きさを含む）、アップデート、エラーの報告。値の保存は `SettingsStore`（JSON 1 つ）。
 - **文字**：Noto Sans JP を同梱している（日本語の字形が中国語の字形にならないように）。**文字の大きさ**（`fontScale`、0.7〜2.0。設定の選択肢は 85〜200%）は、アプリ全体に効き、端末の文字サイズの設定に**重ねて**効く（端末 130% × アプリ 150% で約 195%）。
 - **チャット履歴の検索**：**タイトル**（大文字小文字を区別しない）と**本文**（全文検索。3 文字未満は `instr()`）。結果は会話ごとに 1 件にまとめ、一致した行を強調する（`conversation_search.dart`）。同じ部品（`HistoryPanel`）を、ドロワーとサイドバーで使う。
 - **編集画面（プロバイダ・モデル・MCP・検索 API）**：下から出るシートの下の余白は、キーボードの高さかシステムのバーの高さの大きい方（`sheetBottomPadding`）。3 ボタンのナビゲーションバーが「試す」「保存」に重ならないように。
@@ -120,12 +120,12 @@
 - **状態**（`TaskState`）：waiting / search / thinking / userWait / generation / completed / error / cancelled。遷移は `GenerationTask` が検査する。
 - **エージェント**：General Chat / Coding / Research / Artifact / File Analysis。キーワードで選び、迷うときだけ（設定が有効で、モデルが読み込み済みなら）モデルに厳密な JSON で選ばせる。ユーザーが指定すればそれが最優先。5 つ全部に `get_settings` / `update_settings` / `add_provider` を許可している。
 - **プロンプト**：Qwen3 の ChatML。口調は `<tone>` で囲み、制御用の文字列を取り除く（200 文字まで）。
-- **ツール**：`ask_user`、`web_search`、`get_weather`（Open-Meteo）、`get_time`（`timezone` パッケージ）、`get_settings`、`update_settings`、`add_provider`、MCP のツール（`mcp_<サーバー id>__<ツール名>`）。
+- **ツール**：`ask_user`、`web_search`、`get_weather`（Open-Meteo）、`get_time`（`timezone` パッケージ）、`get_settings`、`update_settings`、`add_provider`、MCP のツール（`mcp_<サーバー id>__<ツール名>`）、アプリ自身の **`run_command`**（0.12.0。Linux 環境。15 章・19.5）と **`ci_status`**（0.12.0。GitHub Actions の読み取りだけ。10.5）。
   - 検索の順：SearXNG のアドレス（入れていれば）→ 登録した検索 API（一覧の順、有効なもの）→ DuckDuckGo Instant Answer。10 章。
-  - 道具の定義が変わったので `Protocol.schemaVersion` は 4。
+  - 道具の定義が変わったので `Protocol.schemaVersion` は **5**（`run_command` と `ci_status` を足した）。
 - **JSON の方針**（初期のレビューからの決定）：JSON は GBNF（llama.cpp の文法）で縛る。ただし、縛るのは**構造が必要な部分（質問タイル・tool call）だけ**で、本文は Markdown のまま。決まった合図（`<tool_call>`）が出たところから文法を効かせる（lazy grammar）ので、Thinking と本文は自由に書ける。Tool と質問の定義は JSON Schema で書き、llama.cpp の変換で文法にする。形式が崩れたときは修復せず、途中切断のときだけ再生成する。意味のチェック（`options` が空でない、など）は別に行う。Schema にはバージョン番号を付ける。出典：16 章の経緯と、18 章の llama.cpp の文書。
 - **モデルカタログ**：基本は Qwen3.5-0.8B（Q8_0）。Qwen3 の 0.6B〜14B（GGUF）と、LiteRT-LM の 4 種。NPU 用は、その SoC の端末にだけ出す。GGUF と `.litertlm` は形式が違うので、エンジンごとに別の一覧。
-- **Kotlin 版からの違い**：Coding エージェントの説明から、Python/Java の実行とビルドの記述を外した（Flutter 版には無いため）。
+- **Kotlin 版からの違い**：Coding エージェントの説明から、Python/Java の実行とビルドの記述を外した（Flutter 版には無いため）。0.12.0 からは、シェル（`run_command`）で同じことができる（15 章）。
 
 ---
 
@@ -134,7 +134,7 @@
 - Dart の `NativeEngine` と、Kotlin の `EngineBridge` は、`ai.arce.app/engine`（メソッド）と `ai.arce.app/engine/events`（イベント）でつなぐ。
 - メソッド：`devices`、`load`（`kvType` ＝ 0 F16 / 1 Q8_0 / 2 Q4_0）、`generate`（`id` を渡す）、`cancel`、`unload`、`saveState` / `loadState`（KV キャッシュのファイル保存。6.2）。
 - イベント：`{id, type: piece|done|error, text/reason/message}`。1 本のストリームを、`id` で振り分ける。
-- 端末情報と APK のインストールは `ai.arce.app/system`（`memory`、`freeStorage`、`soc`、`canInstall`、`requestInstall`、`install`、`baseApk`、`startForeground`、`stopForeground`）。
+- 端末情報と APK のインストール、Linux 環境は `ai.arce.app/system`（`memory`、`freeStorage`、`soc`、`canInstall`、`requestInstall`、`install`、`baseApk`、`startForeground`、`stopForeground`、`prootCheck`、**`linuxStatus`・`linuxInstall`・`linuxRun`・`linuxRemove`・`workspaceClear`**（0.12.0））。子プロセスを使うもの（`prootCheck`、Linux 環境）は、メインスレッドで呼ばない。
 - **前面サービス**（`GenerationService`、通知つき。システムにプロセスを止められにくくする）：返信の生成、アプリの更新のダウンロード、モデルのダウンロードの 3 つの種類。MANIFEST は `foregroundServiceType="dataSync"`。
 - llama.cpp の JNI（`arce_llama.cpp`）は Kotlin 版のまま。JNI の関数名がパッケージ名（`ai.arce.app.engine.LlamaNative`）に結びついているので、**このパッケージ名を変えない**。
 - `applicationId` は `ai.arce.app`、最小は Android 12（API 31。「最新から 5 年前まで」の決定）、`targetSdk` は最新。native library は 16KB ページに対応してリンクする（Android 15 以降の端末向け）。
@@ -261,8 +261,8 @@
 ## 8. 設定の方針：機密情報以外は全て設定できる
 
 - **設定できないのは機密情報だけ**：API キー、GitHub トークン、MCP トークン、検索 API のキー。これらは安全な領域（`flutter_secure_storage`）に置き、設定の JSON・バックアップ・チャットのどこにも出さない。プロバイダの追加ヘッダーに `Authorization` や `x-api-key` のような（機密になりうる）名前は書けない。
-- **それ以外は全て、設定画面から変えられる**。上限・タイムアウト・件数・サンプリング・プロンプト・モデルの選択・プロバイダのヘッダーとボディ。**コードに固定の数字を足すときは、設定も足す**。これまで固定だった値の例：添付（ファイル数・文字数・画像の MB）、検索結果の件数、通信・MCP・オンラインモデルのタイムアウト、ツールの繰り返し検出、更新ダウンロードの試行回数と無通信の判定、DRY。
-- **チャットからも変えられる**（`update_settings`。変更はカードで見せ、承認してから反映）。対象は `AgentSettings.specs`（`lib/core/settings_spec.dart`）。チャットから変えさせないものは `blocked`（`lastModelPath`・`updateRepo`・`kvCache`）に理由つきで置く。プロバイダーは、**チャットからは追加だけ**できる（7.5）。
+- **それ以外は全て、設定画面から変えられる**。上限・タイムアウト・件数・サンプリング・プロンプト・モデルの選択・プロバイダのヘッダーとボディ。**コードに固定の数字を足すときは、設定も足す**。これまで固定だった値の例：添付（ファイル数・文字数・画像の MB）、検索結果の件数、通信・MCP・オンラインモデルのタイムアウト、ツールの繰り返し検出、更新ダウンロードの試行回数と無通信の判定、DRY、**Linux 環境（0.12.1 で設定にした。15 章）**。
+- **チャットからも変えられる**（`update_settings`。変更はカードで見せ、承認してから反映）。対象は `AgentSettings.specs`（`lib/core/settings_spec.dart`）。チャットから変えさせないものは `blocked`（`lastModelPath`・`updateRepo`・`kvCache`・`errorReportEnabled`・`errorReportRepo`・**`shellConfirm`・`linuxRootfsUrl`・`linuxRootfsSha256`**）に理由つきで置く。プロバイダーは、**チャットからは追加だけ**できる（7.5）。
 - **設定の読み書きの道具**（0.5.x）：
   - `get_settings`：変更できる設定を、現在値・ラベル・選択肢（日本語ラベル付き）・範囲つきで返す。プロバイダ構成・モデル一覧・MCP サーバー（URL・有効/無効・ツール名）・検索 API（名前・URL の `?` より前・有効か・キーの有無）も読める。**キーとトークンは伏せる**。承認は不要。
   - `update_settings`：1〜6 件の変更を提案し、**承認するまで何も書かない**（毎回）。承認待ちは `UiMessage.settings` として会話に保存され、再起動しても残る。適用は `withSettings(current, changes)` が JSON に書いて `AppSettings.fromJson` に型を決めさせるだけ（キーごとのコードは無い）。モデルに返す文には、いま何になったか（`theme=ダーク` など）と、「次にモデルを読み込んだときから有効」な項目（`contextLength` など）を入れる。
@@ -298,11 +298,11 @@
 - **設定**：オン/オフ、プランナーモデル、開発モデル、タスクの最大数（既定 4。超えた分は断り、プランナーに伝える）、同時数（既定 3）、書き直しの回数（既定 1。0 で「直させない」とプランナーに伝える。伝えるだけで、数えて止めはしない。暴走は「ツール呼び出しの上限」と「同じ道具を同じ引数で繰り返す」で止まる）、開発モデルの最大トークン（**0 ＝ 自動**。モデルの推奨と上限に合わせる。推奨が無ければ 16384）、プランナーが読む結果の長さ（既定 12000 文字/件。ユーザーには全部見せる）。チャットの入力欄に「分担」ボタン。**0.9.x にあった「設計モデルの最大トークン」は無くした**（プランナーの返信は、ふつうの返信と同じ設定で決まるため）。
 - 実装：`lib/core/coding_plan.dart`（設定とプロンプト）、`lib/core/protocol.dart`（`delegate` の道具と読み取り）、`lib/ai/roles.dart`（`RoleModel`・`ProviderRole`・`LocalRole`・`ConcurrencyGate`）、`lib/ai/delegation.dart`（`DelegateRunner`）、`AppController`（`_plannerEngine`・`_SessionToolRuntime`）。
 - **未確認**：実際のモデルで、プランナーが `delegate` を適切に呼ぶか（小さいモデルは JSON の引数を崩しやすい。オンラインの高性能なモデル向き）、`revise` の往復、開発モデルの出力が長いときのユーザーへの見え方。
-- 既知の制限：トークンの使用量・費用の表示はまだない。Coding エージェントには、ファイルを読み書きする道具が無い（MCP でつなぐか、アプリに足す。未対応）。開発モデルは 1 つ（複数の開発モデルを使い分ける指定は、まだ無い）。
+- 既知の制限：トークンの使用量・費用の表示はまだない。Coding エージェントには、ファイルを読み書きする道具が無い（MCP でつなぐか、アプリに足す。**0.12.0 で `run_command` が入ったので、Linux 環境の中なら書ける**）。
 
 ---
 
-## 10. 外部との連携：MCP・Kaggle・検索・エラーの報告
+## 10. 外部との連携：MCP・Kaggle・検索・エラーの報告・GitHub Actions
 
 ### 10.1 MCP（外部ツール。0.6.0 → 複数サーバー 0.8.0）
 
@@ -315,11 +315,13 @@
 
 - **道具の結果がファイルのとき**（0.9.8）：以前は結果の `text` だけを読み、画像などだけの結果は、結果の JSON 全体（base64 を含む）をそのままモデルに渡していた。いまは `McpClient.describeResult` が読む：`text` はそのまま。`resource`（結果の中のファイル）は、テキストなら中身（`[file: アドレス (種類)]` の下に）、バイナリなら説明だけ。`resource_link` は名前とアドレス。`image` / `audio` は種類と大きさだけ（**バイト列は渡さない**。モデルは読めず、何十万文字ものトークンになる）。`content` が無ければ `structuredContent`。全体は設定「MCP の結果の上限」（`mcpResultMaxChars`、既定 30000 文字）で切り、何文字省いたかを書く。**画面には出さない**：ファイルそのものを表示・保存する機能は無い（画像の表示は未対応）。
 
+- **文字化けの修正（0.12.1）**：MCP の応答を `response.body` で読んでいた。`package:http` は応答の `Content-Type` に charset が無いと **Latin-1 で復号する**ので、GitHub の MCP サーバー（`application/json` を charset 無しで返す）の、ファイルの中の日本語が全部化けた（AI が読むと `ã‚µãƒ¼ãƒãƒ¼` のようになる）。`_request` は `utf8.decode(response.bodyBytes, allowMalformed: true)` で読む。同じ理由で、`lib/core/http_get.dart` の GET も UTF-8 固定にした（POST は先に直っていた）。**未確認**：直ったことを確かめたのは、0.12.0 を入れた端末のアプリから（`settings_spec.dart` の日本語が正しく読めた）。GitHub 以外のサーバーでも同じ。
+
 ### 10.2 Kaggle（0.8.17）
 
 - Kaggle には**公式の MCP サーバー**がある（URL `https://www.kaggle.com/mcp`、Kaggle のブログによる）。道具の分野：ノートブック（管理・実行の開始と中止・出力）、コンペ（検索・メタデータ・データ・提出）、データセット、モデル、ベンチマーク。アプリはこの MCP で、Kaggle の機能をまとめて使う。トークンは、Kaggle の設定 → API の「Generate New Token」。
 - **未確認**：認証の方式。第三者の表では「OAuth 2.0 またはトークン、`npx mcp-remote` が必要」とある。アプリの MCP は**ベアラートークンだけ**で、ブラウザで承認する OAuth の流れには非対応。Kaggle のトークンがベアラーとして受け付けられるかは、実際に「確認」を押して確かめる必要がある。受け付けなければ OAuth への対応が要る。Kaggle の道具の実際の名前も未確認。
-- **GPU の操作**：公式 MCP にノートブックの実行の道具があるかは未確認。アプリ内のモデルが `kaggle` コマンドを実行するには、アプリ内の Linux 環境（15 章）が要る。ほかの道：Raspberry Pi 5 に Kaggle 操作用の小さな MCP サーバーを置く、アプリに Kaggle の REST API を直接叩く道具を足す。
+- **GPU の操作**：公式 MCP にノートブックの実行の道具があるかは未確認。アプリ内のモデルが `kaggle` コマンドを実行するには、アプリ内の Linux 環境（15 章）が要る（**0.12.0 で使えるようになった。未検証**）。ほかの道：Raspberry Pi 5 に Kaggle 操作用の小さな MCP サーバーを置く、アプリに Kaggle の REST API を直接叩く道具を足す。
 - まだ：Kaggle Models から**モデルのファイルを直接ダウンロードして端末で動かす**こと（いまのモデル一覧は Hugging Face。`kagglehub` のファイルの取り方が必要）。
 
 ### 10.3 オンライン検索（0.8.6〜0.8.12）
@@ -343,6 +345,16 @@
 - **注意**：公開リポジトリの Issue は誰でも読める。メッセージにプロバイダのホストとモデル名が入る。非公開にしたいときは、送り先を非公開のリポジトリにする。
 - 出典：Issues の作成 https://docs.github.com/en/rest/issues/issues#create-an-issue ／ コメントの作成 https://docs.github.com/en/rest/issues/comments#create-an-issue-comment ／ fine-grained のトークンの権限 https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens ／ レート制限 https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api ／ Flutter のエラー処理 https://docs.flutter.dev/testing/errors
 - **未確認**：実際の GitHub への送信（テストは HTTP の応答を差し替えたもの）。トークンの権限が足りないときの応答、実機で捕まえ損ねたエラーが受け口に届くこと。
+
+### 10.5 GitHub Actions の読み取り（`ci_status`、0.12.0・0.12.1）
+
+- きっかけ：CI の赤を直すたびに、利用者が失敗したステップを写して渡していた。アプリに登録している GitHub の MCP サーバー（`api.githubcopilot.com/mcp/`）には **Actions の道具が無い**（トークンに全権限を渡していても、サーバーが公開していないため出てこない）。そこで、アプリ自身の道具として足した。
+- `lib/services/ci_client.dart`：GitHub REST の `/repos/{owner}/{repo}/actions/runs`（`per_page`、`branch`）と `/actions/runs/{id}/jobs` を読むだけ（**書き込みはしない**）。`CiRun`（名前・イベント・ブランチ・短い SHA・状態・結論・URL）と、`CiJob`（状態・結論・**失敗したステップの名前**）。
+- 道具 `ci_status`：引数 `repository`（既定は `keusidan/arce.ai`）・`branch`・`limit`（既定 10）・`run_id`。`run_id` を渡すとその実行のジョブと失敗したステップを返す。**読み取りだけなので、確認カードは出さない**。道具名は `mcp_` で始まらないので、MCP の道具と衝突しない。`ToolCallParser` は `run_command` と同じく、`McpCall` として扱って `McpTools` に渡す。
+- トークン：`AppController._ciToken` が、**GitHub の MCP サーバーに入れてあるトークンをそのまま使う**（`id`/`name` が github、または URL が `githubcopilot.com` / `api.github.com`）。見つからなければ空で、**公開 API**（未認証）で読む（公開リポジトリなら足りる）。
+- 応答は **UTF-8 で復号する**（10.1 と同じ理由。GitHub は charset を付けない）。
+- **未確認**：`Actions: Read` が無いトークンで 403 になるときの文言（`HTTP 403（トークンの権限に Actions: Read があるか確かめてください）` を出す）、非公開リポジトリでの動作（未認証では読めない）、実機での表示。
+- なぜ MCP のサーバーを替えないか：Copilot 版の MCP には Actions が無く、セルフホストの `ghcr.io/github/github-mcp-server` にはあるが、この環境からは確かめられていない。アプリ側に 1 つの道具を足すほうが小さく済む。
 
 ---
 
@@ -472,7 +484,10 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - Flutter SDK はセッションの作業用フォルダ（一時）に置く。消えていたら `storage.googleapis.com/flutter_infra_release/releases/stable/linux/` の stable の tar.xz から取り直し、`git config --global --add safe.directory '*'` を行う。ローカルで `flutter pub get` を走らせると `pubspec.lock` が変わるので、コミットしない（`git checkout -- pubspec.lock`）。
 - Linux でビルド・画面確認するには `apt install clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev xvfb xdotool imagemagick fonts-noto-cjk`。画面は `xvfb-run` で起動し、`xdotool` で操作して `import -window root` で撮れる。
 
-**以前のセッションの環境（変わりうる）**：作業場所が aarch64 の proot の Ubuntu で、Flutter SDK が動かず（arm64 版が無く、x86_64 版は qemu でも `flutter_tools.snapshot` が Illegal instruction）、`flutter analyze` / `flutter test` は CI を検証手段にしていた。純 Dart のファイル（`lib/data`、`lib/ai`、`lib/core` の一部）は、小さな作業用パッケージにコピーして `package:flutter_test` を `package:test` に置換すれば、手元の `dart analyze` / `dart test` で回せた。GitHub API は未認証だと 1 時間 60 回で、ポーリングで使い切ったことがある。ジョブログは読めなかった（403）が、アノテーション（`/check-runs/{id}/annotations`）は読め、`::error::` を出すとアノテーションになる。
+**他のセッションの環境（変わりうる）**：
+- 2026-10-28 のアプリ内のモデル（Fireworks の DeepSeek）のセッション：GitHub の MCP で `create_or_update_file` を呼び、利用者のトークンで `ccr-a6840a49-5h2ce5` にコミットを積んだ。ファイルを 1 つずつ取り、全文を履歴に載せるのでトークンを使う。CI の失敗に気づけず（MCP に Actions の道具が無い）、`flutter analyze` のエラーを残した（0.11.2 で直した）。
+- 2026-10-28 の私（この文書を書いたセッション）の環境：Ubuntu 24.04（aarch64 の proot）の中に Flutter は無く、シェルを実行する道具も無い。`flutter analyze` / `flutter test` は GitHub Actions を唯一の検証手段にし、結果は利用者に貼ってもらった。GitHub の MCP の応答は、0.12.1 までは**Latin-1 で復号されて化けて**見えた（10.1 の修正で、0.12.0 を入れた後に直った）。
+- 以前のセッション：作業場所が aarch64 の proot の Ubuntu で、Flutter SDK が動かず（arm64 版が無く、x86_64 版は qemu でも `flutter_tools.snapshot` が Illegal instruction）、`flutter analyze` / `flutter test` は CI を検証手段にしていた。純 Dart のファイル（`lib/data`、`lib/ai`、`lib/core` の一部）は、小さな作業用パッケージにコピーして `package:flutter_test` を `package:test` に置換すれば、手元の `dart analyze` / `dart test` で回せた。GitHub API は未認証だと 1 時間 60 回で、ポーリングで使い切ったことがある。ジョブログは読めなかった（403）が、アノテーション（`/check-runs/{id}/annotations`）は読め、`::error::` を出すとアノテーションになる。
 
 ---
 
@@ -484,8 +499,11 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - Android の APK が GitHub Actions 上でビルド・署名の検証・公開まで通る（現在は約 7 分、ccache 有効）。
 - Kotlin のエンジンと橋渡しは、Android と Flutter の API だけ stub にしたコンパイルで型検査。C++（`arce_llama.cpp`）は、固定した llama.cpp のコミットのヘッダに対して `g++ -Wall -fsyntax-only` が警告なしで通る。
 - リリースのパッチ（実際の Release で、v0.8.18 / v0.8.19 に付いている）と、`bsdiff4` が作ったパッチを Dart が適用できること。
+- 0.12.0・0.12.1 の `flutter analyze` が CI で緑（0.12.1 は 2026-10-28）。0.12.0 を端末に入れた後、アプリ内のモデル（私）がこの文書と `settings_spec.dart` の日本語を**化けずに読める**こと（10.1 の修正が効いた）。
 
 **未確認（実機で確かめる必要がある）**
+- **0.12.0・0.12.1 の Linux 環境（`run_command`）**：実機での rootfs のダウンロード・展開・`bash` の起動、`apt`・`pip`・`git`・`kaggle` の動作、`/proc` の bind、ハードリンクの作成（SELinux）、シェル（`-c`）の文字列の渡し方（`ShellRunner` は 1 つの引数として渡す。`-c` を 2 つの引数で渡すと最初の語しか実行されない）、時間の上限と容量の上限、承認カードの見え方。`run_command` は **MCP の道具として扱っている**（名前 `run_command`、`McpCall`）ので、**`_SettingsToolRuntime` の `McpCall` の分岐を通る**（`McpTools` が `run_command` を実行する）。`Flutter` からの `linuxRun` が返る形（`exit`・`stdout`・`stderr`・`truncated`・`killedBy`・`elapsedMs`・`workspaceBytes`）。
+- **`ci_status`**：実機・実トークンでの表示（10.5）。
 - 0.9.0 の、実際のオンラインのモデルとの往復：フォールバックが 403・429 で本当に切り替わるか、トークンの事前チェックの見積もり（実トークン数との差）、OpenRouter 形の思考のリクエスト、Gemini の思考（OpenAI 互換の応答に思考が出るか）、モデル一覧の自動取得。
 - 実機の Android での、モデルの読み込みと推論、KV キャッシュの保存・復元、前面サービス、差分更新、ダウンロードの速度（複数接続で速くなるか。接続数 1 と 8 の比較の結果は未報告）、他のアプリを開いても続くか、チャットの見え方（長い返信、コードのカードの幅、文字 200% のときの設定画面）、3 ボタンのナビゲーションバーでの編集画面の余白。
 - 0.9.1 の proot を、実機で起動できるか（設定の確認ボタン）。0.9.2 の Markdown の見え方（実機。テストは構造と例外のみで、見た目の確認は未）。
@@ -498,13 +516,13 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 **未対応・今後**
 - Kotlin 版にあった Python / Java の実行とビルド（サンドボックス）、WorkManager による更新の通知は、Flutter 版に移していない。Android 以外の推論（llama.cpp を FFI で各 OS に入れるなど）。iOS の署名と TestFlight、macOS の公証、Windows のコード署名。
 - 履歴の画像の保存、送信前プロンプトのプレビュー（機能拡張の草案 P2）、使用量・費用の記録（`prompt_tokens` / `completion_tokens` / `cost_micros`。列はあるが書いていない）。
-- アプリ内の Linux 環境（15 章）、OAuth の MCP、Kaggle Models の直接ダウンロード、アプリを消している間も続くダウンロード、Coding エージェントのファイルの読み書きの道具。
+- アプリ内の Linux 環境の残り（**対話ターミナル**。`kaggle` の導入手順。15 章の段階 4）、OAuth の MCP、Kaggle Models の直接ダウンロード、アプリを消している間も続くダウンロード、Coding エージェントのファイルの読み書きの道具（Linux 環境の外の話）。
 
 ---
 
 ## 15. 設計メモ：アプリ内の Linux 環境（proot）
 
-状態：**段階 1（proot のビルドと APK への同梱）まで。段階 2・3 の Kotlin の部品は `dfcf967` に入ったが、アプリには接続しておらず、未検証。残りの依頼書は 19.5**（2026-10-28）。アプリ（`lib/`・`android/`）には、まだ proot・rootfs のコードは入っていない。CI で proot が arm64 向けにビルドできることは確認した（15.7）。機能拡張の草案の P7「エージェント環境」の続き。利用者の決定（2026-10-26）：**rootfs は Ubuntu を使ってよい。このままの方針で進める。**
+状態：**段階 1〜3 が 0.12.0・0.12.1 で入った**（2026-10-28）。proot は APK に同梱し（15.9）、rootfs（Ubuntu Base 24.04.5）のダウンロード・展開・仕上げ（`LinuxEnv.kt`）と、モデルから呼べる `run_command`（承認カードつき）が動く。**ワークスペースは全チャット共通で、上限は設定 `workspaceLimitMb`（既定 2048 MB）**。設定 10 項目と設定画面の「Linux 環境」カードも入った（19.4 の 06:xx、17 章の 0.12.0・0.12.1 の行）。**未検証**：実機での動作（14 章）。段階 4（対話ターミナルと `kaggle` の導入手順）はまだ。機能拡張の草案の P7「エージェント環境」の続き。利用者の決定（2026-10-26）：**rootfs は Ubuntu を使ってよい。このままの方針で進める。**
 
 ### 15.1 目的
 
@@ -519,39 +537,39 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | Termux は自前の fork（`termux/proot`、版 5.1.107.101、GPL-2.0）を、libtalloc と libandroid-shmem を付けてビルドしている。loader は実行のたびに展開せず別ファイルとして置く（`PROOT_UNBUNDLE_LOADER`） | 確認済み | [termux-packages の proot/build.sh](https://raw.githubusercontent.com/termux/termux-packages/master/packages/proot/build.sh) |
 | RikkaHub は proot の本体と loader を `.so` の名前で同梱し、rootfs をダウンロードして展開する。ライセンスは AGPL-3.0 | 前の調査で確認（GitHub の画面の要約） | [rikkahub/rikkahub](https://github.com/rikkahub/rikkahub) |
 | NDK 29 で proot（Termux の fork v5.1.107.101）を arm64 向けにビルドできる。`libproot` は約 270 KiB、loader は約 17 KiB。依存は `libc.so` と `libdl.so` だけ（libtalloc は静的に入れた）。16KB ページに揃っている | **確認済み**（`proot-build.yml` の実行。15.7） | CI の実行 |
-| Ubuntu の rootfs（aarch64）の配布元・URL・版・SHA-256 | **未確認**（この環境から配布元に届くか未検証。Alpine の公式サイトには届かなかった） | — |
+| Ubuntu の rootfs（aarch64）の配布元・URL・版・SHA-256 | **確認済み**（19.5 のとおり。Ubuntu Base 24.04.5、29,936,675 バイト、SHA-256 `a91d5a93…`） | 実際にダウンロードして計算 |
 | proot が実機（Android 12 以降、各メーカーの seccomp 設定）で動くか | **未確認** | — |
 | `useLegacyPackaging = true`（`.so` を APK の中で圧縮し、インストール時に端末へ展開する）にしたときの APK サイズ・端末内のサイズ・差分更新のパッチの大きさ | **測定済み**（15.8。APK は 131 MB → 68 MB、端末内の合計は約 117 MB で今より小さい、パッチは 1.1 MB → 5.9 MB） | `proot-package.yml` の実行 |
 
 ### 15.3 設計
 
 ```
-モデル --(tool: run_command)--> ShellTool --(MethodChannel)--> Kotlin: ProotRunner
-                                                                   |
-                                  nativeLibraryDir/libproot.so  <--+   (APK に同梱した実行ファイル)
-                                  filesDir/workspace/rootfs/        (ダウンロードして展開)
-                                  filesDir/workspace/home/          (/workspace として見せる)
+モデル --(tool: run_command)--> McpTools._runShell --> LinuxEnvironment --(MethodChannel)--> Kotlin: SystemBridge
+                                                                                          └ LinuxEnv.run
+                                  nativeLibraryDir/libproot.so  <--   (APK に同梱した実行ファイル)
+                                  filesDir/linux/rootfs/            (ダウンロードして展開)
+                                  filesDir/workspace/               (/workspace として見せる。全チャット共通)
 ```
 
 - **実行ファイル**：proot 本体と loader を `libproot.so`、`libproot_loader.so` の名前で `jniLibs/arm64-v8a/` に置き、起動時は `nativeLibraryDir` から `ProcessBuilder` で実行する。
-- **rootfs**：初回に利用者が「Linux 環境を入れる」を押したとき、既存の `FileDownloader`（再開・複数接続・SHA-256 検証）でダウンロードし、Kotlin 側で展開する。APK には入れない。**Ubuntu**（`pip` や `apt` が使いやすい。容量は Alpine より大きい）。
+- **rootfs**：初回に利用者が「Linux 環境を入れる」を押したとき（または最初の `run_command` のとき）、既存の `FileDownloader`（再開・複数接続・SHA-256 検証）でダウンロードし、Kotlin 側で展開する。APK には入れない。**Ubuntu**（`pip` や `apt` が使いやすい。容量は Alpine より大きい）。
 - **展開**：`..` や絶対パスを含む名前は拒否する。シンボリックリンクが展開先の外を指さないか確かめる。
-- **仕上げ**：`/etc/resolv.conf`（公開 DNS）、`/etc/hosts`、`/etc/hostname`、ロケールを書き込む。
-- **実行**：`proot --kill-on-exit --link2symlink -r <rootfs> -w <cwd> -b <home>:/workspace` の中で、`env -i` で環境を空にしてからシェルを起動する。標準出力・標準エラー・終了コードを別々に返す。127 は「proot または rootfs が使えない」。
-- **互換モード**：端末の seccomp で起動に失敗したとき `PROOT_NO_SECCOMP=1` で再試行する（設定で切り替え可）。
+- **仕上げ**：`/etc/resolv.conf`（設定の DNS）、`/etc/hosts`、`/etc/hostname`、`/etc/apt/apt.conf.d/99arce`（`APT::Sandbox::User "root";`）、`/workspace`、`/tmp`。
+- **実行**：`proot --kill-on-exit --link2symlink -0 -r <rootfs> -b /dev -b /proc -b <workspace>:/workspace -w <cwd> /usr/bin/env -i HOME=/workspace/home PATH=… LANG=C.UTF-8 TERM=dumb TMPDIR=/tmp SHELL=/bin/bash /bin/bash -c <command>`。標準出力・標準エラー・終了コードを別々に返す。127 は「proot または rootfs が使えない」。
+- **互換モード**：端末の seccomp で起動に失敗したとき `PROOT_NO_SECCOMP=1` で再試行する（設定 `shellCompatMode`）。
 - **proot の入手**：`termux/proot` の特定の版（タグ）を**サブモジュール `third_party/proot` に固定**し、CI で**ソースからビルド**して `.so` として APK に入れる（libtalloc は、apt が署名を確認する Ubuntu のソースパッケージからビルドする）。出所がソースまで辿れ、GPL のソース提供がリポジトリで済む。Termux の配布 `.deb` から取り出す案は、バイナリの出所が第三者になり、方針（公式の一次情報だけを土台にする）に合わないので採らない。
-- **パッケージングへの影響（測定済み。15.8）**：`android/app/build.gradle.kts` は `useLegacyPackaging = false`（`.so` を無圧縮で APK に置き、APK から直接読み込む）。この設定だと `nativeLibraryDir` に実ファイルが展開されず、`execve()` できない。実行ファイルを使うには `useLegacyPackaging = true`（`extractNativeLibs`）が要るが、llama.cpp の `.so` も展開されて端末内の容量が増える。asset に入れて起動時にコピーする方法は、上の W^X の制限で `execve()` できないので使えない。測定した（15.8）。
+- **パッケージングへの影響（測定済み。15.8）**：`android/app/build.gradle.kts` は `useLegacyPackaging = true`（`.so` をインストール時に端末へ展開する。`execve()` には実ファイルが要るため。15.8 のとおり、端末内の合計は今より小さくなる）。
 
 ### 15.4 安全面
 
 モデルが shell を実行できるようになるため、次を設定にし、既定は厳しくする（8 章の方針）。
 
-- 確認カード：既定は毎回確認する（`run_command` は任意のコマンドなので、単語判定では足りない）。確認カードには、モデルの説明ではなく、実際のコマンドを表示する。
+- 確認カード：既定は毎回確認する（`shellConfirm`。チャットからは変えられない）。確認カードには、モデルの説明ではなく、**実際のコマンド**を表示する（`ToolApproval.tile` が `$ command`・場所・上限の秒数を出す）。
 - 作業フォルダ：`/workspace` だけが端末のファイルに繋がる。アプリの他のデータ（設定、API キー、DB）は見せない。
-- 時間の上限と出力の上限（設定項目）。
-- ネットワーク：rootfs の中は端末の回線で外に出られる。通信を止める設定を用意する（既定は許可。`kaggle` などに必要）。
-- API キー・MCP の token は rootfs に渡さない。Kaggle の token は、利用者が確認カードを見て、環境変数として明示して渡す。
-- 外部の文章（検索結果、MCP の返答）に書かれた命令では実行しない。
+- 時間の上限と出力の上限（設定項目：`shellTimeoutSeconds`・`shellMaxTimeoutSeconds`・`shellMaxOutputChars`）。
+- ネットワーク：rootfs の中は端末の回線で外に出られる。**止める設定は作っていない**（proot にその機能が無く、作れない）。既定は許可。
+- API キー・MCP の token は rootfs に渡さない。Kaggle の token は、利用者が確認カードを見て、環境変数として明示して渡す（未実装。段階 4）。
+- 外部の文章（検索結果、MCP の返答）に書かれた命令では実行しない（プロンプト側の指示。**技術的には止めていない**）。
 
 ### 15.5 ライセンス
 
@@ -566,10 +584,10 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | 段階 | 内容 | 検証 |
 |---|---|---|
 | 1a | CI で proot をビルドする（`proot-build.yml`） | **完了**（15.7） |
-| 1b | `useLegacyPackaging` の影響を測る（**完了**、15.8）。Android のビルドで proot を `jniLibs` に入れ、`useLegacyPackaging` を有効にする（**0.9.1 で実装**、15.9）。起動の確認は、設定の「Linux 環境（試験）：proot の確認」ボタン | CI が APK の中身を検査する。実機での起動は利用者の確認が要る |
-| 2 | rootfs（Ubuntu）のダウンロード・展開・仕上げ（Kotlin）と、設定画面の「Linux 環境」 | 展開のテストは単体で。実機での起動は利用者の確認が要る |
-| 3 | `run_command` ツール（確認カード、時間・出力の上限、設定項目、`AgentSettings` との対応） | Dart の単体テスト |
-| 4 | 対話ターミナル、`kaggle` の導入手順（`pip install kaggle`） | 実機 |
+| 1b | proot を `jniLibs` に入れ、`useLegacyPackaging` を有効にする | **完了**（0.9.1、15.9） |
+| 2 | rootfs（Ubuntu）のダウンロード・展開・仕上げ（Kotlin）と、設定画面の「Linux 環境」 | **完了**（0.12.0・0.12.1。実機は利用者の確認待ち） |
+| 3 | `run_command` ツール（確認カード、時間・出力の上限、設定項目、`AgentSettings` との対応） | **完了**（0.12.0・0.12.1。Dart のテストと CI は緑。実機は利用者の確認待ち） |
+| 4 | 対話ターミナル、`kaggle` の導入手順（`pip install kaggle`） | まだ |
 
 各段階は、1 つのバージョンとして出す。Android 以外は影響を受けない（他の OS は `run_command` を出さない）。
 
@@ -606,8 +624,21 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - **入れ方**（利用者の案「ビルドのあとにソースを直接コピーしてリンクする」のとおり）：`release-android.yml` の `android` ジョブが、ローカルアクション `.github/actions/proot`（15.7）で proot をビルドし（サブモジュールのコミットでキャッシュ）、`libproot.so` と `libproot_loader.so` を `android/app/src/main/jniLibs/arm64-v8a/` にコピーしてから `flutter build apk` を行う。`jniLibs/` は `.gitignore` に入れてあり、リポジトリには入らない（ローカルのビルドでは入らず、アプリは「proot なし」と表示する）。x64 の APK（エミュレータ向け）には入らない。
 - **`useLegacyPackaging = true`**（`android/app/build.gradle.kts`）：`.so` をインストール時に `nativeLibraryDir` へ取り出す。Android 10 以降はアプリのデータ領域のファイルを実行できないため、プログラムとして起動できるのは、この取り出された場所のファイルだけ。コストは 15.8 のとおり（APK 131 → 68 MB、端末のディスクに約 117 MB、差分パッチ 1.1 → 5.9 MB）。
 - **CI の検査**（`Check proot in the APK`）：APK の中に 2 つの `.so` があり、ビルドしたファイルとバイト単位で同じこと、`lib/` の `.so` がすべて圧縮されていること、マニフェストが `extractNativeLibs=true` であることを調べ、違えば赤にする。proot を CI で実行はしない（arm64 の bionic 向けで、runner では動かせない）。
-- **実機の確認**（`ProotProbe.kt`、設定 →「ローカルモデルの設定」→「Linux 環境（試験）」）：`libproot.so --version`、`libproot.so -r / /system/bin/echo ok`（rootfs なし。ptrace と seccomp が許されるかが分かる）を実行し、失敗したら `PROOT_NO_SECCOMP=1` でもう 1 回試して、終了コードと出力をそのまま画面に出す。環境変数 `PROOT_LOADER` に `libproot_loader.so` を指す（15.7）。何も変更しない。
-- **まだ確認していないこと**：上のボタンの結果（実機）。その結果で、段階 2（rootfs）に進むか、proot なしの方式に変えるかを決める。
+- **実機の確認**（`ProotProbe.kt`、設定 →「Linux 環境」→「proot の確認」）：`libproot.so --version`、`libproot.so -r / /system/bin/echo ok`（rootfs なし。ptrace と seccomp が許されるかが分かる）を実行し、失敗したら `PROOT_NO_SECCOMP=1` でもう 1 回試して、終了コードと出力をそのまま画面に出す。環境変数 `PROOT_LOADER` に `libproot_loader.so` を指す（15.7）。何も変更しない。
+- **まだ確認していないこと**：上のボタンの結果（実機）。
+
+### 15.10 段階 2・3 の実装：rootfs と `run_command`（0.12.0・0.12.1）
+
+- **構成**：モデル → `run_command`（`McpCall` として扱う）→ `McpTools._runShell` → `LinuxEnvironment`（`lib/services/linux_env.dart`）→ `MethodChannel('ai.arce.app/system')` の `linuxRun` → `SystemBridge` → `LinuxEnv.run`（Kotlin）。メインスレッドでは実行しない。
+- **rootfs**：`linuxInstall` が、ダウンロード済みの tar.gz のパス・SHA-256・DNS を受け取り、`TarGz` で `linux/rootfs.partial` に展開し、`finish`（resolv.conf・hosts・hostname・apt.conf.d/99arce・workspace・tmp）をしてから `linux/rootfs` に rename する。全部成功するまで、`linux/rootfs` には触らない。
+- **展開の上限**：`linuxInstall` の `maxBytes` は **0 で無制限**（Dart が 0 を渡す。Kotlin の `TarGz` は 0 以下を無制限と読む）。
+- **状態**：`LinuxEnvironment` は `ChangeNotifier`。未導入／ダウンロード中（割合）／展開中／使える／失敗。設定画面の `ListenableBuilder` がこれを見る（0.12.1）。
+- **容量**：`DiskUsage` が 4 KiB ブロック単位で測り、コマンドの実行中 2 秒ごとに、上限を超えかつ実行前より増えていたら止める（`killedBy = workspace`）。
+- **1 つずつ**：`LinuxEnv.run` は `synchronized`。複数のチャットが同時に頼むと順番待ち。
+- **設定（0.12.1）**：`shellEnabled`（道具を出すか）、`shellConfirm`（承認の要否。**チャットからは変えられない**）、`shellTimeoutSeconds`（120）、`shellMaxTimeoutSeconds`（600）、`shellMaxOutputChars`（20000）、`workspaceLimitMb`（**2048**）、`linuxRootfsUrl`・`linuxRootfsSha256`（**チャットからは変えられない**）、`linuxDns`（`1.1.1.1 8.8.8.8`）、`shellCompatMode`。`AppController._shellSettings` が毎回読み、`McpTools` の `ShellSettings` として渡す（道具の説明にも、上限とフォルダを書く）。
+- **設定画面（0.12.1）**：「Linux 環境」のグループ（Android だけ）。6 つの設定の行（スイッチ・秒数・文字数・容量）、「入れる」「削除」「空にする」（確認ダイアログ）、ワークスペースの使用量（`123 MB / 2048 MB`）、`ProotCheckRow`。
+- **同じ環境を共有**：チャットの道具と設定画面は、`McpTools.shellEnvironment`（1 つの `LinuxEnvironment`）を使う。`AppController.linux` がこれで、`AppController.create(linux: …)` でテスト用の偽物に差し替えられる。
+- **まだ**：段階 4（対話ターミナル、`kaggle` の導入手順）、実機での確認（14 章）。
 
 ---
 
@@ -623,7 +654,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 
 **送信前プロンプトプレビュー（未実装）の設計**：入力欄の目アイコン（長押しで「プレビューして送信」、設定「送信前に必ず確認する」）。ボトムシートの 3 タブ：概要（エージェント／プロバイダ／モデル／有効なツール／添付／推定トークンの内訳／コンテキスト上限に対する割合／「端末内」か「外部送信」か）、プロンプト（実際に渡る文字列。制御用ブロックを強調）、送信ペイロード（POST する JSON。認証情報はマスク）。**プレビューと本送信が同一の `PromptAssembler` と `buildRequest()` を通る**構造にする（別実装にすると必ず乖離するため）。プレビュー画面からの編集は入れない（「プレビュー＝送信内容」の保証が崩れるため）。トークン推定は概算であることを画面に明記する。
 
-フェーズ：P0 データ基盤（完了）→ P1 プロバイダ基盤（完了）→ P2 プロンプト基盤（プレビュー。未）→ P3 会話品質（マルチモーダル、Markdown 強化、プロンプト変数）→ P4 外部連携（検索・MCP は完了。Skills は未）→ P5 パーソナライズ（エージェント編集、メモリ、カード取込、QR、カスタムヘッダー）→ P6 生成系 → P7 環境（proot。15 章）。各フェーズのゲートは `flutter analyze` / `flutter test` / CI の APK ビルド。
+フェーズ：P0 データ基盤（完了）→ P1 プロバイダ基盤（完了）→ P2 プロンプト基盤（プレビュー。未）→ P3 会話品質（マルチモーダル、Markdown 強化、プロンプト変数）→ P4 外部連携（検索・MCP は完了。Skills は未）→ P5 パーソナライズ（エージェント編集、メモリ、カード取込、QR、カスタムヘッダー）→ P6 生成系 → P7 環境（proot。15 章。**0.12.0・0.12.1 で段階 3 まで完了**）。各フェーズのゲートは `flutter analyze` / `flutter test` / CI の APK ビルド。
 
 履歴 DB のスキーマ案（`conversations` / `messages` / `parts` / `assets` / `messages_fts`）と書き込み方針（送信時に 1 トランザクション、生成中は 500ms 間隔のドラフト、論理削除）は、6.1 の実装のもとになった（実装では drift ではなく `sqlite3` を直接使い、書き込みは「置き換え」にした）。
 
@@ -634,9 +665,9 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 利用者の企画書（`ARCE.AI企画書.txt` の前の版）に対して行った技術レビューの要点。決定事項は 2 章と各章に反映済み。
 
 - **配布方法**：GitHub 配布（Play Store には出さない）に決まり、端末上でのビルドの道が開けた。Play Store の自動更新が無いので、GitHub Releases の API で新しい版を確認し、署名鍵を管理する更新機能が要る（11 章）。Android の開発者確認制度（Google が 2026 年から段階的に導入。Play Store 以外の配布も、確認済みの開発者の署名が要る）は、日本で配るときまでに登録が要る可能性がある。
-- **サンドボックスの限界**：Android の権限はアプリ単位なので、同じアプリの中で動かしたコード（Chaquopy の Python、Termux 環境）は、モデル・履歴 DB・トークンを読み書きできる。本当に隔離できるのは `android:isolatedProcess="true"` の Service（承諾したファイルだけを `ParcelFileDescriptor` で渡す方式）か、別 APK（別 UID）だけ。「完全サンドボックス」ではなく、段階を分けて定義する（Artifact は WebView で強く隔離、生成コードは別プロセス＋専用の作業フォルダ＋実行前に承認で中程度）。WebView の機能を広げるときも `addJavascriptInterface` ではなく `WebViewCompat.addWebMessageListener` で、許可した origin と操作を 1 つずつ決める。
-- **Termux を使わない道**：決定は「Termux 関連は実装しない」。Termux のパッケージは `/data/data/com.termux/files/usr` を前提にビルドされているので、別アプリでは動かない（自前のビルドが要る）。Termux のアプリ本体のコードは GPLv3。代わりの方法として、APK に `lib*.so` として同梱したプログラムは Android 10 以降も実行できるので、ECJ（Java のコンパイラ）→ D8 → aapt2（native 同梱）→ apksig（署名）を、アプリ内で順に呼ぶ独自のビルドを考えた（Gradle は使わない）。Python は Chaquopy（pip のパッケージはアプリのビルド時にしか入れられない）。EXE の生成は対象外（ソースコードの生成まで）。Flutter 版では、これらはまだ入っていない。
-- **JSON の方針**：「全出力を JSON に縛る」と、回答の質が下がる（「Let Me Speak Freely?」の報告）、Qwen3 の `<think>` と衝突する、ストリーミング表示が難しくなる、Artifact を JSON の文字列に入れるとエスケープで小さいモデルほど品質が落ちる。→ 文法は構造が必要な部分だけ（lazy grammar）、本文は Markdown、Artifact は「JSON のメタ情報＋ code fence の本体」。
+- **サンドボックスの限界**：Android の権限はアプリ単位なので、同じアプリの中で動かしたコード（Chaquopy の Python、Termux 環境）は、モデル・履歴 DB・トークンを読み書きできる。本当に隔離できるのは `android:isolatedProcess="true"` の Service（承諾したファイルだけを `ParcelFileDescriptor` で渡す方式）か、別 APK（別 UID）だけ。「完全サンドボックス」ではなく、段階を分けて定義する（Artifact は WebView で強く隔離、生成コードは別プロセス＋専用の作業フォルダ＋実行前に承認で中程度）。WebView の機能を広げるときも `addJavascriptInterface` ではなく `WebViewCompat.addWebMessageListener` で、許可した origin と操作を 1 つずつ決める。**0.12.0 の `run_command` も、この意味でのサンドボックスではない**（proot はパスを変えるだけ。15.4）。
+- **Termux を使わない道**：決定は「Termux 関連は実装しない」。Termux のパッケージは `/data/data/com.termux/files/usr` を前提にビルドされているので、別アプリでは動かない（自前のビルドが要る）。Termux のアプリ本体のコードは GPLv3。代わりの方法として、APK に `lib*.so` として同梱したプログラムは Android 10 以降も実行できるので、ECJ（Java のコンパイラ）→ D8 → aapt2（native 同梱）→ apksig（署名）を、アプリ内で順に呼ぶ独自のビルドを考えた（Gradle は使わない）。Python は Chaquopy（pip のパッケージはアプリのビルド時にしか入れられない）。EXE の生成は対象外（ソースコードの生成まで）。**0.12.0 の proot は、Termux のアプリを使わず、fork のソースを CI でビルドして入れる形なので、この決定に沿う**。
+- **JSON の方針**：「全出力を JSON に縛る」と、回答の質が下がる（「Let Me Speak Freely?」の報告）、Qwen3 の ` thinking` と衝突する、ストリーミング表示が難しくなる、Artifact を JSON の文字列に入れるとエスケープで小さいモデルほど品質が落ちる。→ 文法は構造が必要な部分だけ（lazy grammar）、本文は Markdown、Artifact は「JSON のメタ情報＋ code fence の本体」。
 - **Search**：複数方式を併用するなら、順番を決める（Raspberry Pi 5 の SearXNG → 別の検索 API → ローカルだけで続ける）。結果の重複をまとめる。
 - **Agent の自動選択**：選択自体が推論になり、1.7B クラスは間違えやすい。→ ルールで絞り、迷うときだけ AI。手動変更はいつでも可能。最低モデルサイズを満たさないときはユーザーに確認する。
 - **Force Execution**：メモリ不足で強制実行すると、LMK（Low Memory Killer）が捕まえられないまま終了させる。生成の状態を先に保存し、次の起動で「前回は強制実行中に終了した」と出せるようにする。
@@ -687,6 +718,8 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 | 0.11.0 | エラーの自動報告（GitHub Issue。隠す処理・方針・同じ問題は 1 件にまとめる・上限・待ち行列・専用トークン。10.4） |
 | 0.11.1 | 分担で思考が消える／返信が空で終わる不具合の修正と、返信の進み具合の表示（段階・思考の見出し・通信回数・時間。3 章） |
 | 0.11.2 | 「実行する」でアプリが落ちる不具合（前面サービスの開始と停止の競合。3 章）。proot の Linux 環境：Android 側の橋（`SystemBridge`）と Dart 側の `LinuxEnvironment`（アプリ内のモデルが GitHub に書いたものを直した。まだ呼ばれていない。15 章・19.5） |
+| **0.12.0** | **`run_command`（アプリ内の Linux 環境で 1 つずつコマンドを実行。承認カード、時間・出力・容量の上限、全チャット共通の `/workspace`）と `ci_status`（GitHub Actions の読み取り）。`Protocol.schemaVersion` を 5 に。rootfs（Ubuntu Base 24.04.5）の導入と展開（15.10）** |
+| **0.12.1** | **Linux 環境を設定にした（`shellEnabled`・`shellConfirm`・タイムアウト・出力の上限・`workspaceLimitMb`・rootfs の URL と SHA-256・DNS・互換モード）。設定画面に「Linux 環境」のカード（導入・削除・使用量・空にする・proot の確認）。MCP の応答と GET を UTF-8 で復号する修正（日本語の化け。10.1）。`ci_status` に GitHub サーバーのトークンを渡す** |
 
 ---
 
@@ -698,6 +731,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - アプリの署名：https://developer.android.com/studio/publish/app-signing ／ Keystore：https://developer.android.com/privacy-and-security/keystore ／ apksigner：https://developer.android.com/tools/apksigner
 - 16KB ページ：https://developer.android.com/guide/practices/page-sizes ／ 前面サービスの種類：https://developer.android.com/develop/background-work/services/fgs/service-types ／ 通知の権限：https://developer.android.com/develop/ui/views/notifications/notification-permission
 - isolatedProcess：https://developer.android.com/guide/topics/manifest/service-element#isolated ／ アプリのサンドボックス：https://source.android.com/docs/security/app-sandbox ／ 開発者確認：https://developer.android.com/developer-verification
+- 前面サービスの開始（`startForegroundService`）：https://developer.android.com/reference/android/content/Context#startForegroundService(android.content.Intent)
 - Flutter のビルドと配布：https://docs.flutter.dev/deployment ／ ビルド名・番号：https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration ／ flutter_secure_storage（macOS）：https://pub.dev/packages/flutter_secure_storage#macos ／ macOS の App Sandbox：https://developer.apple.com/documentation/security/app-sandbox
 
 **GitHub**
@@ -705,6 +739,7 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - `GITHUB_TOKEN` の権限（`workflows` の項目は無い。この環境から開けず中身は未確認）：https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication ／ 拒否の一次情報は、Actions の実行 37195030866 のログ（`X-Accepted-Github-Permissions: contents=write; contents=write,workflows=write`）
 - `save-always` は非推奨：https://github.com/actions/cache/blob/main/save/README.md
 - Releases API：https://docs.github.com/en/rest/releases/assets#get-a-release-asset ／ latest：https://docs.github.com/en/rest/releases/releases#get-the-latest-release
+- **Actions の実行一覧**：https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository ／ **ジョブ**：https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run （10.5 の `ci_status` が読む）
 - Secrets：https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions ／ `gh secret set`：https://cli.github.com/manual/gh_secret_set
 - ランナーのイメージ：https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
 
@@ -730,14 +765,17 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 **ダウンロード・更新**
 - Mathis ほか「The macroscopic behavior of the TCP congestion avoidance algorithm」（1997）：https://dl.acm.org/doi/10.1145/263932.264023 ／ HTTP の範囲要求（RFC 9110 §14）：https://www.rfc-editor.org/rfc/rfc9110.html#name-range-requests
 - Colin Percival, "Naive differences of executable code"（bsdiff）：https://www.daemonology.net/bsdiff/ ／ bsdiff4（Python）：https://github.com/ilanschnell/bsdiff4 ／ archive パッケージ（BZip2）：https://pub.dev/packages/archive
+- `package:http` の本文の復号（charset が無いときは latin1）：https://pub.dev/documentation/http/latest/http/Response/body.html
 
 **検索・Kaggle・MCP**
 - Brave Search API：https://api.search.brave.com/app/documentation/web-search/get-started ／ 認証：https://api-docs.search.brave.software/guides/authentication ／ Google Programmable Search：https://developers.google.com/custom-search/v1/overview
 - RikkaHub の検索サービスの一覧：https://github.com/rikkahub/rikkahub/tree/master/search/src/main/java/me/rerere/search ／ Tavily：https://help.tavily.com/articles/4840311948-tavily-search-api ／ Ollama：https://lzw.me/docs/ollama/zh-CN/capabilities/web-search.html ／ Perplexity：https://docs.perplexity.ai/guides/search-quickstart ／ Exa：https://docs.exa.ai/reference/getting-started-with-curl ／ 智谱：https://docs.bigmodel.cn/api-reference/%E5%B7%A5%E5%85%B7-api/%E7%BD%91%E7%BB%9C%E6%90%9C%E7%B4%A2.md ／ SearXNG：https://docs.searxng.org/
 - Kaggle の公式 MCP サーバー（ブログ）：https://www.kaggle.com/blog/kaggles-official-mcp-server ／ 公式のリモート MCP の URL の記載（第三者の README の要約）：https://github.com/Galaxy-Dawn/kaggle-mcp ／ Kaggle のコマンドライン：https://github.com/Kaggle/kaggle-cli/blob/main/docs/README.md ／ kagglehub：https://github.com/Kaggle/kagglehub
 
-**proot**
+**proot・Linux 環境**
 - [proot-me/proot](https://github.com/proot-me/proot) ／ [termux-packages の proot/build.sh](https://raw.githubusercontent.com/termux/termux-packages/master/packages/proot/build.sh) ／ [rikkahub/rikkahub](https://github.com/rikkahub/rikkahub)
+- **Ubuntu Base 24.04.5（arm64）**：https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ （`ubuntu-base-24.04.5-base-arm64.tar.gz`。15.10・19.5）
+- apt のサンドボックスのユーザー（`APT::Sandbox::User`）：https://manpages.ubuntu.com/manpages/noble/man5/apt.conf.5.html
 
 **設計レビュー（16.2）**
 - Termux の fork の注意：https://github.com/termux/termux-app#forking ／ パッケージのビルド：https://github.com/termux/termux-packages/wiki/Building-packages ／ Termux のライセンス：https://github.com/termux/termux-app/blob/master/LICENSE.md ／ termux-api：https://github.com/termux/termux-api
@@ -812,41 +850,36 @@ Android のビルドには `third_party/llama.cpp`（サブモジュール）と
 - **04:12**：「スクリプトが落ちます」（画像：アプリ内のモデル（Fireworks の deepseek-v4p1-flash）が、GitHub の MCP で `lib/services/linux_env.dart` を書き込む確認カード。引数が `{content: …, message: …, owner: …}` のまま全部出ている）→ 利用者は、19.5 の依頼書を**アプリ内のモデルに渡して実装させていた**（`e30a22a`＝`SystemBridge` の橋、`54f0c8c`＝`linux_env.dart` が、利用者の GitHub トークンで `ccr-a6840a49-5h2ce5` に入った）。「落ちる」は 2 つあった：CI の `flutter analyze` が `linux_env.dart` の 3 件で失敗（`prefer_initializing_formals`・`unused_field`・`unawaited_return_in_try_block`）、そして次の行のアプリの強制終了。→ 0.11.2 で直した。
 - **04:13**：「実行するを押した瞬間アプリごと落ちます」→ 前面サービスの開始と停止の競合（3 章の 0.11.2）。ツール自体は実行されていた（commit が入っている）。
 - **04:12 の分で見つかった、モデルが書いたコードの不具合（0.11.2 で直した）**：(1) Dart は「`maxBytes: 0` は無制限」として呼ぶが、Kotlin の `TarGz` は 0 を「全部拒否」と読んだ（導入が必ず失敗）。`LinuxEnv.install` で 0 以下を無制限にした。(2) `LinuxEnvironment.install` の最後の `refresh` が、導入中の状態を守る作りのため、**成功しても状態が「展開中」のまま**だった。(3) analyze の 3 件。単体テスト `test/services/linux_env_test.dart` を足した（偽の橋で、(2) を見つけた）。
+- **18:44**：「それなら最後までやってください」→ 依頼書の残り（設定・設定画面・docs・版）を、このセッションで最後まで実装した（0.12.1。`e9e2582`〜`536b286`。15.10）。
+- **18:48**：（CI の結果「成功です」）→ `flutter analyze` と `flutter test` が緑になった。
+- **18:54**：（「アップデートは済みました」）→ 0.12.1 を利用者が入れた。以降、私（アプリ内のモデル）の側で日本語が化けずに読めるようになった（10.1）。
 
 ### 19.5 保留・利用者の返事待ち・確認待ち
 
-#### 次の担当への依頼：0.12.0「proot で run_command を使えるようにする」（利用者の指示は 19.4 の 03:41）
+#### 次の担当への依頼（0.12.0 分）：**完了**（0.12.0・0.12.1）
 
-**頼まれたこと**：「まだprootのコマンド類が使えない」ので、アプリ内のモデルが proot の中でコマンドを実行できるようにする。**全チャット共通で 2GB のワークスペース**を用意する。プラットフォームは Android だけ（他の OS は変えない）。設計は 15.3・15.4（このリストが優先。15.3 の `-w` や HOME の書き方と違うところは下のとおり）。
+19.4 の 03:41 の依頼（「proot で `run_command` を使えるように」「全チャット共通の 2GB のワークスペース」）は、0.12.0 と 0.12.1 で実装済み。中身と決定は 15.10、未検証のことは 14 章。以下は、当時の依頼文（履歴として残す）。
 
-**すでに git にあるもの（`dfcf967`。Android のビルドには入るが、どこからも呼ばれていない。実行して確かめた結果はまだ無い）**：`android/app/src/main/kotlin/ai/arce/app/linux/` の `TarGz.kt`（tar.gz の安全な展開）、`DiskUsage.kt`（4 KiB 単位の容量・symlink を安全に消す）、`ShellRunner.kt`（時間・出力・入力・監視つきのプロセス実行）、`LinuxEnv.kt`（rootfs の導入・共有ワークスペース・proot の引数）。Android のクラスを使わないので、普通の JVM で動かして試せる。コンパイルは `kotlin-compiler-embeddable` 2.4.0 で通ることを確かめた。**最初にやること**：これらを、使い捨てのフォルダの中で、実物の Ubuntu Base で試す（下の「試すこと」）。**禁止**：`File.deleteRecursively()`、symlink をたどる削除（AGENTS.md。これで環境が壊れた）。
+<details><summary>当時の依頼書（折りたたみ）</summary>
 
-**やること**（1 と 2 は、アプリ内のモデルが書いた `e30a22a`・`54f0c8c` を 0.11.2 で直して済み。3 以降は、まだ無い）：
-1. Kotlin：`SystemBridge`（`ai.arce.app/system` のチャンネル）に `linuxStatus`・`linuxInstall`（rootfs の tar.gz のパス・SHA-256・DNS・展開の上限を受け取って `LinuxEnv.install`）・`linuxRun`（`LinuxEnv.run`）・`linuxRemove`・`workspaceClear` を足す。子プロセスを使うので、メインスレッドでは呼ばない（`prootCheck` と同じ形）。
-2. Dart：`lib/services/linux_env.dart`（チャンネルの薄い橋 `LinuxBridge` と、状態を持つ `LinuxEnvironment`。状態：未導入／ダウンロード中（割合）／展開中／使える／失敗）。ダウンロードは `FileDownloader.fetch`（再開・複数接続）で、`HEAD` で大きさを取り、SHA-256 を `FileDownloader.sha256Of` で確かめてから `linuxInstall` を呼ぶ。テストでは橋を偽物にする。
-3. 設定（`lib/services/settings.dart`・`lib/core/settings_spec.dart`・設定画面）。名前と既定値：`shellEnabled`（true）、`shellConfirm`（true。**毎回、実際のコマンドを見せて承認を取る**）、`shellTimeoutSeconds`（120）、`shellMaxTimeoutSeconds`（600。モデルが `timeout_seconds` で伸ばせる上限）、`shellMaxOutputChars`（20000）、`workspaceLimitMb`（**2048**）、`linuxRootfsUrl`、`linuxRootfsSha256`、`linuxDns`（`1.1.1.1 8.8.8.8`）、`shellCompatMode`（false。`PROOT_NO_SECCOMP=1`）。**チャットから変えられないもの（`blocked`。理由を書く）**：`shellEnabled`・`shellConfirm`（書き換えられると、確認なしでコマンドが走る）、`linuxRootfsUrl`・`linuxRootfsSha256`（別の rootfs を入れられる）、`linuxDns`。ほかは `AgentSettings` から変えられるようにする（AGENTS.md の約束）。
-4. 道具 `run_command`：引数 `command`（必須）・`cwd`（既定 `/workspace`）・`timeout_seconds`。**`McpCall` として扱う**のが差し込みやすい（`ToolCallParser` は許可された名前を `McpCall` にする。`McpTools` の名前は `mcp_` で始まるので衝突しない）。道具の定義は、環境が「使える」状態で `shellEnabled` のときだけ `_mcpDefinitions`（`AppController`）に足す。承認：`_mcpApprovalRequired` が `shellConfirm` を返す。実行：`_SessionToolRuntime.run` で `McpCall` の名前が `run_command` なら `LinuxBridge` を呼ぶ。**確認カード**（`ToolApproval.tile`）は、`run_command` のとき「`$ コマンド`・作業フォルダ・時間の上限」を見せる（いまは `name` と引数を `toString` するだけ）。結果は「終了コード／stdout／stderr」に、時間切れ・出力の省略・容量超過の注記を付けて、モデルに返す。`ToolActivity('Shell', …)` を返して画面に出す。道具の説明に、環境の事実（Ubuntu 24.04 の arm64、proot の疑似 root、systemd なし、`/workspace` は全チャット共通で永続、上限 N MB、コマンドは 1 つずつ）を書く。
-5. 設定画面：「Linux 環境」のカード（既存の `ProotCheckRow` を含める）。導入・削除、ワークスペースの使用量（`123 MB / 2048 MB`）と「空にする」（確認ダイアログ）、上の設定の行。Android 以外では出さない。
-6. テスト：`run_command` の読み取り、確認カードの文、設定の `specs`/`blocked` の網羅（既存のテストが漏れを見つける）、`LinuxEnvironment` の状態遷移（偽の橋）、結果の整形。`flutter analyze` と `flutter test` を通す。
-7. docs：15 章の状態・15.6 の段階 2・3 を更新、17 章に 0.12.0 の行、19 章に結果。`pubspec.yaml` を `0.12.0+1`。5 つの OS をすべて確認してから `main` を進める。
+**頼まれたこと**：「まだprootのコマンド類が使えない」ので、アプリ内のモデルが proot の中でコマンドを実行できるようにする。**全チャット共通で 2GB のワークスペース**を用意する。プラットフォームは Android だけ（他の OS は変えない）。
 
-**決めたこと（`LinuxEnv.kt` の実装）**：
-- **ワークスペース**：`filesDir/workspace`（全チャット共通）を、proot の中で `/workspace` に見せる。`HOME=/workspace/home`（`pip --user` やキャッシュも上限の中に入る）。**rootfs の容量は、この上限に入らない**（`filesDir/linux/rootfs`。apt で入れた分は数えない。必要なら別の設定を足す）。
-- **容量の数え方**：4 KiB のブロック単位（小さいファイルを大量に作っても数えられる）。symlink はたどらない。コマンドの実行中に 2 秒ごとに測り、**上限を超え、かつ実行前より増えているときだけ**止める（上限を超えた状態から `rm` で減らす命令は通す）。止めたら `killedBy = workspace`。
-- **proot の引数**：`--kill-on-exit --link2symlink -0 -r <rootfs> -b /dev -b /proc -b <workspace>:/workspace -w <cwd> /usr/bin/env -i HOME=… PATH=… LANG=C.UTF-8 TERM=dumb TMPDIR=/tmp SHELL=/bin/bash /bin/bash -c <command>`。15.3 の例との違い：`-0`（疑似 root。apt・dpkg のため）、`/dev` と `/proc` の bind。環境変数は `env -i` で空にしてから渡す。
-- **仕上げ**：`etc/resolv.conf`（設定の DNS の平文）、`etc/hosts`、`etc/hostname`、`etc/apt/apt.conf.d/99arce` に `APT::Sandbox::User "root";`（apt が専用ユーザーに落ちられないため。出典：https://manpages.ubuntu.com/manpages/noble/man5/apt.conf.5.html）、`/workspace` と `/tmp` の作成。
-- **コマンドは 1 つずつ**（`LinuxEnv` の `synchronized`）。複数のチャットが同時に頼むと、順番を待つ。
-- 出力は、先頭と末尾を残して中間を省く（エラーは末尾に出るため）。標準入力は閉じる。
-- **proot は sandbox ではない**：コマンドはアプリと同じユーザーで走る。proot が変えるのはパスだけ。守りは、毎回の確認カード・容量の上限・時間の上限・出力の上限。**ネットワークは止められない**（proot にその機能は無い。15.4 の「通信を止める設定」は作れない。docs に書く）。
+**すでに git にあるもの（`dfcf967`）**：`android/app/src/main/kotlin/ai/arce/app/linux/` の `TarGz.kt`・`DiskUsage.kt`・`ShellRunner.kt`・`LinuxEnv.kt`。**禁止**：`File.deleteRecursively()`、symlink をたどる削除（AGENTS.md）。
 
-**rootfs（確認済み）**：Ubuntu Base 24.04.5 の arm64。`https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.5-base-arm64.tar.gz`、29,936,675 バイト、SHA-256 `a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2`（同じフォルダの `SHA256SUMS` と一致し、実際にダウンロードして計算しても一致した）。中身：通常ファイル 2562、フォルダ 655、symlink 194（絶対パスのものを含む）、ハードリンク 2、デバイスファイルなし。展開後は約 100 MB 台のはず（実測は未）。
+**やること**：(1) `SystemBridge` に `linuxStatus`・`linuxInstall`・`linuxRun`・`linuxRemove`・`workspaceClear`。(2) `lib/services/linux_env.dart`。(3) 設定 10 項目。(4) 道具 `run_command`（`McpCall` として扱う。確認カードは実際のコマンドを出す）。(5) 設定画面の「Linux 環境」カード。(6) テスト。(7) docs・`0.12.0+1`・5 つの OS の確認。
 
-**試すこと（`TarGz` / `DiskUsage` / `ShellRunner` / `LinuxEnv`。普通の JVM で、使い捨てのフォルダの中だけで）**：実物の tar.gz を展開して、ファイル数・`bash` の大きさ・実行ビット・`bin -> usr/bin`・`etc/alternatives/awk -> /usr/bin/mawk`（絶対 symlink のまま）・ハードリンクを確かめる。SHA-256 が違うと拒否され、導入済みのものが残る。上限を小さくすると展開が止まり、`rootfs.partial` が消える。悪意のある tar（`../`・`a -> /` のあとに `a/x`・外を指すハードリンク・壊れたヘッダ）が拒否される。`DiskUsage` が 4 KiB 単位で数え、`/` への symlink をたどらない。`ShellRunner` が終了コード・標準出力と標準エラーの分離・時間切れ・出力の先頭と末尾・入力の閉鎖・監視による停止・空の環境を満たす。
+**rootfs**：Ubuntu Base 24.04.5 の arm64、29,936,675 バイト、SHA-256 `a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2`。
 
-**実機でしか分からないこと（利用者に試してもらう）**：proot が rootfs の中で `bash` を起動できるか（seccomp の設定が厳しい端末では `shellCompatMode`）、`apt`・`pip`・`git` が動くか、`/proc` の bind で支障がないか、展開にかかる時間、ハードリンクの作成が端末の SELinux に拒否されないか（拒否されたらコピーに切り替わる実装）。
+</details>
 
-
+- **0.12.0・0.12.1 で決めたこと（依頼書から変えたところ）**：
+  - 設定のうち、**チャットから変えさせないもの**は `shellConfirm`・`linuxRootfsUrl`・`linuxRootfsSha256` の 3 つにした（依頼書は `shellEnabled`・`linuxDns` も挙げていたが、`shellEnabled` は道具を出すかどうかだけで確認を外せないため、`linuxDns` は DNS を変えるだけなので、変えられるようにした）。
+  - `shellConfirm` がオフのときは、道具を出すが承認カードを出さない（設定画面からのみ変更できる）。
+  - 道具の名前は `run_command`（依頼書のとおり）。`Protocol.schemaVersion` を 5 に。
+  - 承認カードは `ToolApproval.tile` が `run_command` のときだけ `$ コマンド`・場所・上限の秒数を出す（ほかの道具は従来どおり）。
+  - `ci_status`（依頼書には無い）も、CI を読むために足した（10.5）。
+  - 設定画面は「ローカルモデルの設定」の中ではなく、**独立したグループ「Linux 環境」**にした（サイドバーから開きやすいため）。
 
 - **通信ログ（利用者の質問への、こちらからの提案。返事待ち）**：メタデータだけ（時刻・提供元・モデル・状態・時間・トークン数・フォールバック・エラー。本文とキーは持たない）を端末に残し、設定画面で見て・書き出せるようにする。モデルが読む道具は読み取り専用にする。メッセージ本文も記録するか（記録しないと再現が難しい／記録するとプライバシーが重い）の判断を待っている。0.11.1 の「返信の進み具合」は、この途中の形（1 回の返信の中の数字だけで、保存しない）。
-- **実機での確認待ち（利用者の端末で試してもらう）**：0.9.1 の proot の起動（設定 → ローカルモデルの設定 →「Linux 環境（試験）：proot の確認」の出力）、Gemini の 400（0.9.5 以降）、Markdown 描画・思考の見え方・折りたたみの見た目、停止ボタン、背景で続くチャット、モデルの選択が再起動で戻らないこと、設定画面の予測変換、エラーの自動報告（設定にトークンを入れて「テスト送信」）、分担の実際の動き（プランナーが `delegate` を呼ぶか。14 章）。
-- **頼まれていないが、候補として挙げたもの**：コーディングモードの開発モデルを複数にする、MCP のファイル結果の画像表示、会話タイトルの手動での変更（鉛筆アイコンは飾りのまま）、フォールバックで切り替わった分を通信回数に数える。
+- **実機での確認待ち（利用者の端末で試してもらう）**：**0.12.0・0.12.1 の Linux 環境**（設定 →「Linux 環境」→ 入れる → チャットで「`/workspace` で `uname -a && df -h /workspace` を実行して」）。proot の起動（「proot の確認」の出力）、`apt`・`pip`・`git`、容量の上限、承認カード。**`ci_status`**（「CI どう？」）。ほかに、Gemini の 400（0.9.5 以降）、Markdown 描画・思考の見え方・折りたたみの見た目、停止ボタン、背景で続くチャット、モデルの選択が再起動で戻らないこと、設定画面の予測変換、エラーの自動報告（設定にトークンを入れて「テスト送信」）、分担の実際の動き（プランナーが `delegate` を呼ぶか。14 章）。
+- **頼まれていないが、候補として挙げたもの**：コーディングモードの開発モデルを複数にする、MCP のファイル結果の画像表示、会話タイトルの手動での変更（鉛筆アイコンは飾りのまま）、フォールバックで切り替わった分を通信回数に数える、**Linux 環境の対話ターミナル（段階 4）と `kaggle` の導入手順**、**`ci_status` のセルフホストの GitHub MCP（Actions の道具がある版）への切り替え**。
