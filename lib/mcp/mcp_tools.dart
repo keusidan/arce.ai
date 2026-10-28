@@ -66,7 +66,7 @@ class McpTools {
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
     if (server == null) return false;
-    return server.config.approveWrite && needsApproval(name);
+    return server.config.approveWrites && needsApproval(name);
   }
 
   McpServerClient? _serverById(String id) {
@@ -171,7 +171,7 @@ class McpTools {
 
   // ---------------------------------------------------------------- the app's own shell tool
 
-  /// The Ubuntu Base 24.04.5 for arm64 that was checked on 2026-10-28 (size 29,936,675 bytes; the
+  /// The Ubuntu Base 24.04.5 for arm64 that was checked on 2026-10-28 (29,936,675 bytes; the
   /// SHA-256 matches the `SHA256SUMS` beside it and a real download). The workspace is the 2 GB the
   /// user asked for. Every one of these becomes a setting (docs 19.5, step 3).
   static const _shellConfig = LinuxConfig(
@@ -216,7 +216,7 @@ class McpTools {
     },
   );
 
-  /// Runs [arguments] of [shellDefinition] and turns the result into what the model reads.
+  /// Runs the arguments of [shellDefinition] and turns the result into what the model reads.
   Future<ToolOutcome> _runShell(Map<String, Object?> arguments) async {
     final command = '${arguments['command'] ?? ''}'.trim();
     if (command.isEmpty) {
@@ -244,11 +244,7 @@ class McpTools {
       );
       return ToolOutcome(
         outcome.describe(),
-        ToolActivity(
-          'Shell',
-          '\$ $command',
-          failed: !outcome.ok,
-        ),
+        ToolActivity('Shell', '\$ $command', failed: !outcome.ok),
       );
     } catch (e) {
       return ToolOutcome(
