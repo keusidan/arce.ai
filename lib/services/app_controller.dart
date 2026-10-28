@@ -359,7 +359,48 @@ class AppController extends ChangeNotifier {
         ),
   ];
 
-  McpTools get _mcpTools => McpTools(_mcpServerClients(), cache: _mcpCache);
+  /// The GitHub token `ci_status` reads with: the one kept for the GitHub server, so the tool needs
+  /// no key of its own (empty: the public API, which answers for a public repository).
+  String get _ciToken {
+    final servers = settings.value.mcpServers;
+    McpServerConfig? github;
+    for (final server in servers) {
+      final id = server.id.toLowerCase();
+      final name = server.name.toLowerCase();
+      if (id == 'github' || name == 'github' || server.url.contains('githubcopilot.com') || server.url.contains('api.github.com')) {
+        github = server;
+        break;
+      }
+    }
+    if (github == null) return '';
+    return settings.mcpTokenOf(github.id);
+  }
+
+  /// What the Linux environment's settings say now, asked on every use so a change applies to the
+  /// next command (docs 19.5).
+  ShellSettings get _shellSettings {
+    final s = settings.value;
+    return ShellSettings(
+      enabled: s.shellEnabled,
+      confirm: s.shellConfirm,
+      timeoutSeconds: s.shellTimeoutSeconds,
+      maxTimeoutSeconds: s.shellMaxTimeoutSeconds,
+      maxOutputChars: s.shellMaxOutputChars,
+      workspaceLimitMb: s.workspaceLimitMb,
+      rootfsUrl: s.linuxRootfsUrl,
+      rootfsSha256: s.linuxRootfsSha256,
+      dns: s.linuxDns,
+      compatMode: s.shellCompatMode,
+      downloadConnections: s.downloadConnections,
+    );
+  }
+
+  McpTools get _mcpTools => McpTools(
+    _mcpServerClients(),
+    cache: _mcpCache,
+    ciToken: _ciToken,
+    shell: _shellSettings,
+  );
 
   /// The tools of every MCP server, added to the ones the agent already has.
   Future<List<ToolDefinition>> _mcpDefinitions() => _mcpTools.definitions();
@@ -1095,7 +1136,23 @@ class _SettingsToolRuntime implements ToolRuntime {
               ),
             ),
       ];
-      return McpTools(servers).run(call);
+      final s0 = _settings.value;
+      return McpTools(
+        servers,
+        shell: ShellSettings(
+          enabled: s0.shellEnabled,
+          confirm: s0.shellConfirm,
+          timeoutSeconds: s0.shellTimeoutSeconds,
+          maxTimeoutSeconds: s0.shellMaxTimeoutSeconds,
+          maxOutputChars: s0.shellMaxOutputChars,
+          workspaceLimitMb: s0.workspaceLimitMb,
+          rootfsUrl: s0.linuxRootfsUrl,
+          rootfsSha256: s0.linuxRootfsSha256,
+          dns: s0.linuxDns,
+          compatMode: s0.shellCompatMode,
+          downloadConnections: s0.downloadConnections,
+        ),
+      ).run(call);
     }
     final s = _settings.value;
     final providers = <SearchProvider>[
