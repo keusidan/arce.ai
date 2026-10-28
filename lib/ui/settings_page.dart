@@ -7,6 +7,7 @@ import '../core/agents.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
 import '../services/app_controller.dart';
+import '../services/linux_env.dart';
 import '../services/settings.dart';
 import 'app_scope.dart';
 import 'arce_text_field.dart';
@@ -35,6 +36,7 @@ const _groups = [
   _Group(SettingsSection.online, ArceSvg.globe, 'オンラインモデルの設定', 'temperature・最大トークン・追加プロンプト'),
   _Group(SettingsSection.local, ArceSvg.sliders, 'ローカルモデルの設定', 'サンプリング・コンテキスト長・スレッド・GPU'),
   _Group(SettingsSection.coding, ArceSvg.codeEdit, 'コーディングモード', 'プランナーモデルが開発モデルに仕事を渡して、安く実装する'),
+  _Group(SettingsSection.shell, ArceSvg.bolt, 'Linux 環境', 'アプリの中の Ubuntu でコマンドを動かす（Android）'),
   _Group(SettingsSection.limits, ArceSvg.sliders2, '上限とタイムアウト', '添付・検索・通信・更新の上限と待ち時間'),
   _Group(SettingsSection.mcp, ArceSvg.bolt, 'MCP サーバー', '外部の道具（GitHub など）をつなぐ'),
   _Group(SettingsSection.basic, ArceSvg.settings, 'モデル全般設定', 'ローカルとオンライン共通：思考・回答・最大トークン・再試行'),
@@ -146,6 +148,8 @@ class _SettingsPageState extends State<SettingsPage> {
         return const ProvidersSection();
       case SettingsSection.mcp:
         return const McpSection();
+      case SettingsSection.shell:
+        return _linux(app, s, set);
       case SettingsSection.online:
         return _onlineModel(s, set);
       case SettingsSection.local:
@@ -341,6 +345,219 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
     }
+  }
+
+  /// The Linux environment: whether the model may run commands and with what limits, what is
+  /// installed, how much the shared workspace holds, and the check of proot itself (docs 15, 19.5).
+  /// Only Android: proot is a child process out of the native library folder.
+  Widget _linux(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
+    final c = context.c;
+    if (!Platform.isAndroid) {
+      return ArceCard(
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Text(
+            'Linux 環境（アプリの中の Ubuntu でコマンドを動かす）は Android だけの機能です。',
+            style: ts(context, 10.5, color: c.muted, height: 1.6),
+          ),
+        ),
+      );
+    }
+    final environment = app.linux;
+    return ListenableBuilder(
+      listenable: environment,
+      builder: (context, _) {
+        final status = environment.status;
+        final busy = environment.state == LinuxState.downloading || environment.state == LinuxState.unpacking;
+        final ready = environment.state == LinuxState.ready;
+        final progress = environment.progress;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ArceCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'モデルが `run_command` で、アプリの中の Ubuntu（arm64）でコマンドを実行できます。proot の疑似 root で、'
+                      'サンドボックスではありません（アプリと同じユーザーで動きます）。`/workspace` は全チャット共通で、アプリを消すまで残ります。'
+                      'コマンドは 1 つずつ動き、通知が長いときは初めと終わりだけをモデルに渡します。'
+                      '承認カードは、実行のたびに実際のコマンドを見せます（設定で切れますが、切らないことをおすすめします）。',
+                      style: ts(context, 10, color: c.muted, height: 1.6),
+                    ),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.bolt,
+                    title: 'コマンド実行を使う',
+                    subtitle: 'オフにすると、モデルに run_command を渡しません',
+                    trailing: ArceSwitch(value: s.shellEnabled, onChanged: (v) => set((x) => x.copyWith(shellEnabled: v))),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.alert,
+                    title: '実行の前に確認する',
+                    subtitle: '毎回、実際のコマンド・場所・時間の上限を見せて承認を取ります。チャットからは変えられません',
+                    trailing: ArceSwitch(value: s.shellConfirm, onChanged: (v) => set((x) => x.copyWith(shellConfirm: v))),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.clock,
+                    title: 'コマンドのタイムアウト',
+                    subtitle: 'モデルが時間を指定しなかったときに使う秒数',
+                    trailing: _Cycle<int>(
+                      value: s.shellTimeoutSeconds,
+                      values: const [30, 60, 120, 300, 600],
+                      label: (v) => '$v 秒',
+                      onChanged: (v) => set((x) => x.copyWith(shellTimeoutSeconds: v)),
+                    ),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.clockCircle,
+                    title: 'モデルが指定できる上限',
+                    subtitle: 'timeout_seconds で伸ばせる最大の秒数',
+                    trailing: _Cycle<int>(
+                      value: s.shellMaxTimeoutSeconds,
+                      values: const [120, 300, 600, 1200, 3600],
+                      label: (v) => '$v 秒',
+                      onChanged: (v) => set((x) => x.copyWith(shellMaxTimeoutSeconds: v)),
+                    ),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.file,
+                    title: '出力の上限',
+                    subtitle: 'コマンドの出力を、モデルに渡す文字数（超えた分は初めと終わりを残します）',
+                    trailing: _Cycle<int>(
+                      value: s.shellMaxOutputChars,
+                      values: const [5000, 10000, 20000, 50000, 100000],
+                      label: (v) => '$v 文字',
+                      onChanged: (v) => set((x) => x.copyWith(shellMaxOutputChars: v)),
+                    ),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.sliders,
+                    title: 'ワークスペースの上限',
+                    subtitle: '全チャット共通の /workspace が、この大きさを超えて増えたらコマンドを止めます（rm で減らすコマンドは通ります）',
+                    trailing: _Cycle<int>(
+                      value: s.workspaceLimitMb,
+                      values: const [512, 1024, 2048, 4096, 8192],
+                      label: (v) => '$v MB',
+                      onChanged: (v) => set((x) => x.copyWith(workspaceLimitMb: v)),
+                    ),
+                  ),
+                  SettingRow(
+                    icon: ArceSvg.bolt,
+                    title: '互換モード（seccomp を切る）',
+                    subtitle: 'この端末で proot が起動できないときだけ使います（PROOT_NO_SECCOMP=1）',
+                    last: true,
+                    trailing: ArceSwitch(value: s.shellCompatMode, onChanged: (v) => set((x) => x.copyWith(shellCompatMode: v))),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            ArceCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SettingRow(
+                    icon: ArceSvg.cube,
+                    title: 'Linux 環境（Ubuntu 24.04）',
+                    subtitle: busy
+                        ? (environment.state == LinuxState.downloading
+                            ? 'ダウンロード中${progress == null ? '' : ' ${(progress * 100).round()}%'}…'
+                            : '展開しています…')
+                        : ready
+                            ? (status?.describe() ?? '使えます')
+                            : (environment.message ?? 'まだ入っていません。入れると、モデルがコマンドを実行できます（約 30 MB）'),
+                    trailing: busy
+                        ? SoftButton(label: '中止', height: 30, onTap: null)
+                        : ready
+                            ? SoftButton(label: '削除', height: 30, onTap: () => _removeLinux(app))
+                            : SoftButton(
+                                label: '入れる',
+                                height: 30,
+                                onTap: () => _installLinux(app),
+                              ),
+                  ),
+                  if (ready)
+                    SettingRow(
+                      icon: ArceSvg.file,
+                      title: 'ワークスペース（全チャット共通）',
+                      subtitle: status == null
+                          ? ''
+                          : '${formatBytes(status.workspaceBytes)}'
+                              '${status.workspaceLimitBytes > 0 ? ' / ${formatBytes(status.workspaceLimitBytes)}' : ''}',
+                      last: true,
+                      trailing: SoftButton(label: '空にする', height: 30, onTap: () => _clearWorkspace(app)),
+                    ),
+                  if (!ready) ProotCheckRow(app: app),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _installLinux(AppController app) async {
+    final ok = await _confirm(
+      context,
+      title: 'Linux 環境を入れますか？',
+      body: 'Ubuntu Base 24.04（arm64・約 30 MB）をダウンロードして展開します。数分かかることがあります。'
+          'ダウンロード中もアプリは使えます。',
+      yes: '入れる',
+    );
+    if (!ok) return;
+    try {
+      await app.installLinux();
+      if (!mounted) return;
+      app.showToast('Linux 環境を入れました');
+    } catch (e) {
+      if (!mounted) return;
+      app.showToast('入れられませんでした: $e');
+    }
+  }
+
+  Future<void> _removeLinux(AppController app) async {
+    final ok = await _confirm(
+      context,
+      title: 'Linux 環境を削除しますか？',
+      body: 'Ubuntu のシステムを消します（ワークスペースの中身は残ります）。次に使うときは、もう一度入れ直します。',
+      yes: '削除する',
+    );
+    if (!ok) return;
+    await app.removeLinux();
+    if (!mounted) return;
+    app.showToast('Linux 環境を削除しました');
+  }
+
+  Future<void> _clearWorkspace(AppController app) async {
+    final ok = await _confirm(
+      context,
+      title: 'ワークスペースを空にしますか？',
+      body: '全チャットで共有している /workspace の中身を、すべて消します。元に戻せません。',
+      yes: '空にする',
+    );
+    if (!ok) return;
+    await app.clearLinuxWorkspace();
+    if (!mounted) return;
+    app.showToast('ワークスペースを空にしました');
+  }
+
+  Future<bool> _confirm(BuildContext context, {required String title, required String body, required String yes}) async {
+    final answer = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('やめる')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: Text(yes)),
+        ],
+      ),
+    );
+    return answer ?? false;
   }
 
   Widget _subheading(BuildContext context, String text) => Padding(
