@@ -107,6 +107,10 @@ class McpTools {
   static const prefix = 'mcp_';
   static const separator = '__';
 
+  /// One environment for the whole app: the workspace is shared by every chat, the Android side runs
+  /// one command at a time, and the settings screen shows this same state.
+  static final LinuxEnvironment shellEnvironment = LinuxEnvironment();
+
   static String toolName(String serverId, String tool) =>
       '$prefix$serverId$separator$tool';
 
@@ -294,10 +298,6 @@ class McpTools {
 
   // ---------------------------------------------------------------- run_command
 
-  /// One environment for the whole app: the workspace is shared by every chat, and the Android side
-  /// runs one command at a time, so the state of an install must not be lost between turns.
-  static final LinuxEnvironment _shell = LinuxEnvironment();
-
   /// The tool, with what the settings allow written into its description: the model cannot look
   /// the limits up, so they are said here (docs 19.5, item 4).
   static ToolDefinition _runCommandFor(ShellSettings s) => ToolDefinition(
@@ -339,11 +339,11 @@ class McpTools {
     final config = shell.config;
     try {
       // the first command installs the environment; the user approved this call already
-      if (!_shell.ready) {
-        await _shell.refresh(config);
-        if (!_shell.ready) await _shell.install(config);
+      if (!shellEnvironment.ready) {
+        await shellEnvironment.refresh(config);
+        if (!shellEnvironment.ready) await shellEnvironment.install(config);
       }
-      final outcome = await _shell.run(
+      final outcome = await shellEnvironment.run(
         config: config,
         command: command,
         cwd: cwd,
