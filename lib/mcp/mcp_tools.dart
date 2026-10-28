@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../ai/token_budget.dart';
 import '../core/protocol.dart';
 import '../core/tool_runtime.dart';
+import '../services/ci_client.dart';
 import '../services/linux_env.dart';
 import 'mcp_client.dart';
 import 'mcp_server.dart';
@@ -23,16 +24,25 @@ class McpServerClient {
 /// `tools/list` is cached per server for the life of the [cache] map, so a chat turn does not ask
 /// every server again. A server that fails is left out for this turn and tried again next time.
 ///
-/// The app's own shell tool (`run_command`) is offered from here too, because this is where the
-/// chat already looks for calls it cannot run itself: `ToolCallParser` turns every tool the turn
-/// allows into an [McpCall], and this class runs that one on the device instead of sending it to a
-/// server. When the shell settings arrive (docs 19.5, step 3) the runner moves to `AppController`.
+/// The app's own tools (`run_command`, `ci_status`) are offered from here too, because this is
+/// where the chat already looks for calls it cannot run itself: `ToolCallParser` turns every tool
+/// the turn allows into an [McpCall], and this class runs those on the device instead of sending
+/// them to a server. When the shell settings arrive (docs 19.5, step 3) the runner moves to
+/// `AppController`.
 class McpTools {
   McpTools(this._servers, {Map<String, List<McpTool>>? cache})
     : _cache = cache ?? {};
 
+  /// [ciToken] is the token the user typed for the GitHub server, used read-only for `ci_status`;
+  /// tests give a scripted HTTP client instead.
+  McpTools.withCi(this._servers, {this.ciToken = '', Map<String, List<McpTool>>? cache})
+    : _cache = cache ?? {};
+
   final List<McpServerClient> _servers;
   final Map<String, List<McpTool>> _cache;
+
+  /// The token `ci_status` reads GitHub Actions with (empty: the public API).
+  final String ciToken;
 
   static const prefix = 'mcp_';
   static const separator = '__';
@@ -59,6 +69,8 @@ class McpTools {
 
   /// Whether [name] needs an approval card, following the server's own setting as well.
   bool approvalRequired(String name) {
+    // ci_status only reads
+    if (name == Protocol.ciStatusName) return false;
     // a command in the app's Linux environment is shown every time: it can do anything the app
     // itself can (docs 15.4). This becomes the setting `shellConfirm`.
     if (name == Protocol.runCommandName) return LinuxEnvironment.supported;
@@ -95,6 +107,7 @@ class McpTools {
   Future<List<ToolDefinition>> definitions() async {
     final out = <ToolDefinition>[
       if (LinuxEnvironment.supported) Protocol.runCommand,
+      Protocol.ciStatus,
     ];
     for (final server in _servers) {
       final tools = await _toolsOf(server);
@@ -139,6 +152,7 @@ class McpTools {
   }
 
   Future<ToolOutcome> run(McpCall call) async {
+    if (call.name == Protocol.ciStatusName) return _runCiStatus(call.arguments);
     if (call.name == Protocol.runCommandName && LinuxEnvironment.supported) {
       return _runShell(call.arguments);
     }
@@ -169,7 +183,60 @@ class McpTools {
     }
   }
 
-  // ---------------------------------------------------------------- the app's own shell tool
+  // ---------------------------------------------------------------- ci_status
+
+  /// Reads GitHub Actions for the model: the newest runs of a branch, or the jobs of one run with
+  /// the steps that failed. The token is the one of the GitHub server (read only); without one the
+  /// public API answers, which is enough for a public repository.
+  Future<ToolOutcome> _runCiStatus(Map<String, Object?> arguments) async {
+    final repository = '${arguments['repository'] ?? ''}'.trim();
+    final branch = '${arguments['branch'] ?? ''}'.trim();
+    final limitWanted = arguments['limit'];
+    final limit = (limitWanted is num ? limitWanted.toInt() : 10).clamp(1, 30);
+    final runId = arguments['run_id'];
+    final client = CiClient(token: ciToken);
+    try {
+      if (runId is num) {
+        final jobs = await client.jobs(runId.toInt(), repository: repository);
+        final failed = jobs.where((j) => j.failed).toList();
+        final buffer = StringBuffer('Run ${runId.toInt()} のジョブ（${jobs.length} 件、失敗 ${failed.length} 件）:\n');
+        for (final job in jobs) {
+          buffer.writeln('- ${job.describe()}');
+        }
+        if (failed.isEmpty && jobs.every((j) => j.status == 'completed')) {
+          buffer.writeln('→ すべて成功しました。');
+        }
+        return ToolOutcome(
+          buffer.toString().trimRight(),
+          ToolActivity('CI', 'Run ${runId.toInt()}: ジョブ ${jobs.length} 件（失敗 ${failed.length} 件）', failed: failed.isNotEmpty),
+        );
+      }
+      final runs = await client.runs(branch: branch, repository: repository, limit: limit);
+      if (runs.isEmpty) {
+        return ToolOutcome(
+          'この条件のワークフローの実行はありませんでした。',
+          const ToolActivity('CI', '実行なし'),
+        );
+      }
+      final buffer = StringBuffer('直近の実行（${runs.length} 件${branch.isEmpty ? '' : '、ブランチ $branch'}）:\n');
+      for (final run in runs) {
+        buffer.writeln('- ${run.describe()}${run.url == null ? '' : '  ${run.url}'}');
+      }
+      buffer.writeln('失敗した実行は run_id を渡すと、失敗したステップまで出します。');
+      final red = runs.where((r) => r.conclusion == 'failure' || r.conclusion == 'timed_out').length;
+      return ToolOutcome(
+        buffer.toString().trimRight(),
+        ToolActivity('CI', '直近 ${runs.length} 件（赤 ${red} 件）', failed: red > 0),
+      );
+    } catch (e) {
+      return ToolOutcome(
+        'CI を読めませんでした: $e',
+        ToolActivity('CI', '祖できませんでした: $e', failed: true),
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------- run_command
 
   /// The Ubuntu Base 24.04.5 for arm64 that was checked on 2026-10-28 (29,936,675 bytes; the
   /// SHA-256 matches the `SHA256SUMS` beside it and a real download). The workspace is the 2 GB the
