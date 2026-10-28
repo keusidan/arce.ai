@@ -39,6 +39,7 @@ import 'conversation_database.dart';
 import 'conversation_search.dart';
 import 'device_info.dart';
 import 'error_reporter.dart';
+import 'linux_env.dart';
 import 'model_info_fetcher.dart';
 import 'foreground_service.dart';
 import 'kv_snapshots.dart';
@@ -58,6 +59,7 @@ enum SettingsSection {
   online,
   local,
   coding,
+  shell,
   limits,
   mcp,
   basic,
@@ -89,6 +91,7 @@ class AppController extends ChangeNotifier {
     required this.engine,
     required this.preview,
     required this.errors,
+    required this.linux,
   }) {
     _current = _newSession();
     chat = ChatHandle(_current.chat);
@@ -185,6 +188,10 @@ class AppController extends ChangeNotifier {
   /// Sends the errors to a GitHub issue (settings: エラーの報告).
   final ErrorReporter errors;
 
+  /// The Linux environment on the device (docs 15 and 19.5): whether it is installed, installing
+  /// it, and its state for the settings screen. The tool itself runs through [McpTools].
+  final LinuxEnvironment linux;
+
   /// Shared with [updates]: a download keeps running when another app is in front.
   final ForegroundService foreground;
   late final ChatHandle chat;
@@ -226,6 +233,7 @@ class AppController extends ChangeNotifier {
     Directory? supportDirectory,
     UpdateService? updateService,
     http.Client? reportClient,
+    LinuxEnvironment? linux,
   }) async {
     final settings = await SettingsStore.load();
     final providers = await ProviderStore.load();
@@ -270,6 +278,8 @@ class AppController extends ChangeNotifier {
           maxPerHour: settings.value.errorReportMaxPerHour,
         ),
       ),
+      // the same environment the tool runs in, so the settings screen shows its real state
+      linux: linux ?? McpTools.shell,
     );
     final local = app.engine.local;
     if (local is KvStatePersistence) {
@@ -395,6 +405,38 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  /// What the settings screen needs to install, remove and measure the environment.
+  LinuxConfig get linuxConfig => _shellSettings.config;
+
+  /// Reads the environment's state from the Android side (what the settings screen shows).
+  Future<void> refreshLinux() async {
+    if (!LinuxEnvironment.supported) return;
+    try {
+      await linux.refresh(linuxConfig);
+    } catch (e) {
+      debugPrint('could not read the Linux environment: $e');
+    }
+  }
+
+  /// Downloads and unpacks the root file system, as the settings screen asks.
+  Future<void> installLinux() async {
+    await linux.refresh(linuxConfig);
+    if (linux.ready) return;
+    await linux.install(linuxConfig);
+  }
+
+  /// Removes the root file system; the shared workspace stays.
+  Future<void> removeLinux() async {
+    await linux.remove();
+    notifyListeners();
+  }
+
+  /// Empties the workspace every chat shares.
+  Future<void> clearLinuxWorkspace() async {
+    await linux.clearWorkspace(linuxConfig);
+    notifyListeners();
+  }
+
   McpTools get _mcpTools => McpTools(
     _mcpServerClients(),
     cache: _mcpCache,
@@ -500,6 +542,8 @@ class AppController extends ChangeNotifier {
       _applyProvider();
     });
     _applyEngineSettings();
+    // what the settings screen shows about the Linux environment (its size, whether it is there)
+    unawaited(refreshLinux());
     // the model lists that are missing or old are read in the background
     unawaited(autoReadModelLists().catchError((Object e) => debugPrint('could not read the model lists: $e')));
     try {
