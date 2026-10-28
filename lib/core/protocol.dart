@@ -635,26 +635,24 @@ abstract final class ToolCallParser {
     );
   }
 
-  /// A repository is `owner/name` (or none, for the app's own), the branch and the run are numbers
-  /// or words as they came: reading the runs is all this does.
+  /// A repository is `owner/name` (or none, for the app's own), the branch and the run are as they
+  /// came: reading the runs is all this does.
   static ParseResult _parseCiStatus(Map<dynamic, dynamic> args) {
     final repository = _requiredText(args, 'repository');
     if (repository != null && !RegExp(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$').hasMatch(repository)) {
       return const ParseInvalid('repository must look like owner/name');
     }
+    final branch = _requiredText(args, 'branch');
     final limit = args['limit'];
     if (limit != null && limit is! num) throw _WrongType('limit');
     final runId = args['run_id'];
     if (runId != null && runId is! num) throw _WrongType('run_id');
-    return ParseOk(
-      McpCall(Protocol.ciStatusName, {
-        if (repository != null) 'repository': repository,
-        final branch = _requiredText(args, 'branch');
-        if (branch != null) 'branch': branch,
-        if (limit is num) 'limit': limit.toInt(),
-        if (runId is num) 'run_id': runId.toInt(),
-      }),
-    );
+    final arguments = <String, Object?>{};
+    if (repository != null) arguments['repository'] = repository;
+    if (branch != null) arguments['branch'] = branch;
+    if (limit is num) arguments['limit'] = limit.toInt();
+    if (runId is num) arguments['run_id'] = runId.toInt();
+    return ParseOk(McpCall(Protocol.ciStatusName, arguments));
   }
 
   static ParseResult _parseDelegate(Map<dynamic, dynamic> args) {
