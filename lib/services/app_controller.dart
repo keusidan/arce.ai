@@ -279,7 +279,7 @@ class AppController extends ChangeNotifier {
         ),
       ),
       // the same environment the tool runs in, so the settings screen shows its real state
-      linux: linux ?? McpTools.shell,
+      linux: linux ?? McpTools.shellEnvironment,
     );
     final local = app.engine.local;
     if (local is KvStatePersistence) {
