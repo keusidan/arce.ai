@@ -31,6 +31,7 @@ import '../core/tool_runtime.dart';
 import '../core/weather.dart';
 import '../engine/demo_engine.dart';
 import '../mcp/mcp_client.dart';
+import '../mcp/mcp_server.dart';
 import '../mcp/mcp_tools.dart';
 import '../engine/hybrid_engine.dart';
 import '../engine/native_engine.dart';
@@ -362,18 +363,17 @@ class AppController extends ChangeNotifier {
   /// The GitHub token `ci_status` reads with: the one kept for the GitHub server, so the tool needs
   /// no key of its own (empty: the public API, which answers for a public repository).
   String get _ciToken {
-    final servers = settings.value.mcpServers;
-    McpServerConfig? github;
-    for (final server in servers) {
+    for (final server in settings.value.mcpServers) {
       final id = server.id.toLowerCase();
       final name = server.name.toLowerCase();
-      if (id == 'github' || name == 'github' || server.url.contains('githubcopilot.com') || server.url.contains('api.github.com')) {
-        github = server;
-        break;
+      if (id == 'github' ||
+          name == 'github' ||
+          server.url.contains('githubcopilot.com') ||
+          server.url.contains('api.github.com')) {
+        return settings.mcpTokenOf(server.id);
       }
     }
-    if (github == null) return '';
-    return settings.mcpTokenOf(github.id);
+    return '';
   }
 
   /// What the Linux environment's settings say now, asked on every use so a change applies to the
