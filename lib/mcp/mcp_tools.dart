@@ -1,4 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import '../ai/token_budget.dart';
 import '../core/protocol.dart';
@@ -189,8 +194,8 @@ class McpTools {
     final limitWanted = arguments['limit'];
     final limit = (limitWanted is num ? limitWanted.toInt() : 10).clamp(1, 30);
     final runId = arguments['run_id'];
-    final client = CiClient(token: ciToken);
     try {
+      final client = CiClient(token: ciToken);
       if (runId is num) {
         final jobs = await client.jobs(runId.toInt(), repository: repository);
         final failed = jobs.where((j) => j.failed).toList();
@@ -208,10 +213,7 @@ class McpTools {
       }
       final runs = await client.runs(branch: branch, repository: repository, limit: limit);
       if (runs.isEmpty) {
-        return ToolOutcome(
-          'この条件のワークフローの実行はありませんでした。',
-          const ToolActivity('CI', '実行なし'),
-        );
+        return const ToolOutcome('この条件のワークフローの実行はありませんでした。', ToolActivity('CI', '実行なし'));
       }
       final buffer = StringBuffer('直近の実行（${runs.length} 件${branch.isEmpty ? '' : '、ブランチ $branch'}）:\n');
       for (final run in runs) {
