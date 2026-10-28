@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -7,6 +6,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'file_downloader.dart';
+
+/// A number the channel sent, whatever its width.
+int asLong(Object? value) => value is num ? value.toInt() : 0;
 
 /// How the Linux environment is set up, as the settings describe it (section 19.5 of the docs).
 ///
@@ -65,8 +67,8 @@ class LinuxStatus {
   factory LinuxStatus.fromMap(Map<Object?, Object?> map) => LinuxStatus(
         prootPresent: map['prootPresent'] == true,
         installed: map['installed'] == true,
-        workspaceBytes: _long(map['workspaceBytes']),
-        workspaceLimitBytes: _long(map['workspaceLimitBytes']),
+        workspaceBytes: asLong(map['workspaceBytes']),
+        workspaceLimitBytes: asLong(map['workspaceLimitBytes']),
         rootfs: map['rootfs'] is String ? map['rootfs']! as String : null,
       );
 
@@ -76,13 +78,11 @@ class LinuxStatus {
   /// Whether the root file system is unpacked and finished.
   final bool installed;
 
-  /// What the folder of the root file system says (an archive name, its SHA-256, the file count).
+  /// What the marker of the root file system says (an archive name, its SHA-256, the file count).
   final String? rootfs;
 
   final int workspaceBytes;
   final int workspaceLimitBytes;
-
-  static int _long(Object? value) => value is num ? value.toInt() : 0;
 
   String describe() {
     if (!prootPresent) return 'この版のアプリには proot が入っていません（arm64 向けにビルドされた版でだけ使えます）。';
@@ -110,9 +110,9 @@ class ShellOutcome {
         stdout: '${map['stdout'] ?? ''}',
         stderr: '${map['stderr'] ?? ''}',
         truncated: map['truncated'] == true,
-        elapsedMs: map['elapsedMs'] is num ? (map['elapsedMs']! as num).toInt() : 0,
-        workspaceBytes: LinuxStatus._long(map['workspaceBytes']),
-        workspaceLimitBytes: LinuxStatus._long(map['workspaceLimitBytes']),
+        elapsedMs: asLong(map['elapsedMs']),
+        workspaceBytes: asLong(map['workspaceBytes']),
+        workspaceLimitBytes: asLong(map['workspaceLimitBytes']),
         killedBy: map['killedBy'] is String ? map['killedBy']! as String : null,
       );
 
@@ -141,8 +141,14 @@ class ShellOutcome {
       buffer.writeln('時間の上限を過ぎたため、コマンドを止めました。');
     }
     buffer.writeln('exit: $exit');
-    if (stdout.trim().isNotEmpty) buffer..writeln('stdout:')..writeln(stdout.trimRight());
-    if (stderr.trim().isNotEmpty) buffer..writeln('stderr:')..writeln(stderr.trimRight());
+    if (stdout.trim().isNotEmpty) {
+      buffer.writeln('stdout:');
+      buffer.writeln(stdout.trimRight());
+    }
+    if (stderr.trim().isNotEmpty) {
+      buffer.writeln('stderr:');
+      buffer.writeln(stderr.trimRight());
+    }
     if (stdout.trim().isEmpty && stderr.trim().isEmpty) buffer.writeln('（出力はありません）');
     if (truncated) buffer.writeln('（出力が長いため、初めと終わりだけにしました）');
     buffer.writeln('所要: ${(elapsedMs / 1000).toStringAsFixed(1)}秒'
@@ -226,10 +232,11 @@ typedef RootfsDownload = Future<File> Function(
 /// one command at a time in it (the Android side serialises them: the workspace is shared).
 class LinuxEnvironment {
   LinuxEnvironment({
-    this._bridge = const LinuxBridge(),
+    LinuxBridge bridge = const LinuxBridge(),
     RootfsDownload? download,
     bool? android,
-  })  : _download = download ?? _downloadRootfs,
+  })  : _bridge = bridge,
+        _download = download ?? _downloadRootfs,
         _android = android ?? Platform.isAndroid;
 
   final LinuxBridge _bridge;
@@ -300,9 +307,7 @@ class LinuxEnvironment {
       final want = config.rootfsSha256.trim().toLowerCase();
       if (want.isNotEmpty) {
         final have = (await FileDownloader.sha256Of(archive)).toLowerCase();
-        if (have != want) {
-          throw StateError('SHA-256 が設定と違います（$have）。');
-        }
+        if (have != want) throw StateError('SHA-256 が設定と違います（$have）。');
       }
       _state = LinuxState.unpacking;
       _progress = null;
@@ -313,7 +318,7 @@ class LinuxEnvironment {
         // 0 is "no limit": the entries are what Ubuntu Base ships
         maxBytes: 0,
       );
-      // the install is over: the folder decides what the state is (refresh keeps a running install's state)
+      // the install is over, so the folder decides the state (refresh keeps a running install's)
       _state = LinuxState.absent;
       return await refresh(config);
     } catch (e) {
@@ -361,15 +366,16 @@ class LinuxEnvironment {
       workspaceLimitBytes: config.workspaceLimitBytes,
       noSeccomp: config.compatMode,
     ));
-    _status = _status == null
-        ? null
-        : LinuxStatus(
-            prootPresent: _status!.prootPresent,
-            installed: _status!.installed,
-            workspaceBytes: outcome.workspaceBytes,
-            workspaceLimitBytes: outcome.workspaceLimitBytes,
-            rootfs: _status!.rootfs,
-          );
+    final previous = _status;
+    if (previous != null) {
+      _status = LinuxStatus(
+        prootPresent: previous.prootPresent,
+        installed: previous.installed,
+        workspaceBytes: outcome.workspaceBytes,
+        workspaceLimitBytes: outcome.workspaceLimitBytes,
+        rootfs: previous.rootfs,
+      );
+    }
     return outcome;
   }
 
@@ -393,8 +399,8 @@ class LinuxEnvironment {
       final total = await _length(client, uri);
       if (total <= 0) {
         // no length: one connection, and the file ends where the stream ends
-        final response = await client.send(http.Request('GET', uri));
         final file = File(p.join(folder.path, 'rootfs.tar.gz'));
+        final response = await client.send(http.Request('GET', uri));
         final sink = file.openWrite();
         var done = 0;
         await for (final chunk in response.stream) {
@@ -423,7 +429,7 @@ class LinuxEnvironment {
       );
       final file = File(p.join(folder.path, 'rootfs.tar.gz'));
       if (await file.exists()) await file.delete();
-      return await part.rename(file.path);
+      return part.rename(file.path);
     } finally {
       client.close();
     }
