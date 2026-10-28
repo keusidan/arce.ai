@@ -47,7 +47,7 @@ class CiRun {
 
   String describe() {
     final state = running ? '実行中（$status）' : (conclusion.isEmpty ? '終了' : conclusion);
-    return '$name [${event.isEmpty ? headBranch : event}] $state · ${shortSha} · $createdAt';
+    return '$name [${event.isEmpty ? headBranch : event}] $state · $shortSha · $createdAt';
   }
 }
 
@@ -134,7 +134,7 @@ class CiClient {
   }) async {
     final (owner, repo) = _split(repository);
     final query = {
-      'per_page': '${limit.clamp(1, 30)}',
+      'per_page': '${limit.clamp(1, 30).toInt()}',
       if (branch.trim().isNotEmpty) 'branch': branch.trim(),
     };
     final json = await _get('https://api.github.com/repos/$owner/$repo/actions/runs', query);
