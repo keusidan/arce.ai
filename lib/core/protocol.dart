@@ -629,7 +629,7 @@ abstract final class ToolCallParser {
     return ParseOk(
       McpCall(Protocol.runCommandName, {
         'command': command,
-        if (cwd != null) 'cwd': cwd,
+        'cwd': ?cwd,
         if (timeout is num) 'timeout_seconds': timeout.toInt(),
       }),
     );
