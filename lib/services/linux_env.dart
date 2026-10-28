@@ -106,7 +106,7 @@ class ShellOutcome {
   });
 
   factory ShellOutcome.fromMap(Map<Object?, Object?> map) => ShellOutcome(
-        exit: asLong(map['exit']) == 0 && map['exit'] == null ? -1 : asLong(map['exit']),
+        exit: map['exit'] is num ? (map['exit']! as num).toInt() : -1,
         stdout: '${map['stdout'] ?? ''}',
         stderr: '${map['stderr'] ?? ''}',
         truncated: map['truncated'] == true,
@@ -231,13 +231,16 @@ typedef RootfsDownload = Future<File> Function(
 /// The Linux environment as the app sees it: whether it is there, installing it once, and running
 /// one command at a time in it (the Android side serialises them: the workspace is shared).
 class LinuxEnvironment {
-  LinuxEnvironment({
+  /// The public way in: it fills in the download and the platform. (A plain constructor cannot
+  /// assign the private fields without a lint, and a private field cannot be a named parameter.)
+  factory LinuxEnvironment({
     LinuxBridge bridge = const LinuxBridge(),
     RootfsDownload? download,
     bool? android,
-  })  : _bridge = bridge,
-        _download = download ?? _downloadRootfs,
-        _android = android ?? Platform.isAndroid;
+  }) =>
+      LinuxEnvironment._(bridge, download ?? _downloadRootfs, android ?? Platform.isAndroid);
+
+  const LinuxEnvironment._(this._bridge, this._download, this._android);
 
   final LinuxBridge _bridge;
   final RootfsDownload _download;
@@ -295,15 +298,16 @@ class LinuxEnvironment {
     _message = null;
     _progress = 0;
     _state = LinuxState.downloading;
-    File? archive;
+    File? lasting;
     try {
-      archive = await _download(
+      final archive = await _download(
         config.rootfsUrl,
         connections: config.connections,
         onProgress: (done, total) {
           _progress = total > 0 ? (done / total).clamp(0.0, 1.0).toDouble() : null;
         },
       );
+      lasting = archive;
       final want = config.rootfsSha256.trim().toLowerCase();
       if (want.isNotEmpty) {
         final have = (await FileDownloader.sha256Of(archive)).toLowerCase();
@@ -328,7 +332,7 @@ class LinuxEnvironment {
     } finally {
       _progress = null;
       // the archive is a one-off; the Android side has its own copy of what it needs
-      final file = archive;
+      final file = lasting;
       try {
         if (file != null && await file.exists()) await file.delete();
       } catch (_) {
@@ -424,7 +428,7 @@ class LinuxEnvironment {
           final request = http.Request('GET', uri);
           final range = rangeHeader(from, to);
           if (range != null) request.headers['range'] = range;
-          return client.send(request);
+          return await client.send(request);
         },
         onProgress: (done) => onProgress?.call(done, total),
       );
