@@ -103,9 +103,25 @@ class AppSettings {
     this.kvSnapshotMinTokens = 512,
     this.autoFetchModelInfo = true,
     this.fetchModelInfoFromHub = true,
+    this.shellEnabled = true,
+    this.shellConfirm = true,
+    this.shellTimeoutSeconds = 120,
+    this.shellMaxTimeoutSeconds = 600,
+    this.shellMaxOutputChars = 20000,
+    this.workspaceLimitMb = 2048,
+    this.linuxRootfsUrl = defaultLinuxRootfsUrl,
+    this.linuxRootfsSha256 = defaultLinuxRootfsSha256,
+    this.linuxDns = '1.1.1.1 8.8.8.8',
+    this.shellCompatMode = false,
   });
 
   static const defaultRepo = 'keusidan/arce.ai';
+
+  /// The Ubuntu Base 24.04.5 for arm64 that was checked on 2026-10-28 (29,936,675 bytes; the
+  /// SHA-256 matches the `SHA256SUMS` beside it and a real download).
+  static const defaultLinuxRootfsUrl =
+      'https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.5-base-arm64.tar.gz';
+  static const defaultLinuxRootfsSha256 = 'a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2';
 
   final bool thinking;
   final bool searchEnabled;
@@ -290,6 +306,37 @@ class AppSettings {
   /// (only the model's name is sent).
   final bool fetchModelInfoFromHub;
 
+  // ---- the Linux environment (docs 15 and 19.5; Android only) ----
+
+  /// Offer `run_command` to the model at all. Off hides the tool and refuses to run one.
+  final bool shellEnabled;
+
+  /// Show every command for approval before it runs. A command can do anything the app itself can,
+  /// so this is deliberately not changeable from a chat message.
+  final bool shellConfirm;
+
+  /// Seconds a command may run by default (the model may ask for up to [shellMaxTimeoutSeconds]).
+  final int shellTimeoutSeconds;
+
+  /// The longest a single command may be allowed to run.
+  final int shellMaxTimeoutSeconds;
+
+  /// How many characters of a command's output reach the model (the rest is cut, keeping both ends).
+  final int shellMaxOutputChars;
+
+  /// How large the workspace shared by every chat may grow, in megabytes (0 = no limit).
+  final int workspaceLimitMb;
+
+  /// Where the root file system comes from, and the SHA-256 it must have (empty: not compared).
+  final String linuxRootfsUrl;
+  final String linuxRootfsSha256;
+
+  /// The nameservers written into `/etc/resolv.conf`, separated by spaces.
+  final String linuxDns;
+
+  /// Start proot without its seccomp filter (`PROOT_NO_SECCOMP=1`), for devices that refuse it.
+  final bool shellCompatMode;
+
   KvSnapshotConfig get kvSnapshot => KvSnapshotConfig(
     enabled: kvSnapshotEnabled,
     maxBytes: kvSnapshotMaxMb.clamp(64, 65536) * 1024 * 1024,
@@ -403,6 +450,16 @@ class AppSettings {
     int? kvSnapshotMinTokens,
     bool? autoFetchModelInfo,
     bool? fetchModelInfoFromHub,
+    bool? shellEnabled,
+    bool? shellConfirm,
+    int? shellTimeoutSeconds,
+    int? shellMaxTimeoutSeconds,
+    int? shellMaxOutputChars,
+    int? workspaceLimitMb,
+    String? linuxRootfsUrl,
+    String? linuxRootfsSha256,
+    String? linuxDns,
+    bool? shellCompatMode,
   }) => AppSettings(
     thinking: thinking ?? this.thinking,
     searchEnabled: searchEnabled ?? this.searchEnabled,
@@ -486,6 +543,16 @@ class AppSettings {
     kvSnapshotMinTokens: kvSnapshotMinTokens ?? this.kvSnapshotMinTokens,
     autoFetchModelInfo: autoFetchModelInfo ?? this.autoFetchModelInfo,
     fetchModelInfoFromHub: fetchModelInfoFromHub ?? this.fetchModelInfoFromHub,
+    shellEnabled: shellEnabled ?? this.shellEnabled,
+    shellConfirm: shellConfirm ?? this.shellConfirm,
+    shellTimeoutSeconds: shellTimeoutSeconds ?? this.shellTimeoutSeconds,
+    shellMaxTimeoutSeconds: shellMaxTimeoutSeconds ?? this.shellMaxTimeoutSeconds,
+    shellMaxOutputChars: shellMaxOutputChars ?? this.shellMaxOutputChars,
+    workspaceLimitMb: workspaceLimitMb ?? this.workspaceLimitMb,
+    linuxRootfsUrl: linuxRootfsUrl ?? this.linuxRootfsUrl,
+    linuxRootfsSha256: linuxRootfsSha256 ?? this.linuxRootfsSha256,
+    linuxDns: linuxDns ?? this.linuxDns,
+    shellCompatMode: shellCompatMode ?? this.shellCompatMode,
   );
 
   Map<String, Object?> toJson() => {
@@ -571,6 +638,16 @@ class AppSettings {
     'kvSnapshotMinTokens': kvSnapshotMinTokens,
     'autoFetchModelInfo': autoFetchModelInfo,
     'fetchModelInfoFromHub': fetchModelInfoFromHub,
+    'shellEnabled': shellEnabled,
+    'shellConfirm': shellConfirm,
+    'shellTimeoutSeconds': shellTimeoutSeconds,
+    'shellMaxTimeoutSeconds': shellMaxTimeoutSeconds,
+    'shellMaxOutputChars': shellMaxOutputChars,
+    'workspaceLimitMb': workspaceLimitMb,
+    'linuxRootfsUrl': linuxRootfsUrl,
+    'linuxRootfsSha256': linuxRootfsSha256,
+    'linuxDns': linuxDns,
+    'shellCompatMode': shellCompatMode,
   };
 
   /// Unknown, missing or wrongly typed values fall back to the defaults, so older or damaged
@@ -685,6 +762,16 @@ class AppSettings {
       kvSnapshotMinTokens: whole('kvSnapshotMinTokens', d.kvSnapshotMinTokens),
       autoFetchModelInfo: flag('autoFetchModelInfo', d.autoFetchModelInfo),
       fetchModelInfoFromHub: flag('fetchModelInfoFromHub', d.fetchModelInfoFromHub),
+      shellEnabled: flag('shellEnabled', d.shellEnabled),
+      shellConfirm: flag('shellConfirm', d.shellConfirm),
+      shellTimeoutSeconds: whole('shellTimeoutSeconds', d.shellTimeoutSeconds).clamp(1, 3600),
+      shellMaxTimeoutSeconds: whole('shellMaxTimeoutSeconds', d.shellMaxTimeoutSeconds).clamp(1, 3600),
+      shellMaxOutputChars: whole('shellMaxOutputChars', d.shellMaxOutputChars).clamp(500, 1000000),
+      workspaceLimitMb: whole('workspaceLimitMb', d.workspaceLimitMb).clamp(0, 65536),
+      linuxRootfsUrl: text('linuxRootfsUrl', d.linuxRootfsUrl),
+      linuxRootfsSha256: text('linuxRootfsSha256', d.linuxRootfsSha256),
+      linuxDns: text('linuxDns', d.linuxDns),
+      shellCompatMode: flag('shellCompatMode', d.shellCompatMode),
       searchApis: SearchApis.decode(json['searchApis']),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {
