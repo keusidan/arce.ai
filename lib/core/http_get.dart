@@ -46,6 +46,8 @@ HttpGet packageHttpGet({
     if (response.statusCode < 200 || response.statusCode > 299) {
       throw HttpStatusException(response.statusCode, 'HTTP ${response.statusCode} for ${url.split('?').first}');
     }
-    return response.body;
+    // Like the POST above: GitHub sends JSON without a charset, and `response.body` falls back to
+    // Latin-1 then, which turned Japanese in a release note into mojibake.
+    return utf8.decode(response.bodyBytes, allowMalformed: true);
   };
 }
