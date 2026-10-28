@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../ai/token_budget.dart';
 import '../core/protocol.dart';
 import '../core/tool_runtime.dart';
+import '../services/linux_env.dart';
 import 'mcp_client.dart';
 import 'mcp_server.dart';
 
@@ -21,6 +22,11 @@ class McpServerClient {
 ///
 /// `tools/list` is cached per server for the life of the [cache] map, so a chat turn does not ask
 /// every server again. A server that fails is left out for this turn and tried again next time.
+///
+/// The app's own shell tool ([shellDefinition]) is offered from here too, because this is where the
+/// chat already looks for calls it cannot run itself: `ToolCallParser` turns every tool the turn
+/// allows into an [McpCall], and this class runs that one on the device instead of sending it to a
+/// server. When the shell settings arrive (docs 19.5, step 3) the tool moves to `AppController`.
 class McpTools {
   McpTools(this._servers, {Map<String, List<McpTool>>? cache})
     : _cache = cache ?? {};
@@ -53,11 +59,14 @@ class McpTools {
 
   /// Whether [name] needs an approval card, following the server's own setting as well.
   bool approvalRequired(String name) {
+    // a command in the app's Linux environment is shown every time: it can do anything the app
+    // itself can (docs 15.4). This becomes the setting `shellConfirm`.
+    if (name == shellDefinition.name) return LinuxEnvironment.supported;
     final parsed = parseName(name);
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
     if (server == null) return false;
-    return server.config.approveWrites && needsApproval(name);
+    return server.config.approveWrite && needsApproval(name);
   }
 
   McpServerClient? _serverById(String id) {
@@ -84,7 +93,9 @@ class McpTools {
 
   /// The tools of all reachable servers in the app's own form.
   Future<List<ToolDefinition>> definitions() async {
-    final out = <ToolDefinition>[];
+    final out = <ToolDefinition>[
+      if (LinuxEnvironment.supported) shellDefinition,
+    ];
     for (final server in _servers) {
       final tools = await _toolsOf(server);
       if (tools == null) continue;
@@ -128,6 +139,9 @@ class McpTools {
   }
 
   Future<ToolOutcome> run(McpCall call) async {
+    if (call.name == shellDefinition.name && LinuxEnvironment.supported) {
+      return _runShell(call.arguments);
+    }
     final parsed = parseName(call.name);
     final server = parsed == null ? null : _serverById(parsed.$1);
     if (parsed == null || server == null) {
@@ -151,6 +165,95 @@ class McpTools {
           '${server.config.name}: $tool に失敗: $e',
           failed: true,
         ),
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------- the app's own shell tool
+
+  /// The Ubuntu Base 24.04.5 for arm64 that was checked on 2026-10-28 (size 29,936,675 bytes; the
+  /// SHA-256 matches the `SHA256SUMS` beside it and a real download). The workspace is the 2 GB the
+  /// user asked for. Every one of these becomes a setting (docs 19.5, step 3).
+  static const _shellConfig = LinuxConfig(
+    rootfsUrl:
+        'https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.5-base-arm64.tar.gz',
+    rootfsSha256: 'a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2',
+    dns: ['1.1.1.1', '8.8.8.8'],
+    workspaceLimitMb: 2048,
+  );
+
+  /// A command that runs longer is stopped; the model may ask for up to [_shellMaxTimeoutSeconds].
+  static const _shellTimeoutSeconds = 120;
+  static const _shellMaxTimeoutSeconds = 600;
+  static const _shellMaxOutputChars = 20000;
+
+  /// One environment for the whole app: the workspace is shared by every chat, and the Android side
+  /// runs one command at a time, so the state of an install must not be lost between turns.
+  static final LinuxEnvironment _shell = LinuxEnvironment();
+
+  /// The `run_command` tool. What the description says about the environment is what the model has
+  /// to know: it cannot look it up (docs 19.5, item 4).
+  static final ToolDefinition shellDefinition = ToolDefinition(
+    name: 'mcp_run_command',
+    description:
+        'Run one shell command in the Linux environment inside this app: Ubuntu 24.04 for arm64 '
+        'under proot (a pseudo root, not a sandbox; no systemd, no real users). /workspace is '
+        'shared by every chat and kept between them, up to 2048 MB; HOME is /workspace/home. '
+        'apt, pip (use --user) and git work; there is no switch for the network. '
+        'Commands run one at a time and cannot ask for input. The output is cut when it is long, '
+        'and the command is stopped when it runs longer than timeout_seconds or when it fills the '
+        'workspace. The first command installs the environment (about 30 MB, a few minutes) if the '
+        'user has not done it yet.',
+    parameters: {
+      'type': 'object',
+      'properties': {
+        'command': {'type': 'string'},
+        'cwd': {'type': 'string'},
+        'timeout_seconds': {'type': 'integer'},
+      },
+      'required': ['command'],
+      'additionalProperties': false,
+    },
+  );
+
+  /// Runs [arguments] of [shellDefinition] and turns the result into what the model reads.
+  Future<ToolOutcome> _runShell(Map<String, Object?> arguments) async {
+    final command = '${arguments['command'] ?? ''}'.trim();
+    if (command.isEmpty) {
+      return const ToolOutcome(
+        'The command is empty.',
+        ToolActivity('Shell', '空のコマンド', failed: true),
+      );
+    }
+    final cwd = '${arguments['cwd'] ?? '/workspace'}'.trim();
+    final wanted = arguments['timeout_seconds'];
+    final seconds = (wanted is num ? wanted.toInt() : _shellTimeoutSeconds)
+        .clamp(1, _shellMaxTimeoutSeconds);
+    try {
+      // the first command installs the environment; the user approved this call already
+      if (!_shell.ready) {
+        await _shell.refresh(_shellConfig);
+        if (!_shell.ready) await _shell.install(_shellConfig);
+      }
+      final outcome = await _shell.run(
+        config: _shellConfig,
+        command: command,
+        cwd: cwd,
+        timeoutSeconds: seconds,
+        maxOutputChars: _shellMaxOutputChars,
+      );
+      return ToolOutcome(
+        outcome.describe(),
+        ToolActivity(
+          'Shell',
+          '\$ $command',
+          failed: !outcome.ok,
+        ),
+      );
+    } catch (e) {
+      return ToolOutcome(
+        'The command could not be run: $e',
+        ToolActivity('Shell', '実行できませんでした: $e', failed: true),
       );
     }
   }
