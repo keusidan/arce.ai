@@ -332,7 +332,7 @@ abstract final class Protocol {
     ),
   );
 
-  // ---------------------------------------------------------------- the app's own shell
+  // ---------------------------------------------------------------- the app's own tools
 
   /// The app's own shell tool: one command in the Linux environment on the device (docs 15 and
   /// 19.5). It is parsed as an [McpCall] and run by the MCP runtime, which is where the chat looks
@@ -360,9 +360,31 @@ abstract final class Protocol {
     ),
   );
 
-  /// The tools that parse as an [McpCall]: the MCP servers' own, and the app's [runCommand].
+  /// GitHub Actions, read only: what the CI of a branch did, and which steps of one run failed.
+  /// The GitHub MCP server the app talks to offers no Actions tools, so this reads the REST API.
+  static const ciStatusName = 'ci_status';
+
+  static final ciStatus = ToolDefinition(
+    name: ciStatusName,
+    description:
+        'Read GitHub Actions of a repository (the app\'s own unless repository says otherwise), '
+        'read only. Without run_id it lists the newest runs of a branch (all branches when branch '
+        'is omitted); with run_id it lists the jobs of that run, with the steps that failed. Use it '
+        'to say whether a push is green on every platform, instead of asking the user to copy a log.',
+    parameters: _objectSchema(
+      required: [],
+      properties: {
+        'repository': {'type': 'string'},
+        'branch': {'type': 'string'},
+        'limit': {'type': 'integer'},
+        'run_id': {'type': 'integer'},
+      },
+    ),
+  );
+
+  /// The tools that parse as an [McpCall]: the MCP servers' own, and the app's own two above.
   static bool isMcpLike(String name) =>
-      name.startsWith('mcp_') || name == runCommandName;
+      name.startsWith('mcp_') || name == runCommandName || name == ciStatusName;
 
   /// JSON Schema for the body of one `<tool_call>` block restricted to [tools]:
   /// `{"name": <one of the tools>, "arguments": <that tool's parameters>}`.
@@ -529,6 +551,7 @@ abstract final class ToolCallParser {
       if (name == Protocol.delegate.name) {
         return _parseDelegate(args);
       }
+      if (name == Protocol.ciStatusName) return _parseCiStatus(args);
       // a tool of an MCP server, or the app's own run_command: the engine's schema already limited
       // it to the tools this turn allows
       if (Protocol.isMcpLike(name)) {
@@ -608,6 +631,28 @@ abstract final class ToolCallParser {
         'command': command,
         if (cwd != null) 'cwd': cwd,
         if (timeout is num) 'timeout_seconds': timeout.toInt(),
+      }),
+    );
+  }
+
+  /// A repository is `owner/name` (or none, for the app's own), the branch and the run are numbers
+  /// or words as they came: reading the runs is all this does.
+  static ParseResult _parseCiStatus(Map<dynamic, dynamic> args) {
+    final repository = _requiredText(args, 'repository');
+    if (repository != null && !RegExp(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$').hasMatch(repository)) {
+      return const ParseInvalid('repository must look like owner/name');
+    }
+    final limit = args['limit'];
+    if (limit != null && limit is! num) throw _WrongType('limit');
+    final runId = args['run_id'];
+    if (runId != null && runId is! num) throw _WrongType('run_id');
+    return ParseOk(
+      McpCall(Protocol.ciStatusName, {
+        if (repository != null) 'repository': repository,
+        final branch = _requiredText(args, 'branch');
+        if (branch != null) 'branch': branch,
+        if (limit is num) 'limit': limit.toInt(),
+        if (runId is num) 'run_id': runId.toInt(),
       }),
     );
   }
