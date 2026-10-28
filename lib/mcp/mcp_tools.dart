@@ -15,6 +15,64 @@ class McpServerClient {
   final McpClient client;
 }
 
+/// What the app's own tools read from the settings, at the moment they are called: a changed
+/// limit applies to the next command, without building anything again.
+class ShellSettings {
+  const ShellSettings({
+    this.enabled = true,
+    this.confirm = true,
+    this.timeoutSeconds = 120,
+    this.maxTimeoutSeconds = 600,
+    this.maxOutputChars = 20000,
+    this.workspaceLimitMb = 2048,
+    this.rootfsUrl = defaultRootfsUrl,
+    this.rootfsSha256 = defaultRootfsSha256,
+    this.dns = '1.1.1.1 8.8.8.8',
+    this.compatMode = false,
+    this.downloadConnections = 4,
+  });
+
+  /// The Ubuntu Base 24.04.5 for arm64 that was checked on 2026-10-28 (29,936,675 bytes; the
+  /// SHA-256 matches the `SHA256SUMS` beside it and a real download).
+  static const defaultRootfsUrl =
+      'https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.5-base-arm64.tar.gz';
+  static const defaultRootfsSha256 = 'a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2';
+
+  /// Offer `run_command` at all.
+  final bool enabled;
+
+  /// Show every command before it runs.
+  final bool confirm;
+  final int timeoutSeconds;
+  final int maxTimeoutSeconds;
+  final int maxOutputChars;
+
+  /// 0 means no limit.
+  final int workspaceLimitMb;
+  final String rootfsUrl;
+  final String rootfsSha256;
+
+  /// Nameservers separated by spaces.
+  final String dns;
+  final bool compatMode;
+  final int downloadConnections;
+
+  LinuxConfig get config => LinuxConfig(
+    rootfsUrl: rootfsUrl.trim(),
+    rootfsSha256: rootfsSha256.trim(),
+    dns: [
+      for (final server in dns.split(RegExp(r'\s+')))
+        if (server.trim().isNotEmpty) server.trim(),
+    ],
+    workspaceLimitMb: workspaceLimitMb,
+    compatMode: compatMode,
+    connections: downloadConnections,
+  );
+
+  /// The tool without the settings: the defaults, which are what 0.12.0 shipped with.
+  static const defaults = ShellSettings();
+}
+
 /// The tools of every MCP server the user configured, as the chat sees them.
 ///
 /// A server may publish a name the app already has (`search`, `get_time` ...), so every tool is
@@ -27,11 +85,14 @@ class McpServerClient {
 /// The app's own tools (`run_command`, `ci_status`) are offered from here too, because this is
 /// where the chat already looks for calls it cannot run itself: `ToolCallParser` turns every tool
 /// the turn allows into an [McpCall], and this class runs those on the device instead of sending
-/// them to a server. When the shell settings arrive (docs 19.5, step 3) the runner moves to
-/// `AppController`.
+/// them to a server.
 class McpTools {
-  McpTools(this._servers, {Map<String, List<McpTool>>? cache, this.ciToken = ''})
-    : _cache = cache ?? {};
+  McpTools(
+    this._servers, {
+    Map<String, List<McpTool>>? cache,
+    this.ciToken = '',
+    this.shell = ShellSettings.defaults,
+  }) : _cache = cache ?? {};
 
   final List<McpServerClient> _servers;
   final Map<String, List<McpTool>> _cache;
@@ -39,6 +100,9 @@ class McpTools {
   /// The token `ci_status` reads GitHub Actions with: the one typed for the GitHub server, which is
   /// read only here. Empty means the public API, which answers for a public repository.
   final String ciToken;
+
+  /// What `run_command` may do (the Linux environment's settings).
+  final ShellSettings shell;
 
   static const prefix = 'mcp_';
   static const separator = '__';
@@ -67,9 +131,9 @@ class McpTools {
   bool approvalRequired(String name) {
     // ci_status only reads GitHub: nothing to approve
     if (name == Protocol.ciStatusName) return false;
-    // a command in the app's Linux environment is shown every time: it can do anything the app
-    // itself can (docs 15.4). This becomes the setting `shellConfirm`.
-    if (name == Protocol.runCommandName) return LinuxEnvironment.supported;
+    // a command in the app's Linux environment can do anything the app itself can (docs 15.4), so
+    // it is shown every time unless the setting says otherwise.
+    if (name == Protocol.runCommandName) return shell.enabled && shell.confirm && LinuxEnvironment.supported;
     final parsed = parseName(name);
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
@@ -102,7 +166,7 @@ class McpTools {
   /// The tools of all reachable servers in the app's own form.
   Future<List<ToolDefinition>> definitions() async {
     final out = <ToolDefinition>[
-      if (LinuxEnvironment.supported) Protocol.runCommand,
+      if (shell.enabled && LinuxEnvironment.supported) _runCommandFor(shell),
       Protocol.ciStatus,
     ];
     for (final server in _servers) {
@@ -230,28 +294,37 @@ class McpTools {
 
   // ---------------------------------------------------------------- run_command
 
-  /// The Ubuntu Base 24.04.5 for arm64 that was checked on 2026-10-28 (29,936,675 bytes; the
-  /// SHA-256 matches the `SHA256SUMS` beside it and a real download). The workspace is the 2 GB the
-  /// user asked for. Every one of these becomes a setting (docs 19.5, step 3).
-  static const _shellConfig = LinuxConfig(
-    rootfsUrl:
-        'https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.5-base-arm64.tar.gz',
-    rootfsSha256: 'a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2',
-    dns: ['1.1.1.1', '8.8.8.8'],
-    workspaceLimitMb: 2048,
-  );
-
-  /// A command that runs longer is stopped; the model may ask for up to [_shellMaxTimeoutSeconds].
-  static const _shellTimeoutSeconds = 120;
-  static const _shellMaxTimeoutSeconds = 600;
-  static const _shellMaxOutputChars = 20000;
-
   /// One environment for the whole app: the workspace is shared by every chat, and the Android side
   /// runs one command at a time, so the state of an install must not be lost between turns.
   static final LinuxEnvironment _shell = LinuxEnvironment();
 
-  /// Runs the arguments of `Protocol.runCommand` and turns the result into what the model reads.
+  /// The tool, with what the settings allow written into its description: the model cannot look
+  /// the limits up, so they are said here (docs 19.5, item 4).
+  static ToolDefinition _runCommandFor(ShellSettings s) => ToolDefinition(
+    name: Protocol.runCommandName,
+    description:
+        'Run one shell command in the Linux environment (Ubuntu 24.04, arm64) that lives inside this '
+        'app, in the root file system under proot. It is a pseudo root, not a sandbox, and there is no '
+        'systemd. /workspace is shared by every chat and kept between them'
+        '${s.workspaceLimitMb > 0 ? ' (up to ${s.workspaceLimitMb} MB)' : ''}; HOME is /workspace/home. '
+        'apt, pip (use --user) and git work, and there is no switch for the network. '
+        'Commands run one at a time and cannot ask for input. The output is cut when it is long, and '
+        'the command is stopped after ${s.timeoutSeconds} seconds by default or when it runs longer '
+        'than timeout_seconds (at most ${s.maxTimeoutSeconds}), or when it fills the workspace. '
+        'The first command installs the environment (about 30 MB, a few minutes) if the user has not '
+        'done it yet.${s.confirm ? ' The user approves every command first.' : ''}',
+    parameters: Protocol.runCommand.parameters,
+  );
+
+  /// Runs the arguments of `Protocol.runCommand` with the shell settings and turns the result into
+  /// what the model reads.
   Future<ToolOutcome> _runShell(Map<String, Object?> arguments) async {
+    if (!shell.enabled) {
+      return const ToolOutcome(
+        'The Linux environment is turned off in the settings.',
+        ToolActivity('Shell', '設定でオフです', failed: true),
+      );
+    }
     final command = '${arguments['command'] ?? ''}'.trim();
     if (command.isEmpty) {
       return const ToolOutcome(
@@ -261,20 +334,21 @@ class McpTools {
     }
     final cwd = '${arguments['cwd'] ?? '/workspace'}'.trim();
     final wanted = arguments['timeout_seconds'];
-    final asked = wanted is num ? wanted.toInt() : _shellTimeoutSeconds;
-    final seconds = asked.clamp(1, _shellMaxTimeoutSeconds).toInt();
+    final asked = wanted is num ? wanted.toInt() : shell.timeoutSeconds;
+    final seconds = asked.clamp(1, shell.maxTimeoutSeconds).toInt();
+    final config = shell.config;
     try {
       // the first command installs the environment; the user approved this call already
       if (!_shell.ready) {
-        await _shell.refresh(_shellConfig);
-        if (!_shell.ready) await _shell.install(_shellConfig);
+        await _shell.refresh(config);
+        if (!_shell.ready) await _shell.install(config);
       }
       final outcome = await _shell.run(
-        config: _shellConfig,
+        config: config,
         command: command,
         cwd: cwd,
         timeoutSeconds: seconds,
-        maxOutputChars: _shellMaxOutputChars,
+        maxOutputChars: shell.maxOutputChars,
       );
       return ToolOutcome(
         outcome.describe(),
