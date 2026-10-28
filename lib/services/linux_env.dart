@@ -106,7 +106,7 @@ class ShellOutcome {
   });
 
   factory ShellOutcome.fromMap(Map<Object?, Object?> map) => ShellOutcome(
-        exit: map['exit'] is num ? (map['exit']! as num).toInt() : -1,
+        exit: asLong(map['exit']) == 0 && map['exit'] == null ? -1 : asLong(map['exit']),
         stdout: '${map['stdout'] ?? ''}',
         stderr: '${map['stderr'] ?? ''}',
         truncated: map['truncated'] == true,
@@ -301,7 +301,7 @@ class LinuxEnvironment {
         config.rootfsUrl,
         connections: config.connections,
         onProgress: (done, total) {
-          _progress = total > 0 ? (done / total).clamp(0.0, 1.0) : null;
+          _progress = total > 0 ? (done / total).clamp(0.0, 1.0).toDouble() : null;
         },
       );
       final want = config.rootfsSha256.trim().toLowerCase();
@@ -328,8 +328,9 @@ class LinuxEnvironment {
     } finally {
       _progress = null;
       // the archive is a one-off; the Android side has its own copy of what it needs
+      final file = archive;
       try {
-        if (archive != null && await archive.exists()) await archive.delete();
+        if (file != null && await file.exists()) await file.delete();
       } catch (_) {
         // a leftover file in the cache folder is not worth an error of its own
       }
@@ -429,7 +430,7 @@ class LinuxEnvironment {
       );
       final file = File(p.join(folder.path, 'rootfs.tar.gz'));
       if (await file.exists()) await file.delete();
-      return part.rename(file.path);
+      return await part.rename(file.path);
     } finally {
       client.close();
     }
