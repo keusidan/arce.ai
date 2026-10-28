@@ -20,7 +20,7 @@ class McpServerClient {
 class ShellSettings {
   const ShellSettings({
     this.enabled = true,
-    this.confirm = true,
+    this.confirm = false,
     this.timeoutSeconds = 120,
     this.maxTimeoutSeconds = 600,
     this.maxOutputChars = 20000,
@@ -41,7 +41,8 @@ class ShellSettings {
   /// Offer `run_command` at all.
   final bool enabled;
 
-  /// Show every command before it runs.
+  /// Ask before every command, even one that stays inside the environment. Off by default: a
+  /// command that stays inside the sandbox runs without asking.
   final bool confirm;
   final int timeoutSeconds;
   final int maxTimeoutSeconds;
@@ -129,20 +130,25 @@ class McpTools {
   /// The verbs of tools that change something outside the device. Those are shown to the user as
   /// one card and run only when they approve: a chat message must not push code to a repository
   /// without a second look.
-  static bool needsApproval(String name) => ToolApproval.needsApproval(name);
+  static bool needsApproval(String name, [Map<String, Object?> arguments = const {}]) =>
+      ToolApproval.needsApproval(name, arguments);
 
   /// Whether [name] needs an approval card, following the server's own setting as well.
-  bool approvalRequired(String name) {
+  bool approvalRequired(String name, [Map<String, Object?> arguments = const {}]) {
     // ci_status only reads GitHub: nothing to approve
     if (name == Protocol.ciStatusName) return false;
-    // a command in the app's Linux environment can do anything the app itself can (docs 15.4), so
-    // it is shown every time unless the setting says otherwise.
-    if (name == Protocol.runCommandName) return shell.enabled && shell.confirm && LinuxEnvironment.supported;
+    // B (docs 19.5, 2026-10-29): a command that stays inside the sandbox (/workspace and the
+    // Ubuntu rootfs) runs without asking; only one that reaches the device outside it asks.
+    if (name == Protocol.runCommandName) {
+      if (!shell.enabled || !LinuxEnvironment.supported) return false;
+      if (shell.confirm) return true;
+      return !SandboxPolicy.isInsideSandbox(McpCall(name, arguments));
+    }
     final parsed = parseName(name);
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
     if (server == null) return false;
-    return server.config.approveWrites && needsApproval(name);
+    return server.config.approveWrites && needsApproval(name, arguments);
   }
 
   McpServerClient? _serverById(String id) {

@@ -489,7 +489,7 @@ class ChatController extends ChangeNotifier {
 
   /// Whether a tool call coming from an MCP server waits for the user. Null keeps the default
   /// (tools that write outside the device ask every time).
-  final bool Function(String name)? _mcpApproval;
+  final bool Function(String name, [Map<String, Object?> arguments])? _mcpApproval;
 
   /// Tools from outside the app (an MCP server). Read for every generation, so adding or removing
   /// one applies to the next reply.
@@ -941,8 +941,8 @@ class ChatController extends ChangeNotifier {
           _finishWith(TaskState.userWait);
           return;
         case final McpCall mcp
-            when (_mcpApproval?.call(mcp.name) ??
-                ToolApproval.needsApproval(mcp.name)):
+            when (_mcpApproval?.call(mcp.name, mcp.arguments) ??
+                ToolApproval.needsApproval(mcp.name, mcp.arguments)):
           // a tool that writes outside the device: one card, and nothing runs until 実行する
           _replace(
             id,

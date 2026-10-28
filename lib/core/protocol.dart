@@ -343,19 +343,23 @@ abstract final class Protocol {
     name: runCommandName,
     description:
         'Run one shell command in the Linux environment (Ubuntu 24.04, arm64) that lives inside this '
-        'app, in the root file system under proot. It is a pseudo root, not a sandbox, and there is no '
-        'systemd. /workspace is shared by every chat and kept between them (up to 2048 MB); HOME is '
-        '/workspace/home. apt, pip (use --user) and git work, and there is no switch for the network. '
-        'Commands run one at a time and cannot ask for input. The output is cut when it is long, and '
-        'the command is stopped when it runs longer than timeout_seconds or when it fills the '
-        'workspace. The first command installs the environment (about 30 MB, a few minutes) if the '
-        'user has not done it yet; the user approves every command first.',
+        'app, in the root file system under proot. There is no systemd. /workspace is shared by every '
+        'chat and kept between them (up to 2048 MB); HOME is /workspace/home. apt, pip (use --user) '
+        'and git work. Commands run one at a time and cannot ask for input. Never wait with a '
+        'fixed-duration sleep (e.g. sleep 5); wait directly for the process or response to finish, '
+        'and rely on timeout_seconds as the timeout cap. The output is cut when it is long, and the '
+        'command is stopped when it runs longer than timeout_seconds or fills the workspace. The first '
+        'command installs the environment (about 30 MB, a few minutes) if the user has not done it '
+        'yet. A command that stays inside the environment (/workspace and the container root file '
+        'system) runs at once, without waiting for the user; one that reaches the device outside it is '
+        'shown for approval first. Set auto_execute: false to ask first even inside.',
     parameters: _objectSchema(
       required: ['command'],
       properties: {
         'command': {'type': 'string'},
         'cwd': {'type': 'string'},
         'timeout_seconds': {'type': 'integer'},
+        'auto_execute': {'type': 'boolean'},
       },
     ),
   );
@@ -491,11 +495,75 @@ abstract final class ToolApproval {
   };
 
   /// Their names come from the server (`mcp_<server>__<tool>`); the server's own id is not read.
-  static bool needsApproval(String name) {
+  static bool needsApproval(String name, [Map<String, Object?> arguments = const {}]) {
+    if (name == Protocol.ciStatusName) return false;
+    if (name == Protocol.runCommandName) {
+      return !SandboxPolicy.isInsideSandbox(McpCall(name, arguments));
+    }
     final at = name.lastIndexOf('__');
     final tool = at >= 0 ? name.substring(at + 2) : name;
     final words = RegExp(r'[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+').allMatches(tool).map((m) => m.group(0)!.toLowerCase());
     return words.any(writeVerbs.contains);
+  }
+}
+
+/// Decides whether a `run_command` call stays inside the local proot environment (/workspace and
+/// the Ubuntu rootfs), which is what lets it run without asking the user (B, docs 19.5).
+///
+/// proot is not a sandbox: a command runs with the app's own user and proot only translates paths.
+/// What this reads is therefore only "does the command reach the device outside the container":
+/// a `cwd` under a host-only folder, or a command that names one, is outside; a command written
+/// against `/workspace` and the rootfs is inside.
+abstract final class SandboxPolicy {
+  /// Host Android paths that live outside the container rootfs and /workspace.
+  static final _hostPaths = RegExp(
+    r'''(?:^|[\s'"`=:/])(?:/sdcard(?:/|$)|/storage/(?:emulated|self)(?:/|$)|/data/(?:data|user|app)(?:/|$)|/system/(?:bin|xbin|app|priv-app)(?:/|$)|/vendor(?:/|$)|/apex(?:/|$))''',
+  );
+
+  static const _forbiddenCwdPrefixes = [
+    '/sdcard',
+    '/storage',
+    '/mnt',
+    '/data/data',
+    '/data/user',
+    '/data/app',
+    '/system',
+    '/vendor',
+    '/apex',
+  ];
+
+  /// True when [call] is a `run_command` that stays inside the environment and the model did not ask
+  /// for a look first (`auto_execute: false`).
+  static bool isInsideSandbox(McpCall call) {
+    if (call.name != Protocol.runCommandName) return false;
+    final autoExec = call.arguments['auto_execute'];
+    if (autoExec == false || autoExec == 'false') return false;
+    final rawCwd = '${call.arguments['cwd'] ?? '/workspace'}'.trim();
+    final cwd = _normalizePath(rawCwd);
+    if (cwd == null) return false;
+    for (final prefix in _forbiddenCwdPrefixes) {
+      if (cwd == prefix || cwd.startsWith('$prefix/')) return false;
+    }
+    final command = '${call.arguments['command'] ?? ''}'.trim();
+    if (command.isEmpty) return false;
+    if (_hostPaths.hasMatch(command)) return false;
+    return true;
+  }
+
+  /// Resolves `.` and `..`; null when the path is not absolute or climbs above `/`.
+  static String? _normalizePath(String path) {
+    if (!path.startsWith('/') || path.contains('\n') || path.contains('\u0000')) return null;
+    final stack = <String>[];
+    for (final part in path.split('/')) {
+      if (part.isEmpty || part == '.') continue;
+      if (part == '..') {
+        if (stack.isEmpty) return null;
+        stack.removeLast();
+      } else {
+        stack.add(part);
+      }
+    }
+    return '/${stack.join('/')}';
   }
 }
 
@@ -626,11 +694,16 @@ abstract final class ToolCallParser {
     }
     final timeout = args['timeout_seconds'];
     if (timeout != null && timeout is! num) throw _WrongType('timeout_seconds');
+    final autoExec = args['auto_execute'];
+    if (autoExec != null && autoExec is! bool && autoExec is! String) {
+      throw _WrongType('auto_execute');
+    }
     return ParseOk(
       McpCall(Protocol.runCommandName, {
         'command': command,
         'cwd': ?cwd,
         if (timeout is num) 'timeout_seconds': timeout.toInt(),
+        if (autoExec != null) 'auto_execute': _flag(args, 'auto_execute'),
       }),
     );
   }

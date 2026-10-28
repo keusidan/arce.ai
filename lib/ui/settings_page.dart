@@ -396,8 +396,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                   SettingRow(
                     icon: ArceSvg.alert,
-                    title: '実行の前に確認する',
-                    subtitle: '毎回、実際のコマンド・場所・時間の上限を見せて承認を取ります。チャットからは変えられません',
+                    title: 'すべてのコマンドを実行前に確認する',
+                    subtitle: 'オフ（既定）では、サンドボックス（/workspace と Ubuntu 内）に収まるコマンドを自動実行し、端末の外に触れるコマンドだけ確認します',
                     trailing: ArceSwitch(value: s.shellConfirm, onChanged: (v) => set((x) => x.copyWith(shellConfirm: v))),
                   ),
                   SettingRow(

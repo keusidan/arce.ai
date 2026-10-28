@@ -447,7 +447,8 @@ class AppController extends ChangeNotifier {
   Future<List<ToolDefinition>> _mcpDefinitions() => _mcpTools.definitions();
 
   /// Whether an MCP tool should wait for the user; a server can turn this off for itself.
-  bool _mcpApprovalRequired(String name) => _mcpTools.approvalRequired(name);
+  bool _mcpApprovalRequired(String name, [Map<String, Object?> arguments = const {}]) =>
+      _mcpTools.approvalRequired(name, arguments);
 
   /// Used by the settings screen: asks one server what it offers and says so, with what its tools
   /// add to every request, and a warning when that is more than the model in use can take.

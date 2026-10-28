@@ -104,7 +104,7 @@ class AppSettings {
     this.autoFetchModelInfo = true,
     this.fetchModelInfoFromHub = true,
     this.shellEnabled = true,
-    this.shellConfirm = true,
+    this.shellConfirm = false,
     this.shellTimeoutSeconds = 120,
     this.shellMaxTimeoutSeconds = 600,
     this.shellMaxOutputChars = 20000,
@@ -311,8 +311,9 @@ class AppSettings {
   /// Offer `run_command` to the model at all. Off hides the tool and refuses to run one.
   final bool shellEnabled;
 
-  /// Show every command for approval before it runs. A command can do anything the app itself can,
-  /// so this is deliberately not changeable from a chat message.
+  /// Ask before every command, even one that stays inside the environment. Off by default: a
+  /// command inside the sandbox (/workspace and the root file system) runs without asking, and only
+  /// one that reaches the device outside it is shown. Not changeable from a chat message.
   final bool shellConfirm;
 
   /// Seconds a command may run by default (the model may ask for up to [shellMaxTimeoutSeconds]).
@@ -640,6 +641,7 @@ class AppSettings {
     'fetchModelInfoFromHub': fetchModelInfoFromHub,
     'shellEnabled': shellEnabled,
     'shellConfirm': shellConfirm,
+    'shellConfirmAlways': shellConfirm,
     'shellTimeoutSeconds': shellTimeoutSeconds,
     'shellMaxTimeoutSeconds': shellMaxTimeoutSeconds,
     'shellMaxOutputChars': shellMaxOutputChars,
@@ -763,7 +765,11 @@ class AppSettings {
       autoFetchModelInfo: flag('autoFetchModelInfo', d.autoFetchModelInfo),
       fetchModelInfoFromHub: flag('fetchModelInfoFromHub', d.fetchModelInfoFromHub),
       shellEnabled: flag('shellEnabled', d.shellEnabled),
-      shellConfirm: flag('shellConfirm', d.shellConfirm),
+      // 0.12.1 saved its own default (true) with every settings write; that was never a choice, and the
+      // user asked for commands inside the environment to run without asking (docs 19.5, 2026-10-29)
+      shellConfirm: json.containsKey('shellConfirmAlways')
+          ? flag('shellConfirmAlways', d.shellConfirm)
+          : d.shellConfirm,
       shellTimeoutSeconds: whole('shellTimeoutSeconds', d.shellTimeoutSeconds).clamp(1, 3600),
       shellMaxTimeoutSeconds: whole('shellMaxTimeoutSeconds', d.shellMaxTimeoutSeconds).clamp(1, 3600),
       shellMaxOutputChars: whole('shellMaxOutputChars', d.shellMaxOutputChars).clamp(500, 1000000),

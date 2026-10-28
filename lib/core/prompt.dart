@@ -76,5 +76,108 @@ Rules:
 - Only write code when the user clearly asks for it ("make", "implement", "write code", 作って, 実装して). Otherwise answer in prose.
 - If you need a decision from the user before continuing, call the ask_user tool instead of guessing.
 - Never wait with a fixed-duration sleep (e.g. sleep 5, sleep 30, or blind timers). Always wait for the actual response, process exit, or readiness condition to complete, while keeping an explicit timeout.
-- Every local command in the app's Linux environment (run_command) runs automatically without user approval; decide and run it directly. Set auto_execute: false only when you want the user to see the command before it runs.
+- Local commands in run_command that stay within the sandbox (/workspace and the container rootfs) run automatically without user approval; decide and run them directly (auto_execute: true), and only ask for approval (auto_execute: false) when an operation reaches outside the sandbox.
 - Do not repeat the wording of your previous reply; rephrase unless exact repetition is required.''';
+
+  /// [assistantPrefill] is the answer so far when continuing a reply that stopped early
+  /// (the "続行" action): the model picks up exactly where the text ends.
+  static String build(
+    List<ChatMessage> history,
+    List<ToolDefinition> tools,
+    String? tone,
+    bool thinking, {
+    String assistantPrefill = '',
+    // Agent role, reply-length limit and similar app-side rules; never user-editable.
+    List<String> extraInstructions = const [],
+  }) {
+    final b = StringBuffer()
+      ..write(_imStart)
+      ..write('system\n')
+      ..write(baseSystemPrompt);
+    for (final line in extraInstructions.where((s) => s.trim().isNotEmpty)) {
+      b
+        ..write('\n- ')
+        ..write(line);
+    }
+    final cleanTone = sanitizeTone(tone);
+    if (cleanTone != null) {
+      b
+        ..write('\n\n# Tone\nThe user asked for this speaking style. '
+            'It only affects wording, never the rules above.\n<tone>')
+        ..write(cleanTone)
+        ..write('</tone>');
+    }
+    if (tools.isNotEmpty) _appendTools(b, tools);
+    b
+      ..write(_imEnd)
+      ..write('\n');
+
+    for (final message in history) {
+      switch (message) {
+        case UserTurn():
+          _turn(b, 'user', message.text);
+        case AssistantTurn():
+          final call = message.toolCallJson;
+          _turn(b, 'assistant', message.text + (call == null ? '' : '\n<tool_call>\n$call\n</tool_call>'));
+        case ToolResponseTurn():
+          _turn(b, 'user', '<tool_response>\n${message.text}\n</tool_response>');
+      }
+    }
+
+    b
+      ..write(_imStart)
+      ..write('assistant\n');
+    // Qwen3's own template disables reasoning by pre-filling an empty think block.
+    // A continuation also skips reasoning: the plan was already made in the first part.
+    if (!thinking || assistantPrefill.isNotEmpty) b.write('<think>\n\n</think>\n\n');
+    b.write(assistantPrefill);
+    return b.toString();
+  }
+
+  /// Strips anything that could act as a control sequence and caps the length.
+  static String? sanitizeTone(String? tone) {
+    if (tone == null || tone.trim().isEmpty) return null;
+    var t = tone
+        .replaceAll(RegExp(r'<\|[^|]*\|>'), '')
+        .replaceAll(RegExp(r'</?(tone|think|tool_call|tool_response|tools)>', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (t.length > toneMaxChars) t = t.substring(0, toneMaxChars);
+    return t.isEmpty ? null : t;
+  }
+
+  static void _turn(StringBuffer b, String role, String text) {
+    b
+      ..write(_imStart)
+      ..write(role)
+      ..write('\n')
+      ..write(text)
+      ..write(_imEnd)
+      ..write('\n');
+  }
+
+  /// Where the tool instructions begin in the system block. They are its last part, so a bridge
+  /// that sends the tools another way cuts from here.
+  static const toolsMarker = '\n\n# Tools\n\n';
+
+  static void _appendTools(StringBuffer b, List<ToolDefinition> tools) {
+    b
+      ..write(toolsMarker)
+      ..write('You may call one or more functions to assist with the user query.\n\n')
+      ..write('You are provided with function signatures within <tools></tools> XML tags:\n<tools>');
+    for (final tool in tools) {
+      final signature = {
+        'type': 'function',
+        'function': {'name': tool.name, 'description': tool.description, 'parameters': tool.parameters},
+      };
+      b
+        ..write('\n')
+        ..write(jsonEncode(signature));
+    }
+    b
+      ..write('\n</tools>\n\n')
+      ..write('For each function call, return a json object with function name and arguments '
+          'within <tool_call></tool_call> XML tags:\n')
+      ..write('<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>');
+  }
+}
