@@ -23,10 +23,10 @@ class McpServerClient {
 /// `tools/list` is cached per server for the life of the [cache] map, so a chat turn does not ask
 /// every server again. A server that fails is left out for this turn and tried again next time.
 ///
-/// The app's own shell tool ([shellDefinition]) is offered from here too, because this is where the
+/// The app's own shell tool (`run_command`) is offered from here too, because this is where the
 /// chat already looks for calls it cannot run itself: `ToolCallParser` turns every tool the turn
 /// allows into an [McpCall], and this class runs that one on the device instead of sending it to a
-/// server. When the shell settings arrive (docs 19.5, step 3) the tool moves to `AppController`.
+/// server. When the shell settings arrive (docs 19.5, step 3) the runner moves to `AppController`.
 class McpTools {
   McpTools(this._servers, {Map<String, List<McpTool>>? cache})
     : _cache = cache ?? {};
@@ -61,7 +61,7 @@ class McpTools {
   bool approvalRequired(String name) {
     // a command in the app's Linux environment is shown every time: it can do anything the app
     // itself can (docs 15.4). This becomes the setting `shellConfirm`.
-    if (name == shellDefinition.name) return LinuxEnvironment.supported;
+    if (name == Protocol.runCommandName) return LinuxEnvironment.supported;
     final parsed = parseName(name);
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
@@ -94,7 +94,7 @@ class McpTools {
   /// The tools of all reachable servers in the app's own form.
   Future<List<ToolDefinition>> definitions() async {
     final out = <ToolDefinition>[
-      if (LinuxEnvironment.supported) shellDefinition,
+      if (LinuxEnvironment.supported) Protocol.runCommand,
     ];
     for (final server in _servers) {
       final tools = await _toolsOf(server);
@@ -139,7 +139,7 @@ class McpTools {
   }
 
   Future<ToolOutcome> run(McpCall call) async {
-    if (call.name == shellDefinition.name && LinuxEnvironment.supported) {
+    if (call.name == Protocol.runCommandName && LinuxEnvironment.supported) {
       return _runShell(call.arguments);
     }
     final parsed = parseName(call.name);
@@ -191,32 +191,7 @@ class McpTools {
   /// runs one command at a time, so the state of an install must not be lost between turns.
   static final LinuxEnvironment _shell = LinuxEnvironment();
 
-  /// The `run_command` tool. What the description says about the environment is what the model has
-  /// to know: it cannot look it up (docs 19.5, item 4).
-  static final ToolDefinition shellDefinition = ToolDefinition(
-    name: 'mcp_run_command',
-    description:
-        'Run one shell command in the Linux environment inside this app: Ubuntu 24.04 for arm64 '
-        'under proot (a pseudo root, not a sandbox; no systemd, no real users). /workspace is '
-        'shared by every chat and kept between them, up to 2048 MB; HOME is /workspace/home. '
-        'apt, pip (use --user) and git work; there is no switch for the network. '
-        'Commands run one at a time and cannot ask for input. The output is cut when it is long, '
-        'and the command is stopped when it runs longer than timeout_seconds or when it fills the '
-        'workspace. The first command installs the environment (about 30 MB, a few minutes) if the '
-        'user has not done it yet.',
-    parameters: {
-      'type': 'object',
-      'properties': {
-        'command': {'type': 'string'},
-        'cwd': {'type': 'string'},
-        'timeout_seconds': {'type': 'integer'},
-      },
-      'required': ['command'],
-      'additionalProperties': false,
-    },
-  );
-
-  /// Runs the arguments of [shellDefinition] and turns the result into what the model reads.
+  /// Runs the arguments of `Protocol.runCommand` and turns the result into what the model reads.
   Future<ToolOutcome> _runShell(Map<String, Object?> arguments) async {
     final command = '${arguments['command'] ?? ''}'.trim();
     if (command.isEmpty) {
