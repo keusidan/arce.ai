@@ -240,7 +240,8 @@ class LinuxEnvironment {
   }) =>
       LinuxEnvironment._(bridge, download ?? _downloadRootfs, android ?? Platform.isAndroid);
 
-  const LinuxEnvironment._(this._bridge, this._download, this._android);
+  /// Not const: the state below changes while the environment is used.
+  LinuxEnvironment._(this._bridge, this._download, this._android);
 
   final LinuxBridge _bridge;
   final RootfsDownload _download;
