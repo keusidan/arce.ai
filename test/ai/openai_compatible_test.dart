@@ -100,6 +100,35 @@ void main() {
       expect((deltas.last as StopDelta).reason, FinishReason.eog);
     });
 
+    test('プロバイダのキャッシュから読んだトークン数は、書いてあれば読む（OpenAI 形式・DeepSeek 形式）', () async {
+      expect(
+        OpenAiCompatibleProvider.cachedTokensOf({
+          'prompt_tokens': 2006,
+          'prompt_tokens_details': {'cached_tokens': 1920},
+        }),
+        1920,
+      );
+      expect(OpenAiCompatibleProvider.cachedTokensOf({'prompt_tokens': 9, 'prompt_cache_hit_tokens': 7, 'prompt_cache_miss_tokens': 2}), 7);
+      expect(OpenAiCompatibleProvider.cachedTokensOf({'prompt_tokens': 9, 'prompt_tokens_details': {'audio_tokens': 0}}), isNull);
+      expect(OpenAiCompatibleProvider.cachedTokensOf({'prompt_tokens': 9}), isNull, reason: 'a provider that says nothing');
+
+      final provider = providerWith([
+        event({
+          'choices': [
+            {'delta': <String, Object?>{}, 'finish_reason': 'stop'},
+          ],
+          'usage': {
+            'prompt_tokens': 2006,
+            'completion_tokens': 3,
+            'prompt_tokens_details': {'cached_tokens': 1920},
+          },
+        }),
+        'data: [DONE]\n\n',
+      ]);
+      final usage = (await provider.stream(request).toList()).whereType<UsageDelta>().single;
+      expect(usage.cachedTokens, 1920);
+    });
+
     test('考えた過程は ReasoningDelta として分ける', () async {
       final provider = providerWith([
         event({

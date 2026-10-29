@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/attachments.dart';
 import '../core/chat_controller.dart';
 import '../core/coding_plan.dart';
+import '../core/compaction.dart';
 import '../core/engine.dart';
 import '../core/protocol.dart' show ToolApproval;
 import '../core/search.dart';
@@ -114,6 +115,11 @@ class AppSettings {
     this.notifyDone = true,
     this.notifyFailed = true,
     this.notifyOnlyAway = true,
+    this.compactEnabled = true,
+    this.compactAtPercent = 80,
+    this.compactKeepTurns = 4,
+    this.compactSummaryChars = 3000,
+    this.compactToolResultChars = 1500,
     this.approvedTools = const [],
     this.shellTimeoutSeconds = 120,
     this.shellMaxTimeoutSeconds = 600,
@@ -348,6 +354,17 @@ class AppSettings {
   final bool notifyFailed;
   final bool notifyOnlyAway;
 
+  /// A long conversation is made shorter before the context window is full (see `Compaction`): the
+  /// old tool answers are cut, then what came before the last [compactKeepTurns] messages of the user
+  /// is replaced by a summary. It starts when the request would take [compactAtPercent] percent of
+  /// the context; the summary is at most [compactSummaryChars] characters; an old tool answer keeps
+  /// [compactToolResultChars].
+  final bool compactEnabled;
+  final int compactAtPercent;
+  final int compactKeepTurns;
+  final int compactSummaryChars;
+  final int compactToolResultChars;
+
   /// MCP tools (`mcp_server__tool`) the user chose not to be asked about again (the approval card's
   /// 「この道具は次から確認しない」). Not reachable from the chat: a message must not switch off a question.
   final List<String> approvedTools;
@@ -502,6 +519,11 @@ class AppSettings {
     bool? notifyDone,
     bool? notifyFailed,
     bool? notifyOnlyAway,
+    bool? compactEnabled,
+    int? compactAtPercent,
+    int? compactKeepTurns,
+    int? compactSummaryChars,
+    int? compactToolResultChars,
     List<String>? approvedTools,
     int? shellTimeoutSeconds,
     int? shellMaxTimeoutSeconds,
@@ -604,6 +626,11 @@ class AppSettings {
     notifyDone: notifyDone ?? this.notifyDone,
     notifyFailed: notifyFailed ?? this.notifyFailed,
     notifyOnlyAway: notifyOnlyAway ?? this.notifyOnlyAway,
+    compactEnabled: compactEnabled ?? this.compactEnabled,
+    compactAtPercent: compactAtPercent ?? this.compactAtPercent,
+    compactKeepTurns: compactKeepTurns ?? this.compactKeepTurns,
+    compactSummaryChars: compactSummaryChars ?? this.compactSummaryChars,
+    compactToolResultChars: compactToolResultChars ?? this.compactToolResultChars,
     approvedTools: approvedTools ?? this.approvedTools,
     shellTimeoutSeconds: shellTimeoutSeconds ?? this.shellTimeoutSeconds,
     shellMaxTimeoutSeconds: shellMaxTimeoutSeconds ?? this.shellMaxTimeoutSeconds,
@@ -709,6 +736,11 @@ class AppSettings {
     'notifyDone': notifyDone,
     'notifyFailed': notifyFailed,
     'notifyOnlyAway': notifyOnlyAway,
+    'compactEnabled': compactEnabled,
+    'compactAtPercent': compactAtPercent,
+    'compactKeepTurns': compactKeepTurns,
+    'compactSummaryChars': compactSummaryChars,
+    'compactToolResultChars': compactToolResultChars,
     'approvedTools': approvedTools,
     'shellTimeoutSeconds': shellTimeoutSeconds,
     'shellMaxTimeoutSeconds': shellMaxTimeoutSeconds,
@@ -854,6 +886,11 @@ class AppSettings {
       notifyDone: flag('notifyDone', d.notifyDone),
       notifyFailed: flag('notifyFailed', d.notifyFailed),
       notifyOnlyAway: flag('notifyOnlyAway', d.notifyOnlyAway),
+      compactEnabled: flag('compactEnabled', d.compactEnabled),
+      compactAtPercent: whole('compactAtPercent', d.compactAtPercent),
+      compactKeepTurns: whole('compactKeepTurns', d.compactKeepTurns),
+      compactSummaryChars: whole('compactSummaryChars', d.compactSummaryChars),
+      compactToolResultChars: whole('compactToolResultChars', d.compactToolResultChars),
       approvedTools: [
         if (json['approvedTools'] is List)
           for (final t in json['approvedTools'] as List)
@@ -895,6 +932,13 @@ class AppSettings {
     dryMultiplier: cloud ? null : _set(localDryMultiplier),
     userMaxTokens: (cloud ? onlineMaxTokens : localMaxTokens) > 0 ? (cloud ? onlineMaxTokens : localMaxTokens) : null,
     toolRepeatLimit: toolRepeatLimit.clamp(2, 10),
+    compaction: CompactionSettings(
+      enabled: compactEnabled,
+      atPercent: compactAtPercent.clamp(30, 95),
+      keepTurns: compactKeepTurns.clamp(1, 30),
+      summaryChars: compactSummaryChars.clamp(300, 20000),
+      toolResultChars: compactToolResultChars.clamp(200, 50000),
+    ),
     attachments: attachmentLimits,
     searchEnabled: searchEnabled,
     retryLimit: retryLimit,

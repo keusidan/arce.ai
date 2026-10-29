@@ -167,6 +167,15 @@ class Piece extends GenerationEvent {
   final String text;
 }
 
+/// What a provider reported about the request that just ended. [cachedTokens] is how much of the
+/// prompt it read from its own cache (prompt caching), null when it says nothing about that.
+class Usage extends GenerationEvent {
+  const Usage({this.promptTokens, this.completionTokens, this.cachedTokens});
+  final int? promptTokens;
+  final int? completionTokens;
+  final int? cachedTokens;
+}
+
 class Finished extends GenerationEvent {
   const Finished(this.reason);
   final FinishReason reason;

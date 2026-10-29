@@ -138,6 +138,7 @@ class OpenAiCompatibleProvider implements AiProvider {
               yield UsageDelta(
                 promptTokens: prompt,
                 completionTokens: completion,
+                cachedTokens: cachedTokensOf(usage),
               );
             }
           }
@@ -212,6 +213,18 @@ class OpenAiCompatibleProvider implements AiProvider {
       yield ToolCallDelta(id: call.id, name: call.name, argumentsJson: arguments, extraContent: call.extraContent);
     }
     yield StopDelta(finish);
+  }
+
+  /// How many prompt tokens the provider read from its cache, from a `usage` object: OpenAI's
+  /// `prompt_tokens_details.cached_tokens`, or DeepSeek's `prompt_cache_hit_tokens`. Null when the
+  /// object has neither (a provider that does no prompt caching, or does not report it).
+  static int? cachedTokensOf(Map usage) {
+    final details = usage['prompt_tokens_details'];
+    if (details is Map) {
+      final cached = _int(details['cached_tokens']);
+      if (cached != null) return cached;
+    }
+    return _int(usage['prompt_cache_hit_tokens']);
   }
 
   Map<String, Object?> _body(AiRequest request) => {

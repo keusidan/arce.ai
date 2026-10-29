@@ -227,9 +227,9 @@ class CloudEventAdapter {
             '${StreamSegmenter.toolClose}',
           ),
         ];
-      case UsageDelta():
+      case UsageDelta(:final promptTokens, :final completionTokens, :final cachedTokens):
         // Token counts belong next to the message, not in the text.
-        return const [];
+        return [Usage(promptTokens: promptTokens, completionTokens: completionTokens, cachedTokens: cachedTokens)];
       case StopDelta(:final reason):
         _finished = true;
         return [..._closeThinking(), Finished(reason)];

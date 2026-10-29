@@ -34,6 +34,18 @@ void main() {
       expect(const RunProgress(startedAtMs: 0, modelRequests: 1).counts, '通信 1 回');
     });
 
+    test('what the provider reports is added up, with the cached part', () {
+      const p = RunProgress(startedAtMs: 0, modelRequests: 2, inputTokens: 12340, cachedTokens: 9800);
+      expect(p.counts, '通信 2 回 · 入力 12,340 トークン（キャッシュ 9,800）');
+      expect(const RunProgress(startedAtMs: 0, modelRequests: 1, inputTokens: 500).counts, '通信 1 回 · 入力 500 トークン');
+
+      final meter = RunMeter(now: () => 0)..begin();
+      meter.usage(promptTokens: 1000, completionTokens: 20, cachedTokens: 0);
+      meter.usage(promptTokens: 1100, completionTokens: 30, cachedTokens: 900);
+      meter.usage(); // a request that reported nothing
+      expect((meter.progress!.inputTokens, meter.progress!.cachedTokens, meter.progress!.outputTokens), (2100, 900, 50));
+    });
+
     test('the clock', () {
       expect(RunProgress.clock(0), '0:00');
       expect(RunProgress.clock(42000), '0:42');

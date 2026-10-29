@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import 'agents.dart';
 import 'attachments.dart';
+import 'compaction.dart';
 import 'engine.dart';
 import 'generation.dart';
 import 'prompt.dart';
@@ -258,6 +259,7 @@ class GenerationSettings {
     this.extraPrompt = '',
     this.toolRepeatLimit = ChatController.repeatToolLimit,
     this.attachments = const AttachmentLimits(),
+    this.compaction = const CompactionSettings(),
   });
 
   final String? tone;
@@ -281,6 +283,9 @@ class GenerationSettings {
 
   /// How much of the attached files is kept.
   final AttachmentLimits attachments;
+
+  /// When and how a long conversation is made shorter.
+  final CompactionSettings compaction;
 
   /// An extra instruction for the model that answers; empty for none.
   final String extraPrompt;
@@ -447,6 +452,7 @@ class ChatController extends ChangeNotifier {
     this.delegateInstructions,
     this.rememberTool,
     this.confirmAfterExternal,
+    this.contextTokens,
     this.onFailure,
     StopSignal? stopSignal,
     RunMeter? meter,
@@ -508,6 +514,10 @@ class ChatController extends ChangeNotifier {
   /// an MCP tool's answer): text a stranger may have written, which can say "now run ...". The
   /// setting is the user's (`shellConfirmAfterExternal`); without it nothing asks for that reason.
   final bool Function()? confirmAfterExternal;
+
+  /// The context window of the model that answers, in tokens; null when it is not known (then a long
+  /// conversation is not made shorter, and the engine says when it does not fit).
+  final int? Function()? contextTokens;
 
   /// Whether this conversation holds text from outside (a search result or an MCP tool's answer, in
   /// this reply or an earlier one). Recomputed when a conversation is opened.
@@ -1005,6 +1015,13 @@ class ChatController extends ChangeNotifier {
       final thinking =
           config.effectiveThinking(_state.thinkingEnabled) &&
           roundPrefill.isEmpty;
+      // a long conversation is made shorter before the request that would not fit
+      final room = await _makeRoom(config, tools, instructions, thinking, actor);
+      if (room != null) {
+        activities.add(ToolActivity('Compaction', room));
+        _replace(id, (m) => m.copyWith(activities: List.of(activities)));
+        _store(snapshot(), generating: true);
+      }
       final prompt = ChatMlPromptBuilder.build(
         _history,
         tools,
@@ -1241,6 +1258,130 @@ class ChatController extends ChangeNotifier {
     }
   }
 
+  /// Makes the next request fit: when it would take more than the set share of the context, the old
+  /// tool answers are cut short, and if that is not enough, what came before the last few messages of
+  /// the user is replaced by a summary the model writes (a group of the conversation at a time, so
+  /// that the request for the summary fits too). Returns what was done, for the screen; null when
+  /// nothing was needed or nothing could be done (the request then goes as it is).
+  Future<String?> _makeRoom(
+    GenerationSettings config,
+    List<ToolDefinition> tools,
+    List<String> instructions,
+    bool thinking,
+    String actor,
+  ) async {
+    final c = config.compaction;
+    final context = contextTokens?.call();
+    if (!c.enabled || context == null || context <= 0) return null;
+    final limit = context * c.atPercent ~/ 100;
+    int used() => Compaction.estimateTokens(
+          ChatMlPromptBuilder.build(_history, tools, config.tone, thinking, extraInstructions: instructions),
+        );
+    final before = used();
+    if (before <= limit) return null;
+
+    final cut = Compaction.cutIndex(_history, c.keepTurns);
+    final clipped = Compaction.clipToolResults(_history, cut ?? (_history.length > 6 ? _history.length - 6 : 0), c.toolResultChars);
+    var note = '';
+    if (!identical(clipped, _history)) {
+      _history
+        ..clear()
+        ..addAll(clipped);
+      note = '古い道具の結果を切り詰めました';
+      if (used() <= limit) return '$note（約 ${_tokens(before)} → ${_tokens(used())} トークン）';
+    }
+    if (cut == null) return note.isEmpty ? null : '$note（約 ${_tokens(before)} → ${_tokens(used())} トークン。直近の発言より前がないので、要約はしていません）';
+
+    meter.stage('会話の前半を要約しています');
+    final older = _history.sublist(0, cut);
+    final summary = await _summaryOf(older, c, context);
+    if (summary == null) {
+      // no summary: the request goes as it is (the engine or provider will say if it does not fit)
+      return note.isEmpty ? null : '$note（約 ${_tokens(before)} → ${_tokens(used())} トークン。要約は書けませんでした）';
+    }
+    final replaced = Compaction.replace(_history, cut, summary);
+    _history
+      ..clear()
+      ..addAll(replaced);
+    return '会話の前半（${older.length} 件）を要約しました（約 ${_tokens(before)} → ${_tokens(used())} トークン）';
+  }
+
+  /// Whether [compactNow] has something to summarize: the conversation is longer than the messages kept.
+  bool get canCompact => !isRunning && Compaction.cutIndex(_history, _settings().compaction.keepTurns) != null;
+
+  /// Summarizes the conversation now (the button under the input), whatever the context window says.
+  /// Returns what happened, in a sentence for the screen.
+  Future<String> compactNow() async {
+    if (isRunning) return '返信の最中は要約できません';
+    final c = _settings().compaction;
+    final cut = Compaction.cutIndex(_history, c.keepTurns);
+    if (cut == null) return '要約する前半がありません（直近 ${c.keepTurns} 件の発言より前がありません）';
+    _busy = true;
+    _stopRequested = false;
+    _stopSignal.reset();
+    meter.begin();
+    meter.stage('会話の前半を要約しています');
+    try {
+      final older = _history.sublist(0, cut);
+      final summary = await _summaryOf(older, c, contextTokens?.call() ?? 8192);
+      if (summary == null) return '要約を書けませんでした。もう一度試すか、別のモデルで試してください';
+      final replaced = Compaction.replace(_history, cut, summary);
+      _history
+        ..clear()
+        ..addAll(replaced);
+      _store(snapshot(), generating: false);
+      return '会話の前半（${older.length} 件）を要約しました。次の返信から、この要約を使います';
+    } finally {
+      _busy = false;
+      meter.end();
+      notifyListeners();
+    }
+  }
+
+  /// The summary of [older], written by the model a group at a time (each request carries the summary
+  /// so far, so it stays small enough for [context]); null when a group got no usable answer.
+  Future<String?> _summaryOf(List<ChatMessage> older, CompactionSettings c, int context) async {
+    final groupChars = (context * 0.4).round().clamp(800, 60000);
+    var summary = '';
+    for (final group in Compaction.chunks(Compaction.lines(older, toolChars: c.toolResultChars), groupChars)) {
+      final next = await _summarize(Compaction.request(group, before: summary, maxChars: c.summaryChars), c.summaryChars, context);
+      if (next == null) return null;
+      summary = next;
+    }
+    return summary.isEmpty ? null : summary;
+  }
+
+  static String _tokens(int n) => n >= 1000 ? '${(n / 1000).toStringAsFixed(1)}k' : '$n';
+
+  /// One request to the model for a summary; null when it gave nothing usable.
+  Future<String?> _summarize(String request, int summaryChars, int context) async {
+    final prompt = ChatMlPromptBuilder.build(
+      [UserTurn(request)],
+      const [],
+      null,
+      false,
+      extraInstructions: const [Compaction.instruction],
+    );
+    final out = StringBuffer();
+    meter.modelRequest();
+    try {
+      await for (final event in _engine.generate(
+        GenerateRequest(
+          prompt: prompt,
+          toolCallSchema: null,
+          thinking: false,
+          maxTokens: (summaryChars + 512).clamp(256, context ~/ 2 < 256 ? 256 : context ~/ 2),
+          sampling: SamplingParams.qwen3NonThinking,
+        ),
+      )) {
+        if (event is Piece) out.write(event.text);
+      }
+    } on EngineException {
+      return null;
+    }
+    return Compaction.clean(out.toString());
+  }
+
   /// One pass through the engine; streams text and thinking into message [id].
   Future<_Attempt> _attempt(
     int id,
@@ -1317,6 +1458,8 @@ class ChatController extends ChangeNotifier {
         switch (event) {
           case Piece(:final text):
             consume(segmenter.feed(text));
+          case Usage(:final promptTokens, :final completionTokens, :final cachedTokens):
+            meter.usage(promptTokens: promptTokens, completionTokens: completionTokens, cachedTokens: cachedTokens);
           case Finished(reason: final r):
             reason = r;
         }

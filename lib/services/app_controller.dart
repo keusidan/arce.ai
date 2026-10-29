@@ -131,6 +131,7 @@ class AppController extends ChangeNotifier {
       mcpApproval: _mcpApprovalRequired,
       rememberTool: _rememberTool,
       confirmAfterExternal: () => settings.value.shellConfirmAfterExternal,
+      contextTokens: _contextTokens,
     )..setThinking(settings.value.thinking);
     session.chat.addListener(_syncForeground);
     session.chat.addListener(() => _notifyAbout(session));
@@ -481,6 +482,10 @@ class AppController extends ChangeNotifier {
       context: engine.isCloud ? providers.activeModel?.contextTokens : null,
     );
   }
+
+  /// The context window of the model that answers now: the online model's when the user set it (or the
+  /// app found it out), the loaded device model's own. Null when it is not known.
+  int? _contextTokens() => engine.isCloud ? providers.activeModel?.contextTokens : models.loadedWith?.contextLength;
 
   /// The tools of every MCP server, added to the ones the agent already has.
   Future<List<ToolDefinition>> _mcpDefinitions() => _mcpTools.definitions();

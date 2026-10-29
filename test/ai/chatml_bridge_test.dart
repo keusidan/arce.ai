@@ -106,8 +106,11 @@ void main() {
       expect(events.whereType<Piece>().single.text, contains('"arguments": {}'));
     });
 
-    test('使用量はテキストにしない', () {
-      expect(CloudEventAdapter().convert(const UsageDelta(promptTokens: 1, completionTokens: 2)), isEmpty);
+    test('使用量はテキストにしない（使用量の出来事として渡す。キャッシュされた分も）', () {
+      final events = CloudEventAdapter().convert(const UsageDelta(promptTokens: 1000, completionTokens: 2, cachedTokens: 800));
+      expect(events.whereType<Piece>(), isEmpty);
+      final usage = events.single as Usage;
+      expect((usage.promptTokens, usage.completionTokens, usage.cachedTokens), (1000, 2, 800));
     });
 
     test('最後に理由が来なければ、終わりは補える', () {

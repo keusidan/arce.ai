@@ -912,18 +912,36 @@ class _PromptTokenLineState extends State<PromptTokenLine> {
             : ratio >= .8
                 ? c.amber
                 : c.muted;
+    final canCompact = widget.app.chat.canCompact;
     return SizedBox(
       height: 14,
-      child: Center(
-        child: Text(
-          PromptTokenLine.describe(t),
-          key: const ValueKey('prompt-tokens'),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: ts(context, 9, color: color),
+      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Flexible(
+          child: Text(
+            PromptTokenLine.describe(t),
+            key: const ValueKey('prompt-tokens'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: ts(context, 9, color: color),
+          ),
         ),
-      ),
+        if (canCompact) ...[
+          const SizedBox(width: 8),
+          InkWell(
+            key: const ValueKey('compact-now'),
+            onTap: _compact,
+            child: Text('会話を要約する', style: ts(context, 9, color: c.accent, weight: FontWeight.w700)),
+          ),
+        ],
+      ]),
     );
+  }
+
+  Future<void> _compact() async {
+    final app = widget.app;
+    app.showToast('会話の前半を要約しています…');
+    app.showToast(await app.chat.compactNow());
+    _schedule();
   }
 }
 

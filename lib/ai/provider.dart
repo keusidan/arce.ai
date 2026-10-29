@@ -42,9 +42,13 @@ class ToolCallDelta extends Delta {
 
 /// Token usage for one request, sent at the end by providers that report it.
 class UsageDelta extends Delta {
-  const UsageDelta({this.promptTokens, this.completionTokens});
+  const UsageDelta({this.promptTokens, this.completionTokens, this.cachedTokens});
   final int? promptTokens;
   final int? completionTokens;
+
+  /// The part of the prompt the provider served from its cache (`prompt_tokens_details.cached_tokens`,
+  /// or `prompt_cache_hit_tokens`); null when the response does not say.
+  final int? cachedTokens;
 }
 
 /// Why the model stopped. Always the last delta of a reply.

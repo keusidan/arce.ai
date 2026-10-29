@@ -10,6 +10,9 @@ class RunProgress {
     this.developerRequests = 0,
     this.toolRuns = 0,
     this.round = 1,
+    this.inputTokens = 0,
+    this.cachedTokens = 0,
+    this.outputTokens = 0,
   });
 
   /// Milliseconds since the epoch.
@@ -34,6 +37,13 @@ class RunProgress {
   /// How many times the model answered in this reply (each tool it called starts another).
   final int round;
 
+  /// What the provider reported for the requests of this reply, added up: the prompt tokens it read,
+  /// how many of them came from its cache, and what it wrote. 0 when it reports nothing (the device
+  /// model, a provider without usage).
+  final int inputTokens;
+  final int cachedTokens;
+  final int outputTokens;
+
   bool get running => finishedAtMs == 0;
 
   /// All the requests that went out to a model.
@@ -46,8 +56,19 @@ class RunProgress {
     final parts = <String>[
       developerRequests > 0 ? '通信 $requests 回（プランナー $modelRequests・開発 $developerRequests）' : '通信 $modelRequests 回',
       if (toolRuns > 0) 'ツール $toolRuns 回',
+      if (inputTokens > 0) '入力 ${_n(inputTokens)} トークン${cachedTokens > 0 ? '（キャッシュ ${_n(cachedTokens)}）' : ''}',
     ];
     return parts.join(' · ');
+  }
+
+  static String _n(int value) {
+    final digits = value.toString();
+    final out = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) out.write(',');
+      out.write(digits[i]);
+    }
+    return out.toString();
   }
 
   /// "0:42", "12:05", "1:02:03"
@@ -68,6 +89,9 @@ class RunProgress {
     int? developerRequests,
     int? toolRuns,
     int? round,
+    int? inputTokens,
+    int? cachedTokens,
+    int? outputTokens,
   }) => RunProgress(
     startedAtMs: startedAtMs,
     finishedAtMs: finishedAtMs ?? this.finishedAtMs,
@@ -77,6 +101,9 @@ class RunProgress {
     developerRequests: developerRequests ?? this.developerRequests,
     toolRuns: toolRuns ?? this.toolRuns,
     round: round ?? this.round,
+    inputTokens: inputTokens ?? this.inputTokens,
+    cachedTokens: cachedTokens ?? this.cachedTokens,
+    outputTokens: outputTokens ?? this.outputTokens,
   );
 }
 
@@ -144,6 +171,17 @@ class RunMeter {
     final p = _progress;
     if (p == null || !p.running) return;
     _set(p.copyWith(toolRuns: p.toolRuns + 1));
+  }
+
+  /// What a provider said about the request that just ended; added to the totals of this reply.
+  void usage({int? promptTokens, int? completionTokens, int? cachedTokens}) {
+    final p = _progress;
+    if (p == null || !p.running) return;
+    _set(p.copyWith(
+      inputTokens: p.inputTokens + (promptTokens ?? 0),
+      cachedTokens: p.cachedTokens + (cachedTokens ?? 0),
+      outputTokens: p.outputTokens + (completionTokens ?? 0),
+    ));
   }
 
   void round(int n) {
