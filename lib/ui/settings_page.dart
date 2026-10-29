@@ -465,6 +465,21 @@ class _SettingsPageState extends State<SettingsPage> {
                       onChanged: (v) => set((x) => x.copyWith(shellMaxOutputChars: v)),
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10, bottom: 4),
+                    child: Text(
+                      '対話セッション（opencode などの、入力を待つプログラム。モデルは `shell_session` で、画面を見ながら入力します）',
+                      style: ts(context, 10, color: c.muted, height: 1.5),
+                    ),
+                  ),
+                  _sessionRow('同時に動かせる数', '', s.shellSessionMax, const [1, 2, 3, 5, 8], (x, v) => x.copyWith(shellSessionMax: v), set),
+                  _sessionRow('使われないセッションを止める', '最後の入力・読み取りからの時間。0 で止めません', s.shellSessionIdleMinutes, const [5, 15, 30, 60, 0], (x, v) => x.copyWith(shellSessionIdleMinutes: v), set, unit: ' 分'),
+                  _sessionRow('出力を待つ時間', 'モデルが指定しないときに、入力のあと出力が落ち着くまで待つ最大の時間', s.shellSessionWaitMs, const [500, 1500, 3000, 8000], (x, v) => x.copyWith(shellSessionWaitMs: v), set, unit: ' ミリ秒'),
+                  _sessionRow('モデルが指定できる待ち時間の上限', 'wait_ms で伸ばせる最大の秒数', s.shellSessionMaxWaitSeconds, const [10, 30, 60, 120], (x, v) => x.copyWith(shellSessionMaxWaitSeconds: v), set, unit: ' 秒'),
+                  _sessionRow('端末の幅', '', s.shellSessionCols, const [80, 100, 120, 160, 200], (x, v) => x.copyWith(shellSessionCols: v), set, unit: ' 桁'),
+                  _sessionRow('端末の高さ', '', s.shellSessionRows, const [24, 40, 60, 80], (x, v) => x.copyWith(shellSessionRows: v), set, unit: ' 行'),
+                  _sessionRow('画面から流れた行を残す数', '次の読み取りで、流れた分もモデルに渡します', s.shellSessionScrollback, const [100, 500, 1000, 3000], (x, v) => x.copyWith(shellSessionScrollback: v), set, unit: ' 行'),
+                  _sessionRow('読まれるまで残す出力', 'これを超えて出力されると、古い分は失われます', s.shellSessionBufferKb, const [64, 256, 1024, 4096], (x, v) => x.copyWith(shellSessionBufferKb: v), set, unit: ' KB'),
                   SettingRow(
                     icon: ArceSvg.sliders,
                     title: 'ワークスペースの上限',
@@ -832,6 +847,27 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+
+  Widget _sessionRow(
+    String title,
+    String subtitle,
+    int value,
+    List<int> values,
+    AppSettings Function(AppSettings, int) change,
+    void Function(AppSettings Function(AppSettings)) set, {
+    String unit = '',
+  }) =>
+      SettingRow(
+        icon: ArceSvg.clock,
+        title: title,
+        subtitle: subtitle,
+        trailing: _Cycle<int>(
+          value: value,
+          values: values,
+          label: (v) => '$v$unit',
+          onChanged: (v) => set((x) => change(x, v)),
+        ),
+      );
 
   Widget _titleCard(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
     return ArceCard(

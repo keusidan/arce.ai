@@ -49,6 +49,8 @@ void main() {
       expect(text, contains('do not copy their files into your answer'), reason: 'the user already sees the developers\' files');
       expect(text, contains('do not ask you'), reason: 'the developers decide on their own');
       expect(text, contains('answer yourself'), reason: 'a small job is not delegated');
+      expect(text, contains('/workspace/PLAN.md'), reason: 'the same plan can be handed to a command-line agent');
+      expect(text, contains('shell_session'));
     });
 
     test('直しの回数が 0 なら、直させないと伝える', () {

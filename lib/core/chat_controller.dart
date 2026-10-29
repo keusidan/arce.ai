@@ -543,7 +543,7 @@ class ChatController extends ChangeNotifier {
 
   /// Why a command asks although it stays inside the environment: [_sawExternal] and the setting.
   bool _askBecauseExternal(McpCall call) =>
-      call.name == Protocol.runCommandName && _sawExternal && (confirmAfterExternal?.call() ?? false);
+      Protocol.runsCommands(call) && _sawExternal && (confirmAfterExternal?.call() ?? false);
 
   /// Whether the coding mode can hand jobs to the developer model now. The `delegate` tool is
   /// offered to the coding agent only then.

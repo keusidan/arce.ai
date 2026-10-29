@@ -6,6 +6,7 @@ import '../core/shell_secrets.dart';
 import '../core/tool_runtime.dart';
 import '../services/ci_client.dart';
 import '../services/linux_env.dart';
+import '../services/shell_sessions.dart';
 import 'mcp_client.dart';
 import 'mcp_server.dart';
 
@@ -31,6 +32,7 @@ class ShellSettings {
     this.dns = '1.1.1.1 8.8.8.8',
     this.compatMode = false,
     this.downloadConnections = 4,
+    this.sessions = const ShellSessionSettings(),
   });
 
   /// The Ubuntu Base 24.04.5 for arm64 that was checked on 2026-10-28 (29,936,675 bytes; the
@@ -58,6 +60,9 @@ class ShellSettings {
   final String dns;
   final bool compatMode;
   final int downloadConnections;
+
+  /// What a session (a program that is talked to) may do.
+  final ShellSessionSettings sessions;
 
   LinuxConfig get config => LinuxConfig(
     rootfsUrl: rootfsUrl.trim(),
@@ -101,9 +106,16 @@ class McpTools {
     this.resultMaxChars = 15000,
     LinuxEnvironment? environment,
     bool? shellSupported,
+    ShellSessionManager? sessionManager,
   })  : _cache = cache ?? {},
         _environment = environment ?? shellEnvironment,
-        _shellSupported = shellSupported ?? LinuxEnvironment.supported;
+        _shellSupported = shellSupported ?? LinuxEnvironment.supported,
+        _sessions = sessionManager ?? shellSessions;
+
+  final ShellSessionManager _sessions;
+
+  /// The sessions of the whole app, like [shellEnvironment]: a session outlives the call that began it.
+  static final ShellSessionManager shellSessions = ShellSessionManager();
 
   /// The environment commands run in, and whether this system has one (a test says so for itself).
   final LinuxEnvironment _environment;
@@ -177,12 +189,29 @@ class McpTools {
       if (shell.confirm) return true;
       return !SandboxPolicy.isInsideSandbox(McpCall(name, arguments));
     }
+    if (name == Protocol.shellSessionName) return _sessionNeedsApproval(arguments);
     final parsed = parseName(name);
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
     if (server == null) return false;
     if (approved.contains(name) && ToolApproval.canRemember(name)) return false;
     return server.config.approveWrites && needsApproval(name, arguments);
+  }
+
+  /// A session is judged like a command: the one that is started by its command, what is typed into it by
+  /// the text (it may be a shell, or a program that runs what it is told). Reading, stopping and listing
+  /// change nothing.
+  bool _sessionNeedsApproval(Map<String, Object?> arguments) {
+    if (!shell.enabled || !_shellSupported) return false;
+    final action = '${arguments['action'] ?? ''}';
+    if (action != 'start' && action != 'send') return false;
+    if ((ShellSecrets.names(arguments['secrets']) ?? const ['?']).isNotEmpty) return true;
+    if (shell.confirm) return true;
+    final text = action == 'start' ? '${arguments['command'] ?? ''}' : '${arguments['input'] ?? ''}';
+    // only keys were pressed (Ctrl-C, an arrow): there is no text to judge
+    if (action == 'send' && text.trim().isEmpty) return false;
+    final cwd = action == 'start' ? '${arguments['cwd'] ?? '/workspace'}' : '/workspace';
+    return !SandboxPolicy.isInsideSandbox(McpCall(Protocol.runCommandName, {'command': text, 'cwd': cwd}));
   }
 
   McpServerClient? _serverById(String id) {
@@ -212,6 +241,7 @@ class McpTools {
   Future<List<ToolDefinition>> definitions() async {
     final out = <ToolDefinition>[
       if (shell.enabled && _shellSupported) _runCommandFor(shell, secrets.keys.toList()),
+      if (shell.enabled && _shellSupported) _shellSessionFor(shell),
       Protocol.ciStatus,
     ];
     final reachable = <(McpServerClient, List<McpTool>)>[];
@@ -295,6 +325,7 @@ class McpTools {
 
   Future<ToolOutcome> run(McpCall call) async {
     if (call.name == Protocol.ciStatusName) return _runCiStatus(call.arguments);
+    if (call.name == Protocol.shellSessionName && _shellSupported) return _runSession(call.arguments);
     if (call.name == Protocol.mcpFindName) return _find(call.arguments);
     if (call.name == Protocol.mcpDescribeName) return _describeTool(call.arguments);
     if (call.name == Protocol.mcpCallName) {
@@ -476,6 +507,92 @@ class McpTools {
         '${secretNames.isEmpty ? '' : ' Stored secrets you may ask for, by name, in secrets (the command then gets each as an environment variable of that name, the user approves that command every time, and you never see the value): ${secretNames.join(', ')}.'}',
     parameters: Protocol.runCommand.parameters,
   );
+
+  /// The session tool, with what the settings allow written into its description.
+  static ToolDefinition _shellSessionFor(ShellSettings s) => ToolDefinition(
+    name: Protocol.shellSessionName,
+    description: '${Protocol.shellSession.description} '
+        'At most ${s.sessions.maxSessions} sessions run at once; one that nobody uses for '
+        '${s.sessions.idleMinutes == 0 ? 'ever' : '${s.sessions.idleMinutes} minutes'} '
+        '${s.sessions.idleMinutes == 0 ? 'is kept' : 'is stopped'}. The terminal is ${s.sessions.cols} columns wide and '
+        '${s.sessions.rows} rows high. The user approves a session that reaches outside the sandbox, one given a '
+        'secret, and what is typed into a session in the same cases.'
+        '${s.confirm ? ' The user approves every start and every input first.' : ''}',
+    parameters: Protocol.shellSession.parameters,
+  );
+
+  /// `shell_session`: start, send, read, stop, list. Every answer the model reads is a screen.
+  Future<ToolOutcome> _runSession(Map<String, Object?> arguments) async {
+    ToolOutcome failed(String reason) => ToolOutcome(reason, ToolActivity('Shell', reason, failed: true));
+    if (!shell.enabled) return failed('The Linux environment is turned off in the settings.');
+    final action = '${arguments['action'] ?? ''}'.trim();
+    final settings = shell.sessions;
+    final id = '${arguments['session'] ?? ''}'.trim();
+    final waited = arguments['wait_ms'];
+    final waitMs = waited is num ? waited.toInt().clamp(0, settings.maxWaitMs).toInt() : null;
+    try {
+      switch (action) {
+        case 'start':
+          final command = '${arguments['command'] ?? ''}'.trim();
+          if (command.isEmpty) return failed('start needs a command.');
+          final asked = ShellSecrets.names(arguments['secrets']);
+          if (asked == null) return failed('"secrets" must be a list of names.');
+          final unknown = [for (final name in asked) if (!secrets.containsKey(name)) name];
+          if (unknown.isNotEmpty) {
+            return failed(
+              'No secret is available under the name ${unknown.join(', ')}. '
+              '${secrets.isEmpty ? 'The user has made none available.' : 'Available: ${secrets.keys.join(', ')}.'} Nothing was run.',
+            );
+          }
+          final given = {for (final name in asked) name: secrets[name]!};
+          final config = shell.config;
+          if (!_environment.ready) {
+            await _environment.refresh(config);
+            if (!_environment.ready) await _environment.install(config);
+          }
+          final view = await _sessions.start(
+            command: command,
+            cwd: '${arguments['cwd'] ?? '/workspace'}'.trim(),
+            settings: settings,
+            workspaceLimitBytes: config.workspaceLimitBytes,
+            noSeccomp: config.compatMode,
+            secrets: given,
+            waitMs: waitMs,
+          );
+          // the manager takes the values out of every screen it hands back, from this one on
+          return ToolOutcome(
+            view.describe(),
+            ToolActivity('Shell', 'セッション ${view.id}: \$ $command${given.isEmpty ? '' : '  （秘密: ${given.keys.join(', ')}）'}'),
+          );
+        case 'send':
+          final input = '${arguments['input'] ?? ''}';
+          final keys = arguments['keys'];
+          if (id.isEmpty) return failed('send needs "session".');
+          if (input.isEmpty && (keys is! List || keys.isEmpty)) return failed('send needs input or keys.');
+          final view = await _sessions.send(id, text: input, keys: [if (keys is List) for (final k in keys) '$k'], waitMs: waitMs);
+          return ToolOutcome(view.describe(), ToolActivity('Shell', 'セッション $id に入力: ${_shorten(input.isEmpty ? '(キー)' : input)}'));
+        case 'read':
+          if (id.isEmpty) return failed('read needs "session".');
+          final view = await _sessions.read(id, waitMs: waitMs);
+          return ToolOutcome(view.describe(), ToolActivity('Shell', 'セッション $id の画面を読みました'));
+        case 'stop':
+          if (id.isEmpty) return failed('stop needs "session".');
+          await _sessions.stop(id);
+          return ToolOutcome('Session $id was stopped.', ToolActivity('Shell', 'セッション $id を止めました'));
+        case 'list':
+          return ToolOutcome(await _sessions.list(), const ToolActivity('Shell', 'セッションの一覧'));
+        default:
+          return failed('Unknown action "$action". Use ${Protocol.shellSessionActions.join(', ')}.');
+      }
+    } catch (e) {
+      return failed('The session could not be used: $e');
+    }
+  }
+
+  static String _shorten(String text) {
+    final line = text.replaceAll('\n', '⏎');
+    return line.length <= 60 ? line : '${line.substring(0, 59)}…';
+  }
 
   /// Runs the arguments of `Protocol.runCommand` with the shell settings and turns the result into
   /// what the model reads.

@@ -43,6 +43,7 @@ import 'linux_env.dart';
 import 'model_info_fetcher.dart';
 import 'foreground_service.dart';
 import 'reply_notifier.dart';
+import 'shell_sessions.dart';
 import '../core/reply_event.dart';
 import 'kv_snapshots.dart';
 import 'model_manager.dart';
@@ -418,6 +419,16 @@ class AppController extends ChangeNotifier {
       dns: s.linuxDns,
       compatMode: s.shellCompatMode,
       downloadConnections: s.downloadConnections,
+      sessions: ShellSessionSettings(
+        maxSessions: s.shellSessionMax,
+        idleMinutes: s.shellSessionIdleMinutes,
+        waitMs: s.shellSessionWaitMs,
+        maxWaitMs: s.shellSessionMaxWaitSeconds * 1000,
+        cols: s.shellSessionCols,
+        rows: s.shellSessionRows,
+        scrollback: s.shellSessionScrollback,
+        bufferKb: s.shellSessionBufferKb,
+      ),
     );
   }
 

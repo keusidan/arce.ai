@@ -1,8 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:arce_ai/core/protocol.dart';
 import 'package:arce_ai/mcp/mcp_client.dart';
 import 'package:arce_ai/mcp/mcp_server.dart';
 import 'package:arce_ai/mcp/mcp_tools.dart';
 import 'package:arce_ai/services/linux_env.dart';
+import 'package:arce_ai/services/shell_sessions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../services/linux_env_test.dart' show FakeBridge;
@@ -247,6 +251,130 @@ void main() {
       final odd = await tools.run(const McpCall(Protocol.runCommandName, {'command': 'env', 'secrets': 'GITHUB_TOKEN'}));
       expect(odd.activity.failed, isTrue);
       expect(bridge.calls, isNot(contains('run')));
+    });
+  });
+
+  group('sessions (shell_session)', () {
+    const token = 'ghp_ExampleTokenValue123';
+    late FakeBridge bridge;
+    late LinuxEnvironment env;
+
+    McpTools make({Map<String, String> secrets = const {}, ShellSettings shell = const ShellSettings()}) => McpTools(
+          const [],
+          shell: shell,
+          secrets: secrets,
+          environment: env,
+          shellSupported: true,
+          sessionManager: ShellSessionManager(bridge: bridge),
+        );
+
+    Map<String, Object?> session(String action, [Map<String, Object?> more = const {}]) => {'action': action, ...more};
+
+    setUp(() {
+      bridge = FakeBridge()..installed = true;
+      env = LinuxEnvironment(bridge: bridge, android: true);
+    });
+
+    test('the tool is offered with the limits of the settings written into it', () async {
+      final tools = make(shell: const ShellSettings(sessions: ShellSessionSettings(maxSessions: 2, idleMinutes: 7, cols: 100, rows: 30)));
+      final definition = (await tools.definitions()).firstWhere((d) => d.name == Protocol.shellSessionName);
+      expect(definition.description, contains('At most 2 sessions'));
+      expect(definition.description, contains('7 minutes'));
+      expect(definition.description, contains('100 columns wide and 30 rows high'));
+      final properties = definition.parameters['properties'] as Map;
+      expect((properties['action'] as Map)['enum'], ['start', 'send', 'read', 'stop', 'list']);
+      final off = make(shell: const ShellSettings(enabled: false));
+      expect([for (final d in await off.definitions()) d.name], isNot(contains(Protocol.shellSessionName)));
+    });
+
+    test('a start is judged like a command; what is typed into a session by its text; reading and stopping never ask', () {
+      final tools = make();
+      bool asks(Map<String, Object?> args) => tools.approvalRequired(Protocol.shellSessionName, args);
+      expect(asks(session('start', {'command': 'python3', 'cwd': '/workspace'})), isFalse, reason: 'inside the sandbox');
+      expect(asks(session('start', {'command': 'ls', 'cwd': '/data/data/ai.arce.app'})), isTrue, reason: 'outside it');
+      expect(asks(session('start', {'command': 'cat /proc/self/root/x'})), isTrue, reason: 'a door out of the sandbox');
+      expect(asks(session('start', {'command': 'git push', 'secrets': ['GITHUB_TOKEN']})), isTrue, reason: 'a secret: always');
+      expect(asks(session('send', {'session': 's1', 'input': 'print(1)\n'})), isFalse);
+      expect(asks(session('send', {'session': 's1', 'input': 'open("/proc/self/root/etc/x")'})), isTrue);
+      expect(asks(session('send', {'session': 's1', 'keys': ['Ctrl-C']})), isFalse, reason: 'keys are not text');
+      for (final quiet in ['read', 'stop', 'list']) {
+        expect(asks(session(quiet, {'session': 's1'})), isFalse, reason: quiet);
+      }
+      final sure = make(shell: const ShellSettings(confirm: true));
+      expect(sure.approvalRequired(Protocol.shellSessionName, session('start', {'command': 'python3'})), isTrue);
+      expect(sure.approvalRequired(Protocol.shellSessionName, session('send', {'session': 's1', 'input': 'x'})), isTrue);
+      expect(sure.approvalRequired(Protocol.shellSessionName, session('read', {'session': 's1'})), isFalse);
+      final unsupported = McpTools(const [], shellSupported: false);
+      expect(unsupported.approvalRequired(Protocol.shellSessionName, session('start', {'command': 'ls', 'cwd': '/etc'})), isFalse, reason: 'it cannot run at all');
+    });
+
+    test('start, send, read, stop and list run on the sessions and answer with screens', () async {
+      final tools = make();
+      bridge.sessionOutput.add(utf8.encode('>>> '));
+      final started = await tools.run(McpCall(Protocol.shellSessionName, session('start', {'command': 'python3'})));
+      expect(started.response, contains('session s1 · running'));
+      expect(started.response, contains('>>>'));
+      expect(started.activity.failed, isFalse);
+      expect(bridge.sessionStarts.single['command'], 'python3');
+      expect(bridge.sessionStarts.single['cwd'], '/workspace');
+
+      bridge.sessionOutput.add(utf8.encode('1+1\r\n2\r\n>>> '));
+      final sent = await tools.run(McpCall(Protocol.shellSessionName, session('send', {'session': 's1', 'input': '1+1\n', 'wait_ms': 100})));
+      expect(sent.response, contains('2'));
+      expect(utf8.decode(bridge.sessionWrites.single), '1+1\r');
+      expect(bridge.sessionReads.last['waitMs'], 100);
+
+      final read = await tools.run(McpCall(Protocol.shellSessionName, session('read', {'session': 's1'})));
+      expect(read.activity.failed, isFalse);
+      final listed = await tools.run(McpCall(Protocol.shellSessionName, session('list')));
+      expect(listed.response, contains('s1: running'));
+      final stopped = await tools.run(McpCall(Protocol.shellSessionName, session('stop', {'session': 's1'})));
+      expect(stopped.response, contains('stopped'));
+    });
+
+    test('a request that cannot be served is answered with the reason, not an error', () async {
+      final tools = make();
+      for (final bad in [
+        session('start'),
+        session('send'),
+        session('send', {'session': 's1'}),
+        session('read'),
+        session('stop'),
+        session('dance'),
+        session('send', {'session': 'nobody', 'input': 'x'}),
+      ]) {
+        final out = await tools.run(McpCall(Protocol.shellSessionName, bad));
+        expect(out.activity.failed, isTrue, reason: '$bad');
+      }
+      expect(bridge.sessionWrites, isEmpty);
+      final off = await make(shell: const ShellSettings(enabled: false)).run(McpCall(Protocol.shellSessionName, session('list')));
+      expect(off.activity.failed, isTrue);
+    });
+
+    test('a secret is passed only when it was asked for and exists; the screens have its value taken out', () async {
+      final tools = make(secrets: {'GITHUB_TOKEN': token});
+      final unknown = await tools.run(McpCall(Protocol.shellSessionName, session('start', {'command': 'env', 'secrets': ['AWS_SECRET']})));
+      expect(unknown.activity.failed, isTrue);
+      expect(unknown.response, contains('Available: GITHUB_TOKEN'));
+      expect(bridge.sessionStarts, isEmpty, reason: 'nothing was started');
+
+      bridge.sessionOutput.add(utf8.encode('GITHUB_TOKEN=$token\r\n'));
+      final out = await tools.run(McpCall(Protocol.shellSessionName, session('start', {'command': 'env', 'secrets': ['GITHUB_TOKEN']})));
+      expect(bridge.sessionStarts.single['secrets'], {'GITHUB_TOKEN': token});
+      expect(out.response, contains('[GITHUB_TOKEN]'));
+      expect(out.response, isNot(contains(token)));
+      expect(out.activity.summary, contains('秘密: GITHUB_TOKEN'));
+    });
+
+    test('the first start installs the environment when it is not there yet (the user approved the call)', () async {
+      bridge.installed = false;
+      final fresh = LinuxEnvironment(bridge: bridge, android: true, download: (url, {required connections, onProgress}) async => File('${Directory.systemTemp.path}/x'));
+      final tools = McpTools(const [], environment: fresh, shellSupported: true, sessionManager: ShellSessionManager(bridge: bridge));
+      final out = await tools.run(McpCall(Protocol.shellSessionName, session('start', {'command': 'python3'})));
+      // the fake cannot install a real archive: what matters is that the environment was asked, not the session
+      expect(bridge.calls, contains('status'));
+      expect(out.activity.failed, isTrue);
+      expect(bridge.sessionStarts, isEmpty);
     });
   });
 }

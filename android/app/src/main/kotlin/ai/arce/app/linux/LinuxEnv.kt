@@ -74,6 +74,8 @@ class LinuxEnv(
     }
 
     fun remove() {
+        // a session is a process inside the files that are about to go
+        sessions.stopAll("removed")
         synchronized(lock) {
             DiskUsage.delete(rootfs)
             DiskUsage.delete(partial)
@@ -83,6 +85,7 @@ class LinuxEnv(
 
     /** Empties the shared workspace (the folder stays). */
     fun clearWorkspace() {
+        sessions.stopAll("workspace")
         synchronized(lock) {
             DiskUsage.clear(workspace)
             workspaceHome().mkdirs()
@@ -106,8 +109,8 @@ class LinuxEnv(
         File(dir, "tmp").apply { mkdirs(); setWritable(true, false); setReadable(true, false); setExecutable(true, false) }
     }
 
-    /** The proot command line for [command] (an `sh -c` string), run in [cwd] inside the root file system. */
-    internal fun prootCommand(command: String, cwd: String, secrets: Map<String, String> = emptyMap()): List<String> = listOf(
+    /** What every proot command line starts with, up to the program that is run inside. */
+    private fun prootBase(cwd: String, secrets: Map<String, String>, term: String): List<String> = listOf(
         proot.path,
         "--kill-on-exit",
         "--link2symlink",
@@ -121,14 +124,28 @@ class LinuxEnv(
         "HOME=/workspace/home",
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "LANG=C.UTF-8",
-        "TERM=dumb",
+        "TERM=$term",
         "TMPDIR=/tmp",
         "SHELL=/bin/bash",
         // secrets the user approved for this command: `env -i` clears everything else, so they are named here
         // (and only here: no file, no log). The names were checked by the caller.
         *secrets.map { (name, value) -> "$name=$value" }.toTypedArray(),
-        "/bin/bash", "-c", command,
     )
+
+    /** The proot command line for [command] (an `sh -c` string), run in [cwd] inside the root file system. */
+    internal fun prootCommand(command: String, cwd: String, secrets: Map<String, String> = emptyMap()): List<String> =
+        prootBase(cwd, secrets, "dumb") + listOf("/bin/bash", "-c", command)
+
+    /**
+     * The command line of a session: [command] runs under a pseudo terminal (`script` from util-linux, which
+     * is part of the base system), which has the size asked for. The command is handed over as an argument
+     * ($1), so no quoting of it can go wrong.
+     */
+    internal fun sessionCommand(command: String, cwd: String, secrets: Map<String, String>, cols: Int, rows: Int): List<String> =
+        prootBase(cwd, secrets, "xterm-256color") + listOf(
+            "/bin/bash", "-c", "exec script -qefc \"\$1\" /dev/null", "arce-session",
+            "stty cols $cols rows $rows 2>/dev/null; $command",
+        )
 
     class RunParams(
         val command: String,
@@ -189,6 +206,90 @@ class LinuxEnv(
                 "workspaceLimitBytes" to limit,
             )
         }
+    }
+
+    // ---------------------------------------------------------------- sessions
+
+    /** Sessions run beside each other and beside [run]: a conversation with a program takes minutes. */
+    val sessions = ShellSessions()
+
+    class SessionParams(
+        val command: String,
+        val cwd: String,
+        val cols: Int,
+        val rows: Int,
+        val maxSessions: Int,
+        val idleSeconds: Int,
+        val bufferKb: Int,
+        val workspaceLimitBytes: Long,
+        val secrets: Map<String, String> = emptyMap(),
+        val noSeccomp: Boolean = false,
+    )
+
+    private var workspaceWatcher: Thread? = null
+
+    /** Starts a session; returns its id. */
+    fun startSession(params: SessionParams): Map<String, Any?> {
+        if (!installed()) throw IOException("the Linux environment is not installed")
+        if (!proot.isFile || !loader.isFile) throw IOException("this app has no proot")
+        require(params.cwd.startsWith("/") && !params.cwd.contains('\n') && !params.cwd.contains('\u0000')) { "cwd must be an absolute path" }
+        require(!params.command.contains('\u0000')) { "the command has a NUL character" }
+        require(params.cols in 20..400 && params.rows in 5..200) { "the terminal size is out of range" }
+        for ((name, value) in params.secrets) {
+            require(validSecretName(name)) { "not a usable name for a secret: $name" }
+            require(!value.contains('\u0000')) { "a secret has a NUL character" }
+        }
+        workspace.mkdirs()
+        workspaceHome().mkdirs()
+        prootTmp.mkdirs()
+        val env = mutableMapOf("PROOT_LOADER" to loader.path, "PROOT_TMP_DIR" to prootTmp.path)
+        if (params.noSeccomp) env["PROOT_NO_SECCOMP"] = "1"
+        val session = sessions.start(
+            commandLine = sessionCommand(params.command, params.cwd, params.secrets, params.cols, params.rows),
+            env = env,
+            label = params.command,
+            bufferBytes = params.bufferKb * 1024,
+            idleMs = params.idleSeconds * 1000L,
+            maxSessions = params.maxSessions,
+        )
+        watchWorkspace(params.workspaceLimitBytes)
+        return mapOf("id" to session.id)
+    }
+
+    /** While a session runs, the workspace is watched like it is for a command: a full one stops them all. */
+    @Synchronized
+    private fun watchWorkspace(limit: Long) {
+        if (limit <= 0 || workspaceWatcher?.isAlive == true) return
+        workspaceWatcher = Thread {
+            while (sessions.anyAlive()) {
+                try {
+                    Thread.sleep(5000)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+                if (DiskUsage.sizeOf(workspace, limit + 1) > limit) sessions.stopAll("workspace")
+            }
+        }.apply { isDaemon = true; name = "workspace-watch"; start() }
+    }
+
+    fun readSession(id: String, from: Long, waitMs: Long, settleMs: Long): Map<String, Any?> {
+        val chunk = sessions.get(id).read(from, waitMs.coerceIn(0, 120_000), settleMs)
+        return mapOf(
+            "data" to chunk.data,
+            "next" to chunk.next,
+            "lost" to chunk.lost,
+            "alive" to chunk.alive,
+            "exit" to chunk.exit,
+            "stoppedBy" to chunk.stoppedBy,
+        )
+    }
+
+    fun writeSession(id: String, bytes: ByteArray) = sessions.get(id).write(bytes)
+
+    fun stopSession(id: String) = sessions.get(id).stop("stopped")
+
+    fun listSessions(): List<Map<String, Any?>> = sessions.all().map {
+        mapOf("id" to it.id, "command" to it.command, "alive" to it.alive, "startedAt" to it.startedAt, "exit" to it.exitCode())
     }
 
     companion object {

@@ -76,6 +76,44 @@ void main() {
     });
   });
 
+  group('shell_session', () {
+    test('what the sandbox rule and the card are about: a command, a session started, a session typed into', () {
+      bool runs(String name, Map<String, Object?> args) => Protocol.runsCommands(McpCall(name, args));
+      expect(runs(Protocol.runCommandName, {'command': 'ls'}), isTrue);
+      expect(runs(Protocol.shellSessionName, {'action': 'start', 'command': 'python3'}), isTrue);
+      expect(runs(Protocol.shellSessionName, {'action': 'send', 'session': 's1', 'input': 'x'}), isTrue);
+      for (final quiet in ['read', 'stop', 'list']) {
+        expect(runs(Protocol.shellSessionName, {'action': quiet}), isFalse, reason: quiet);
+      }
+      expect(runs('mcp_a__b', {}), isFalse);
+    });
+
+    test('the definition: five actions, keys as a list, secrets by name', () {
+      final properties = Protocol.shellSession.parameters['properties'] as Map;
+      expect((properties['action'] as Map)['enum'], Protocol.shellSessionActions);
+      expect((properties['keys'] as Map)['type'], 'array');
+      expect((properties['secrets'] as Map)['type'], 'array');
+      expect(Protocol.shellSession.parameters['required'], ['action']);
+    });
+
+    test('the card says what is started, or what is typed, and which secrets go with it', () {
+      final start = ToolApproval.tile(const McpCall(Protocol.shellSessionName, {
+        'action': 'start',
+        'command': 'opencode',
+        'cwd': '/workspace/app',
+        'secrets': ['GITHUB_TOKEN'],
+      })).title;
+      expect(start, allOf(contains('対話できるセッションとして始めます'), contains('\$ opencode'), contains('場所: /workspace/app'), contains('秘密を渡します: GITHUB_TOKEN')));
+      final send = ToolApproval.tile(const McpCall(Protocol.shellSessionName, {
+        'action': 'send',
+        'session': 's2',
+        'input': 'rm -rf build\n',
+        'keys': ['Enter'],
+      })).title;
+      expect(send, allOf(contains('セッション s2 に入力します'), contains('> rm -rf build⏎'), contains('キー: Enter')));
+    });
+  });
+
   group('run_command with secrets', () {
     test('the definition offers a secrets list; the card names the secrets', () {
       final properties = Protocol.runCommand.parameters['properties'] as Map;

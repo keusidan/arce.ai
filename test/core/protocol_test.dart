@@ -115,4 +115,47 @@ void main() {
       expect(Protocol.toolCallSchema([Protocol.delegate, Protocol.webSearch]), isNotEmpty);
     });
   });
+
+  group('run_command and shell_session as the model writes them', () {
+    ParseResult parse(String name, String arguments, ToolDefinition tool) =>
+        ToolCallParser.parse('{"name":"$name","arguments":$arguments}', [tool]);
+
+    McpCall ok(ParseResult r) => (r as ParseOk).call as McpCall;
+
+    test('run_command keeps the names of the secrets it asked for (they were dropped once: the card showed none and none were given)', () {
+      final call = ok(parse('run_command', '{"command":"git push","secrets":[" GITHUB_TOKEN ","NPM_TOKEN","GITHUB_TOKEN"]}', Protocol.runCommand));
+      expect(call.arguments['secrets'], ['GITHUB_TOKEN', 'NPM_TOKEN']);
+      expect(ok(parse('run_command', '{"command":"ls"}', Protocol.runCommand)).arguments.containsKey('secrets'), isFalse);
+      expect(ok(parse('run_command', '{"command":"ls","secrets":[]}', Protocol.runCommand)).arguments.containsKey('secrets'), isFalse);
+      expect(parse('run_command', '{"command":"ls","secrets":"GITHUB_TOKEN"}', Protocol.runCommand), isA<ParseInvalid>());
+      expect(parse('run_command', '{"command":"ls","secrets":[1]}', Protocol.runCommand), isA<ParseInvalid>());
+    });
+
+    test('shell_session start: the command, where, the secrets and the wait', () {
+      final call = ok(parse('shell_session', '{"action":"start","command":" opencode ","cwd":"/workspace/app","secrets":["A"],"wait_ms":3000}', Protocol.shellSession));
+      expect(call.name, 'shell_session');
+      expect(call.arguments, {'action': 'start', 'command': 'opencode', 'cwd': '/workspace/app', 'secrets': ['A'], 'wait_ms': 3000});
+      expect(parse('shell_session', '{"action":"start"}', Protocol.shellSession), isA<ParseInvalid>());
+      expect(parse('shell_session', '{"action":"start","command":"x","cwd":"relative"}', Protocol.shellSession), isA<ParseInvalid>());
+    });
+
+    test('shell_session send: the input is typed as it is, spaces and line breaks included; keys are a list of names', () {
+      final call = ok(parse('shell_session', r'{"action":"send","session":"s1","input":"  print(1)\n","keys":["Enter"," Ctrl-C "]}', Protocol.shellSession));
+      expect(call.arguments['input'], '  print(1)\n');
+      expect(call.arguments['keys'], ['Enter', 'Ctrl-C']);
+      expect(ok(parse('shell_session', '{"action":"send","session":"s1","keys":["Up"]}', Protocol.shellSession)).arguments.containsKey('input'), isFalse);
+      expect(parse('shell_session', '{"action":"send","input":"x"}', Protocol.shellSession), isA<ParseInvalid>(), reason: 'which session?');
+      expect(parse('shell_session', '{"action":"send","session":"s1"}', Protocol.shellSession), isA<ParseInvalid>(), reason: 'nothing to send');
+      expect(parse('shell_session', '{"action":"send","session":"s1","keys":"Enter"}', Protocol.shellSession), isA<ParseInvalid>());
+    });
+
+    test('shell_session read, stop, list; an unknown action is the model\'s to fix', () {
+      expect(ok(parse('shell_session', '{"action":"read","session":"s1"}', Protocol.shellSession)).arguments, {'action': 'read', 'session': 's1'});
+      expect(ok(parse('shell_session', '{"action":"stop","session":"s1"}', Protocol.shellSession)).arguments, {'action': 'stop', 'session': 's1'});
+      expect(ok(parse('shell_session', '{"action":"list"}', Protocol.shellSession)).arguments, {'action': 'list'});
+      for (final bad in ['{"action":"read"}', '{"action":"stop"}', '{"action":"dance"}', '{}']) {
+        expect(parse('shell_session', bad, Protocol.shellSession), isA<ParseInvalid>(), reason: bad);
+      }
+    });
+  });
 }

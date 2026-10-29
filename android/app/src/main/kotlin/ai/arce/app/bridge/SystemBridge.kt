@@ -122,6 +122,40 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                     )
                     offMain(result) { linux.run(params) }
                 }
+                // Sessions: a program that is talked to (a pseudo terminal under proot). Starting is quick, but
+                // a read waits for output, so every one of these runs off the main thread.
+                "linuxSessionStart" -> {
+                    val params = LinuxEnv.SessionParams(
+                        command = call.argument<String>("command")!!,
+                        cwd = call.argument<String>("cwd") ?: "/workspace",
+                        cols = call.argument<Number>("cols")?.toInt() ?: 120,
+                        rows = call.argument<Number>("rows")?.toInt() ?: 40,
+                        maxSessions = (call.argument<Number>("maxSessions")?.toInt() ?: 3).coerceIn(1, 20),
+                        idleSeconds = (call.argument<Number>("idleSeconds")?.toInt() ?: 900).coerceIn(0, 86_400),
+                        bufferKb = (call.argument<Number>("bufferKb")?.toInt() ?: 256).coerceIn(16, 8192),
+                        workspaceLimitBytes = call.argument<Number>("workspaceLimitBytes")?.toLong() ?: 0L,
+                        secrets = call.argument<Map<String, String>>("secrets").orEmpty(),
+                        noSeccomp = call.argument<Boolean>("noSeccomp") == true,
+                    )
+                    offMain(result) { linux.startSession(params) }
+                }
+                "linuxSessionRead" -> {
+                    val id = call.argument<String>("id")!!
+                    val from = call.argument<Number>("from")?.toLong() ?: 0L
+                    val waitMs = call.argument<Number>("waitMs")?.toLong() ?: 0L
+                    val settleMs = call.argument<Number>("settleMs")?.toLong() ?: 300L
+                    offMain(result) { linux.readSession(id, from, waitMs, settleMs) }
+                }
+                "linuxSessionWrite" -> {
+                    val id = call.argument<String>("id")!!
+                    val bytes = call.argument<ByteArray>("data")!!
+                    offMain(result) { linux.writeSession(id, bytes); null }
+                }
+                "linuxSessionStop" -> {
+                    val id = call.argument<String>("id")!!
+                    offMain(result) { linux.stopSession(id); null }
+                }
+                "linuxSessionList" -> offMain(result) { linux.listSessions() }
                 else -> result.notImplemented()
             }
         } catch (e: Throwable) {

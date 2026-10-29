@@ -128,6 +128,14 @@ class AppSettings {
     this.shellTimeoutSeconds = 120,
     this.shellMaxTimeoutSeconds = 600,
     this.shellMaxOutputChars = 20000,
+    this.shellSessionMax = 3,
+    this.shellSessionIdleMinutes = 15,
+    this.shellSessionWaitMs = 1500,
+    this.shellSessionMaxWaitSeconds = 30,
+    this.shellSessionCols = 120,
+    this.shellSessionRows = 40,
+    this.shellSessionScrollback = 500,
+    this.shellSessionBufferKb = 256,
     this.workspaceLimitMb = 2048,
     this.linuxRootfsUrl = defaultLinuxRootfsUrl,
     this.linuxRootfsSha256 = defaultLinuxRootfsSha256,
@@ -391,6 +399,18 @@ class AppSettings {
   /// How many characters of a command's output reach the model (the rest is cut, keeping both ends).
   final int shellMaxOutputChars;
 
+  /// Sessions: programs that are talked to (a pseudo terminal). How many at once, when an unused one is
+  /// stopped, how long a start / send / read waits for output (and the most a model may ask for), the size
+  /// of the terminal, the lines kept after they scroll off, and what is kept between two reads.
+  final int shellSessionMax;
+  final int shellSessionIdleMinutes;
+  final int shellSessionWaitMs;
+  final int shellSessionMaxWaitSeconds;
+  final int shellSessionCols;
+  final int shellSessionRows;
+  final int shellSessionScrollback;
+  final int shellSessionBufferKb;
+
   /// How large the workspace shared by every chat may grow, in megabytes (0 = no limit).
   final int workspaceLimitMb;
 
@@ -544,6 +564,14 @@ class AppSettings {
     int? shellTimeoutSeconds,
     int? shellMaxTimeoutSeconds,
     int? shellMaxOutputChars,
+    int? shellSessionMax,
+    int? shellSessionIdleMinutes,
+    int? shellSessionWaitMs,
+    int? shellSessionMaxWaitSeconds,
+    int? shellSessionCols,
+    int? shellSessionRows,
+    int? shellSessionScrollback,
+    int? shellSessionBufferKb,
     int? workspaceLimitMb,
     String? linuxRootfsUrl,
     String? linuxRootfsSha256,
@@ -654,6 +682,14 @@ class AppSettings {
     shellTimeoutSeconds: shellTimeoutSeconds ?? this.shellTimeoutSeconds,
     shellMaxTimeoutSeconds: shellMaxTimeoutSeconds ?? this.shellMaxTimeoutSeconds,
     shellMaxOutputChars: shellMaxOutputChars ?? this.shellMaxOutputChars,
+    shellSessionMax: shellSessionMax ?? this.shellSessionMax,
+    shellSessionIdleMinutes: shellSessionIdleMinutes ?? this.shellSessionIdleMinutes,
+    shellSessionWaitMs: shellSessionWaitMs ?? this.shellSessionWaitMs,
+    shellSessionMaxWaitSeconds: shellSessionMaxWaitSeconds ?? this.shellSessionMaxWaitSeconds,
+    shellSessionCols: shellSessionCols ?? this.shellSessionCols,
+    shellSessionRows: shellSessionRows ?? this.shellSessionRows,
+    shellSessionScrollback: shellSessionScrollback ?? this.shellSessionScrollback,
+    shellSessionBufferKb: shellSessionBufferKb ?? this.shellSessionBufferKb,
     workspaceLimitMb: workspaceLimitMb ?? this.workspaceLimitMb,
     linuxRootfsUrl: linuxRootfsUrl ?? this.linuxRootfsUrl,
     linuxRootfsSha256: linuxRootfsSha256 ?? this.linuxRootfsSha256,
@@ -767,6 +803,14 @@ class AppSettings {
     'shellTimeoutSeconds': shellTimeoutSeconds,
     'shellMaxTimeoutSeconds': shellMaxTimeoutSeconds,
     'shellMaxOutputChars': shellMaxOutputChars,
+    'shellSessionMax': shellSessionMax,
+    'shellSessionIdleMinutes': shellSessionIdleMinutes,
+    'shellSessionWaitMs': shellSessionWaitMs,
+    'shellSessionMaxWaitSeconds': shellSessionMaxWaitSeconds,
+    'shellSessionCols': shellSessionCols,
+    'shellSessionRows': shellSessionRows,
+    'shellSessionScrollback': shellSessionScrollback,
+    'shellSessionBufferKb': shellSessionBufferKb,
     'workspaceLimitMb': workspaceLimitMb,
     'linuxRootfsUrl': linuxRootfsUrl,
     'linuxRootfsSha256': linuxRootfsSha256,
@@ -898,6 +942,14 @@ class AppSettings {
       shellTimeoutSeconds: whole('shellTimeoutSeconds', d.shellTimeoutSeconds).clamp(1, 3600),
       shellMaxTimeoutSeconds: whole('shellMaxTimeoutSeconds', d.shellMaxTimeoutSeconds).clamp(1, 3600),
       shellMaxOutputChars: whole('shellMaxOutputChars', d.shellMaxOutputChars).clamp(500, 1000000),
+      shellSessionMax: whole('shellSessionMax', d.shellSessionMax).clamp(1,20),
+      shellSessionIdleMinutes: whole('shellSessionIdleMinutes', d.shellSessionIdleMinutes).clamp(0,1440),
+      shellSessionWaitMs: whole('shellSessionWaitMs', d.shellSessionWaitMs).clamp(0,120000),
+      shellSessionMaxWaitSeconds: whole('shellSessionMaxWaitSeconds', d.shellSessionMaxWaitSeconds).clamp(1,120),
+      shellSessionCols: whole('shellSessionCols', d.shellSessionCols).clamp(20,400),
+      shellSessionRows: whole('shellSessionRows', d.shellSessionRows).clamp(5,200),
+      shellSessionScrollback: whole('shellSessionScrollback', d.shellSessionScrollback).clamp(0,5000),
+      shellSessionBufferKb: whole('shellSessionBufferKb', d.shellSessionBufferKb).clamp(16,8192),
       workspaceLimitMb: whole('workspaceLimitMb', d.workspaceLimitMb).clamp(0, 65536),
       linuxRootfsUrl: text('linuxRootfsUrl', d.linuxRootfsUrl),
       linuxRootfsSha256: text('linuxRootfsSha256', d.linuxRootfsSha256),

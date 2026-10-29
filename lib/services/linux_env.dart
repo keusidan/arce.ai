@@ -216,6 +216,52 @@ class LinuxBridge {
         'secrets': secrets,
       }));
 
+  // ---- sessions: a program that is talked to (a pseudo terminal under proot)
+
+  Future<Map<Object?, Object?>> sessionStart({
+    required String command,
+    required String cwd,
+    required int cols,
+    required int rows,
+    required int maxSessions,
+    required int idleSeconds,
+    required int bufferKb,
+    required int workspaceLimitBytes,
+    required bool noSeccomp,
+    Map<String, String> secrets = const {},
+  }) async =>
+      _map(await _channel.invokeMethod<Map<Object?, Object?>>('linuxSessionStart', {
+        'command': command,
+        'cwd': cwd,
+        'cols': cols,
+        'rows': rows,
+        'maxSessions': maxSessions,
+        'idleSeconds': idleSeconds,
+        'bufferKb': bufferKb,
+        'workspaceLimitBytes': workspaceLimitBytes,
+        'noSeccomp': noSeccomp,
+        'secrets': secrets,
+      }));
+
+  /// The output of session [id] since byte offset [from], waiting up to [waitMs] for some (and, once it
+  /// comes, until the program has been quiet for [settleMs]).
+  Future<Map<Object?, Object?>> sessionRead(String id, {required int from, required int waitMs, int settleMs = 300}) async =>
+      _map(await _channel.invokeMethod<Map<Object?, Object?>>('linuxSessionRead', {
+        'id': id,
+        'from': from,
+        'waitMs': waitMs,
+        'settleMs': settleMs,
+      }));
+
+  Future<void> sessionWrite(String id, Uint8List data) => _channel.invokeMethod<void>('linuxSessionWrite', {'id': id, 'data': data});
+
+  Future<void> sessionStop(String id) => _channel.invokeMethod<void>('linuxSessionStop', {'id': id});
+
+  Future<List<Map<Object?, Object?>>> sessionList() async {
+    final list = await _channel.invokeMethod<List<Object?>>('linuxSessionList') ?? const [];
+    return [for (final item in list) if (item is Map) item.cast<Object?, Object?>()];
+  }
+
   Future<void> remove() => _channel.invokeMethod<void>('linuxRemove');
 
   Future<void> clearWorkspace() => _channel.invokeMethod<void>('workspaceClear');

@@ -415,6 +415,52 @@ abstract final class Protocol {
     ),
   );
 
+  /// A program that is talked to: it keeps running, asks for input, shows a screen. Starts under a pseudo
+  /// terminal; the answer is always the terminal screen as text.
+  static const shellSessionName = 'shell_session';
+
+  static const shellSessionActions = ['start', 'send', 'read', 'stop', 'list'];
+
+  static final shellSession = ToolDefinition(
+    name: shellSessionName,
+    description:
+        'Talk to a program that keeps running and asks for input, in the Linux environment: a read-eval loop '
+        '(python3, node), an installer with questions, a command-line agent such as opencode. '
+        'action "start" runs command under a pseudo terminal (cwd and secrets as for run_command) and answers with '
+        'a session id; "send" types input and presses keys in session; "read" only looks again (use it while the '
+        'program is still working); "stop" ends it; "list" lists the sessions. Every answer is the terminal '
+        'screen as a person would see it, plus the lines that scrolled off since the last answer. '
+        'input is typed as it is (a line break is the Enter key); keys are names pressed after the input: '
+        'Enter, Tab, Esc, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, Space, '
+        'Ctrl-C, Ctrl-D, Ctrl-<letter>. wait_ms is how long to wait for output before answering. '
+        'A command that does not need talking to is better run with run_command.',
+    parameters: _objectSchema(
+      required: ['action'],
+      properties: {
+        'action': {'type': 'string', 'enum': shellSessionActions},
+        'command': {'type': 'string'},
+        'cwd': {'type': 'string'},
+        'session': {'type': 'string'},
+        'input': {'type': 'string'},
+        'keys': {
+          'type': 'array',
+          'items': {'type': 'string'},
+        },
+        'wait_ms': {'type': 'integer'},
+        'secrets': {
+          'type': 'array',
+          'items': {'type': 'string'},
+        },
+      },
+    ),
+  );
+
+  /// Whether [call] makes a program run or tells it what to do: a command, or a session started or typed
+  /// into. These are what the sandbox rule, the "after reading from outside" rule and the card are about.
+  static bool runsCommands(McpCall call) =>
+      call.name == runCommandName ||
+      (call.name == shellSessionName && (call.arguments['action'] == 'start' || call.arguments['action'] == 'send'));
+
   /// The three tools that stand for every MCP server's tools when their definitions would be too big
   /// to send each time: look for a tool, read its definition, call it.
   static const mcpFindName = 'mcp_find';
@@ -475,7 +521,7 @@ abstract final class Protocol {
 
   /// The tools that parse as an [McpCall]: the MCP servers' own, and the app's own two above.
   static bool isMcpLike(String name) =>
-      name.startsWith('mcp_') || name == runCommandName || name == ciStatusName;
+      name.startsWith('mcp_') || name == runCommandName || name == ciStatusName || name == shellSessionName;
 
   /// JSON Schema for the body of one `<tool_call>` block restricted to [tools]:
   /// `{"name": <one of the tools>, "arguments": <that tool's parameters>}`.
@@ -576,6 +622,19 @@ abstract final class ToolApproval {
       final names = ShellSecrets.names(call.arguments['secrets']) ?? const <String>[];
       final secrets = names.isEmpty ? '' : '\n秘密を渡します: ${names.join('、')}（このコマンドは、これらの値を読めます。送り先は制限できません）';
       return 'このコマンドを実行します。$reason\n\$ $command\n場所: $cwd$limit$secrets';
+    }
+    if (call.name == Protocol.shellSessionName) {
+      final names = ShellSecrets.names(call.arguments['secrets']) ?? const <String>[];
+      final secrets = names.isEmpty ? '' : '\n秘密を渡します: ${names.join('、')}（このコマンドは、これらの値を読めます。送り先は制限できません）';
+      if (call.arguments['action'] == 'start') {
+        final command = '${call.arguments['command'] ?? ''}'.trim();
+        final cwd = '${call.arguments['cwd'] ?? '/workspace'}'.trim();
+        return 'このコマンドを、対話できるセッションとして始めます。$reason\n\$ $command\n場所: $cwd$secrets';
+      }
+      final input = '${call.arguments['input'] ?? ''}';
+      final keys = call.arguments['keys'];
+      final pressed = keys is List && keys.isNotEmpty ? '\nキー: ${keys.join(' ')}' : '';
+      return 'セッション ${call.arguments['session'] ?? ''} に入力します。$reason\n> ${input.replaceAll('\n', '⏎')}$pressed';
     }
     final b = StringBuffer('この道具を実行します：${label(call.name)}$reason');
     for (final entry in call.arguments.entries) {
@@ -760,6 +819,7 @@ abstract final class ToolCallParser {
       // it to the tools this turn allows
       if (Protocol.isMcpLike(name)) {
         if (name == Protocol.runCommandName) return _parseRunCommand(args);
+        if (name == Protocol.shellSessionName) return _parseShellSession(args);
         return ParseOk(McpCall(name, args.cast<String, Object?>()));
       }
       return ParseInvalid("tool '$name' has no handler");
@@ -834,14 +894,81 @@ abstract final class ToolCallParser {
     if (autoExec != null && autoExec is! bool && autoExec is! String) {
       throw _WrongType('auto_execute');
     }
+    final secrets = ShellSecrets.names(args['secrets']);
+    if (secrets == null) throw _WrongType('secrets');
     return ParseOk(
       McpCall(Protocol.runCommandName, {
         'command': command,
         'cwd': ?cwd,
         if (timeout is num) 'timeout_seconds': timeout.toInt(),
         if (autoExec != null) 'auto_execute': _flag(args, 'auto_execute'),
+        // the names the model asked to give the command; whether they exist is for the tool to say
+        if (secrets.isNotEmpty) 'secrets': secrets,
       }),
     );
+  }
+
+  /// `shell_session`: the action and what it needs, checked here so that the card and the policy see the
+  /// same arguments the tool will run with (an unknown action or a missing session is the model's to fix).
+  static ParseResult _parseShellSession(Map<dynamic, dynamic> args) {
+    final action = _requiredText(args, 'action');
+    if (action == null || !Protocol.shellSessionActions.contains(action)) {
+      return ParseInvalid('action must be one of ${Protocol.shellSessionActions.join(', ')}');
+    }
+    final session = _requiredText(args, 'session');
+    final cwd = _requiredText(args, 'cwd');
+    if (cwd != null && !cwd.startsWith('/')) {
+      return const ParseInvalid('cwd must be an absolute path inside the environment');
+    }
+    final secrets = ShellSecrets.names(args['secrets']);
+    if (secrets == null) throw _WrongType('secrets');
+    final keysRaw = args['keys'];
+    final keys = <String>[];
+    if (keysRaw != null) {
+      if (keysRaw is! List) throw _WrongType('keys');
+      for (final key in keysRaw) {
+        if (key is! String) throw _WrongType('keys');
+        if (key.trim().isNotEmpty) keys.add(key.trim());
+      }
+    }
+    final waited = args['wait_ms'];
+    if (waited != null && waited is! num) throw _WrongType('wait_ms');
+    // the input is typed as it is: spaces and line breaks count, so it is not trimmed
+    final input = args['input'];
+    if (input is Map || input is List) throw _WrongType('input');
+    switch (action) {
+      case 'start':
+        final command = _requiredText(args, 'command');
+        if (command == null) return const ParseInvalid('start needs a command');
+        return ParseOk(McpCall(Protocol.shellSessionName, {
+          'action': action,
+          'command': command,
+          'cwd': ?cwd,
+          if (secrets.isNotEmpty) 'secrets': secrets,
+          if (waited is num) 'wait_ms': waited.toInt(),
+        }));
+      case 'send':
+        if (session == null) return const ParseInvalid('send needs a session');
+        final text = input == null ? '' : '$input';
+        if (text.isEmpty && keys.isEmpty) return const ParseInvalid('send needs input or keys');
+        return ParseOk(McpCall(Protocol.shellSessionName, {
+          'action': action,
+          'session': session,
+          if (text.isNotEmpty) 'input': text,
+          if (keys.isNotEmpty) 'keys': keys,
+          if (waited is num) 'wait_ms': waited.toInt(),
+        }));
+      case 'read':
+      case 'stop':
+        if (session == null) return ParseInvalid('$action needs a session');
+        return ParseOk(McpCall(Protocol.shellSessionName, {
+          'action': action,
+          'session': session,
+          if (waited is num) 'wait_ms': waited.toInt(),
+        }));
+      default:
+        return const ParseOk(McpCall(Protocol.shellSessionName, {'action': 'list'}));
+    }
   }
 
   /// A repository is `owner/name` (or none, for the app's own), the branch and the run are as they

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:arce_ai/services/file_downloader.dart';
 import 'package:arce_ai/services/linux_env.dart';
@@ -64,6 +65,78 @@ class FakeBridge extends LinuxBridge {
     };
     return runAnswer;
   }
+
+  // ---- sessions: scripted. Each read answers with the next piece of output in [sessionOutput].
+  final sessionOutput = <List<int>>[];
+  var sessionAlive = true;
+  int? sessionExit;
+  String? sessionStoppedBy;
+  var sessionLost = false;
+  var sessionNext = 0;
+  final sessionStarts = <Map<String, Object?>>[];
+  final sessionReads = <Map<String, Object?>>[];
+  final sessionWrites = <List<int>>[];
+
+  @override
+  Future<Map<Object?, Object?>> sessionStart({
+    required String command,
+    required String cwd,
+    required int cols,
+    required int rows,
+    required int maxSessions,
+    required int idleSeconds,
+    required int bufferKb,
+    required int workspaceLimitBytes,
+    required bool noSeccomp,
+    Map<String, String> secrets = const {},
+  }) async {
+    calls.add('sessionStart');
+    sessionStarts.add({
+      'command': command,
+      'cwd': cwd,
+      'cols': cols,
+      'rows': rows,
+      'maxSessions': maxSessions,
+      'idleSeconds': idleSeconds,
+      'bufferKb': bufferKb,
+      'secrets': secrets,
+    });
+    return {'id': 's${sessionStarts.length}'};
+  }
+
+  @override
+  Future<Map<Object?, Object?>> sessionRead(String id, {required int from, required int waitMs, int settleMs = 300}) async {
+    calls.add('sessionRead');
+    sessionReads.add({'id': id, 'from': from, 'waitMs': waitMs});
+    final data = sessionOutput.isEmpty ? <int>[] : sessionOutput.removeAt(0);
+    sessionNext = from + data.length;
+    return {
+      'data': Uint8List.fromList(data),
+      'next': sessionNext,
+      'lost': sessionLost,
+      'alive': sessionAlive,
+      'exit': sessionExit,
+      'stoppedBy': sessionStoppedBy,
+    };
+  }
+
+  @override
+  Future<void> sessionWrite(String id, Uint8List data) async {
+    calls.add('sessionWrite');
+    sessionWrites.add(data.toList());
+  }
+
+  @override
+  Future<void> sessionStop(String id) async {
+    calls.add('sessionStop');
+    sessionAlive = false;
+    sessionStoppedBy = 'stopped';
+  }
+
+  @override
+  Future<List<Map<Object?, Object?>>> sessionList() async => [
+        for (var i = 1; i <= sessionStarts.length; i++) {'id': 's$i', 'alive': sessionAlive},
+      ];
 
   @override
   Future<void> remove() async {

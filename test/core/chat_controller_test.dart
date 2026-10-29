@@ -9,6 +9,7 @@ import 'package:arce_ai/core/generation.dart';
 import 'package:arce_ai/core/prompt.dart';
 import 'package:arce_ai/core/protocol.dart';
 import 'package:arce_ai/core/tool_runtime.dart';
+import 'package:arce_ai/mcp/mcp_tools.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Replays one scripted reply per generate() call, split into small pieces like real tokens.
@@ -429,6 +430,68 @@ void main() {
       expect(read.state.pendingTool!.name, 'run_command');
       expect(read.state.pendingQuestion!.title, contains('検索や外部ツールの結果を読んだあとなので、確認します'));
       expect(read.state.pendingQuestion!.options, [ToolApproval.approve, ToolApproval.reject], reason: 'a command cannot be remembered');
+    });
+
+    test('a session that is started or typed into asks after reading from outside, like a command; reading it never does', () async {
+      final ran = <String>[];
+      final runtime = _Runtime((call) {
+        ran.add(call is McpCall ? '${call.name}:${call.arguments['action'] ?? ''}' : call.runtimeType.toString());
+        return const ToolOutcome('ok', ToolActivity('Shell', 'done'));
+      });
+      final sessionTool = ToolDefinition(name: 'shell_session', description: 'x', parameters: Protocol.shellSession.parameters);
+      const start = '<tool_call>\n{"name":"shell_session","arguments":{"action":"start","command":"python3"}}\n</tool_call>';
+      const read = '<tool_call>\n{"name":"shell_session","arguments":{"action":"read","session":"s1"}}\n</tool_call>';
+      ChatController chat(List<(String, FinishReason)> replies) => ChatController(
+            ScriptedEngine(replies),
+            toolRuntime: runtime,
+            extraTools: () async => [sessionTool],
+            // the app's own policy: a start inside the sandbox runs, a read always does
+            mcpApproval: (name, [args = const {}]) => false,
+            confirmAfterExternal: () => true,
+          );
+
+      final quiet = chat([(start, FinishReason.eog), ('開きました', FinishReason.eog)]);
+      await quiet.send('python を開いて');
+      expect(ran, ['shell_session:start'], reason: 'nothing from outside was read: it just runs');
+
+      ran.clear();
+      final afterSearch = chat([(search, FinishReason.eog), (start, FinishReason.eog)]);
+      await afterSearch.send('調べて、開いて');
+      expect(ran, ['WebSearch']);
+      expect(afterSearch.state.task, TaskState.userWait);
+      expect(afterSearch.state.pendingTool!.name, 'shell_session');
+      expect(afterSearch.state.pendingQuestion!.title, contains('検索や外部ツールの結果を読んだあとなので、確認します'));
+      expect(afterSearch.state.pendingQuestion!.title, contains('対話できるセッションとして始めます'));
+      expect(afterSearch.state.pendingQuestion!.options, [ToolApproval.approve, ToolApproval.reject], reason: 'cannot be remembered');
+
+      ran.clear();
+      final reading = chat([(search, FinishReason.eog), (read, FinishReason.eog), ('見ました', FinishReason.eog)]);
+      await reading.send('調べて、画面を見て');
+      expect(ran, ['WebSearch', 'shell_session:read'], reason: 'looking at a screen changes nothing');
+      expect(reading.state.task, TaskState.completed);
+    });
+
+    test('a command the model wrote with secrets reaches the card, and the tool, with the names (end to end)', () async {
+      final seen = <McpCall>[];
+      final runtime = _Runtime((call) {
+        if (call is McpCall) seen.add(call);
+        return const ToolOutcome('ok', ToolActivity('Shell', 'done'));
+      });
+      // the policy of the app: McpTools decides, as it does in the running app
+      final policy = McpTools(const [], shellSupported: true);
+      const withSecret = '<tool_call>\n{"name":"run_command","arguments":{"command":"git push","secrets":["GITHUB_TOKEN"]}}\n</tool_call>';
+      final chat = ChatController(
+        ScriptedEngine([(withSecret, FinishReason.eog), ('送りました', FinishReason.eog)]),
+        toolRuntime: runtime,
+        extraTools: () async => [shellTool],
+        mcpApproval: (name, [args = const {}]) => policy.approvalRequired(name, args),
+      );
+      await chat.send('push して');
+      expect(seen, isEmpty, reason: 'a command with a secret waits for the user even inside the sandbox');
+      expect(chat.state.pendingTool!.arguments['secrets'], ['GITHUB_TOKEN']);
+      expect(chat.state.pendingQuestion!.title, contains('秘密を渡します: GITHUB_TOKEN'));
+      await chat.answer([ToolApproval.approve], null);
+      expect(seen.single.arguments['secrets'], ['GITHUB_TOKEN']);
     });
 
     test('with the setting off, reading from outside changes nothing', () async {
