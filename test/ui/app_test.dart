@@ -919,7 +919,7 @@ void main() {
   });
 
   testWidgets('settings: the tools that are not asked about again are listed, and one can be taken out', (tester) async {
-    setSize(tester, const Size(411, 1200));
+    setSize(tester, const Size(411, 2400));
     final app = await makeApp(tester);
     await tester.pumpWidget(ArceApp(app: app));
     await tester.pump();

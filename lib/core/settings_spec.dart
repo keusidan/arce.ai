@@ -198,6 +198,8 @@ abstract final class AgentSettings {
       label: 'コーディングモード（プランナー＋開発の分担）',
       kind: SettingKind.flag,
     ),
+    'mcpOnDemand': SettingSpec(key: 'mcpOnDemand', label: 'MCP の道具が多いとき、定義を送らず、必要なときに探して呼ぶ', kind: SettingKind.flag),
+    'mcpOnDemandTokens': SettingSpec(key: 'mcpOnDemandTokens', label: 'MCP の道具の定義がこの大きさ（トークン）を超えたら、探して呼ぶ方式にする（0 で常に）', kind: SettingKind.whole, min: 0, max: 100000),
     'compactEnabled': SettingSpec(key: 'compactEnabled', label: '長い会話を要約して、文脈に収める', kind: SettingKind.flag),
     'compactAtPercent': SettingSpec(key: 'compactAtPercent', label: '要約を始める、文脈の使用率（%）', kind: SettingKind.whole, min: 30, max: 95),
     'compactKeepTurns': SettingSpec(key: 'compactKeepTurns', label: '要約せずに残す、直近の発言の数', kind: SettingKind.whole, min: 1, max: 30),
@@ -547,6 +549,8 @@ abstract final class AgentSettings {
     // a message must not switch off a question the app asks before a command or a tool runs
     'shellConfirmAfterExternal',
     'approvedTools',
+    // which secrets a command may ask for: a message must not hand a token to a command
+    'shellSecrets',
     'linuxRootfsUrl',
     'linuxRootfsSha256',
     // where the names of the Linux environment are looked up: a chosen resolver can answer for any site

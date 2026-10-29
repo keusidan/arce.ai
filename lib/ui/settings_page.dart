@@ -17,6 +17,7 @@ import 'model_tree_view.dart';
 import 'search_widgets.dart';
 import 'proot_check_card.dart';
 import 'provider_widgets.dart';
+import 'secrets_widgets.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'thinking_icon.dart';
@@ -525,6 +526,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
+            const SizedBox(height: 10),
+            ShellSecretsCard(app: app),
           ],
         );
       },

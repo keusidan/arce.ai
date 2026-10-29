@@ -11,6 +11,7 @@ import '../core/compaction.dart';
 import '../core/engine.dart';
 import '../core/protocol.dart' show ToolApproval;
 import '../core/search.dart';
+import '../core/shell_secrets.dart';
 import '../core/settings_spec.dart';
 import '../mcp/mcp_server.dart';
 import 'kv_snapshots.dart';
@@ -121,6 +122,9 @@ class AppSettings {
     this.compactSummaryChars = 3000,
     this.compactToolResultChars = 1500,
     this.approvedTools = const [],
+    this.shellSecrets = const [],
+    this.mcpOnDemand = true,
+    this.mcpOnDemandTokens = 2000,
     this.shellTimeoutSeconds = 120,
     this.shellMaxTimeoutSeconds = 600,
     this.shellMaxOutputChars = 20000,
@@ -369,6 +373,15 @@ class AppSettings {
   /// 「この道具は次から確認しない」). Not reachable from the chat: a message must not switch off a question.
   final List<String> approvedTools;
 
+  /// The secrets a command may be given (by name, with the user's approval of each command). Only the
+  /// names and where the values come from are here; the values are in the secure storage.
+  final List<ShellSecret> shellSecrets;
+
+  /// Offer `mcp_find` / `mcp_describe` / `mcp_call` instead of every MCP tool's definition when the
+  /// definitions would take more than [mcpOnDemandTokens] tokens of every request (0: always).
+  final bool mcpOnDemand;
+  final int mcpOnDemandTokens;
+
   /// Seconds a command may run by default (the model may ask for up to [shellMaxTimeoutSeconds]).
   final int shellTimeoutSeconds;
 
@@ -525,6 +538,9 @@ class AppSettings {
     int? compactSummaryChars,
     int? compactToolResultChars,
     List<String>? approvedTools,
+    List<ShellSecret>? shellSecrets,
+    bool? mcpOnDemand,
+    int? mcpOnDemandTokens,
     int? shellTimeoutSeconds,
     int? shellMaxTimeoutSeconds,
     int? shellMaxOutputChars,
@@ -632,6 +648,9 @@ class AppSettings {
     compactSummaryChars: compactSummaryChars ?? this.compactSummaryChars,
     compactToolResultChars: compactToolResultChars ?? this.compactToolResultChars,
     approvedTools: approvedTools ?? this.approvedTools,
+    shellSecrets: shellSecrets ?? this.shellSecrets,
+    mcpOnDemand: mcpOnDemand ?? this.mcpOnDemand,
+    mcpOnDemandTokens: mcpOnDemandTokens ?? this.mcpOnDemandTokens,
     shellTimeoutSeconds: shellTimeoutSeconds ?? this.shellTimeoutSeconds,
     shellMaxTimeoutSeconds: shellMaxTimeoutSeconds ?? this.shellMaxTimeoutSeconds,
     shellMaxOutputChars: shellMaxOutputChars ?? this.shellMaxOutputChars,
@@ -742,6 +761,9 @@ class AppSettings {
     'compactSummaryChars': compactSummaryChars,
     'compactToolResultChars': compactToolResultChars,
     'approvedTools': approvedTools,
+    'shellSecrets': [for (final s in shellSecrets) s.toJson()],
+    'mcpOnDemand': mcpOnDemand,
+    'mcpOnDemandTokens': mcpOnDemandTokens,
     'shellTimeoutSeconds': shellTimeoutSeconds,
     'shellMaxTimeoutSeconds': shellMaxTimeoutSeconds,
     'shellMaxOutputChars': shellMaxOutputChars,
@@ -896,6 +918,13 @@ class AppSettings {
           for (final t in json['approvedTools'] as List)
             if (t is String && ToolApproval.canRemember(t)) t,
       ],
+      shellSecrets: [
+        if (json['shellSecrets'] is List)
+          for (final item in json['shellSecrets'] as List)
+            ?ShellSecret.fromJson(item),
+      ],
+      mcpOnDemand: flag('mcpOnDemand', d.mcpOnDemand),
+      mcpOnDemandTokens: whole('mcpOnDemandTokens', d.mcpOnDemandTokens),
       searchApis: SearchApis.decode(json['searchApis']),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {
@@ -1020,6 +1049,15 @@ class SettingsStore extends ChangeNotifier {
 
   final Map<String, String> _mcpTokens = {};
 
+  final Map<String, String> _shellSecretValues = {};
+
+  static String _shellSecretRef(String name) => 'shell_secret.$name';
+
+  /// The value of a secret a command may be given: an MCP server's token, or the value kept under its
+  /// own name. Empty when there is none (then the command cannot be given it).
+  String shellSecretValue(ShellSecret secret) =>
+      secret.fromMcp ? mcpTokenOf(secret.mcpServerId) : (_shellSecretValues[secret.name] ?? '');
+
   /// The bearer token of [id]; empty when none is set.
   String mcpTokenOf(String id) => _mcpTokens[id] ?? '';
 
@@ -1051,6 +1089,10 @@ class SettingsStore extends ChangeNotifier {
         store._mcpTokens[server.id] =
             await store._secure.read(key: server.tokenRef) ?? '';
       }
+      for (final secret in store._value.shellSecrets) {
+        if (secret.fromMcp) continue;
+        store._shellSecretValues[secret.name] = await store._secure.read(key: _shellSecretRef(secret.name)) ?? '';
+      }
       if (legacy.isNotEmpty &&
           store.mcpTokenOf('default').isEmpty &&
           store._value.mcpServers.any((s) => s.id == 'default')) {
@@ -1066,6 +1108,7 @@ class SettingsStore extends ChangeNotifier {
       store._token = '';
       store._searchKeys.clear();
       store._mcpTokens.clear();
+      store._shellSecretValues.clear();
     }
     return store;
   }
@@ -1074,6 +1117,47 @@ class SettingsStore extends ChangeNotifier {
     _value = change(_value);
     notifyListeners();
     await _prefs.setString(_key, jsonEncode(_value.toJson()));
+  }
+
+  /// Adds or replaces a secret commands may be given. [value] is kept in the secure storage (for this
+  /// run only when the system has none); for a secret that is an MCP server's token it is not used.
+  Future<void> setShellSecret(ShellSecret secret, String value) async {
+    await update((s) => s.copyWith(shellSecrets: [
+          for (final existing in s.shellSecrets)
+            if (existing.name != secret.name) existing,
+          secret,
+        ]));
+    if (secret.fromMcp) {
+      await _forgetShellSecretValue(secret.name);
+      return;
+    }
+    _shellSecretValues[secret.name] = value.trim();
+    notifyListeners();
+    try {
+      if (value.trim().isEmpty) {
+        await _secure.delete(key: _shellSecretRef(secret.name));
+      } else {
+        await _secure.write(key: _shellSecretRef(secret.name), value: value.trim());
+      }
+    } catch (_) {
+      // kept for this run only when the system keyring is missing
+    }
+  }
+
+  /// Takes a secret away: from the list and from the secure storage.
+  Future<void> removeShellSecret(String name) async {
+    await update((s) => s.copyWith(shellSecrets: [for (final e in s.shellSecrets) if (e.name != name) e]));
+    await _forgetShellSecretValue(name);
+  }
+
+  Future<void> _forgetShellSecretValue(String name) async {
+    _shellSecretValues.remove(name);
+    notifyListeners();
+    try {
+      await _secure.delete(key: _shellSecretRef(name));
+    } catch (_) {
+      // already gone
+    }
   }
 
   Future<void> setMcpToken(String id, String token) async {

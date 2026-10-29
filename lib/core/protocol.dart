@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'plan_graph.dart';
 import 'settings_spec.dart';
+import 'shell_secrets.dart';
 
 /// A tool the model may call. [parameters] is a JSON Schema object; the same schema is shown
 /// to the model in the system prompt and compiled to GBNF on the native side, so the two
@@ -164,6 +165,19 @@ class McpCall extends ToolCall {
 
   final String name;
   final Map<String, Object?> arguments;
+
+  /// The call a server's tool gets when the model went through `mcp_call` (the on-demand way: the
+  /// tool's own definition was not in the request). Everything after the parse (the approval card, the
+  /// list of tools that are not asked about again, the run) then sees the real tool, not the wrapper.
+  /// Only an MCP server's tool can be reached this way (`mcp_<server>__<tool>`): never the app's own
+  /// tools (`run_command`, `update_settings` ...). Any other call is returned as it is.
+  McpCall get unwrapped {
+    if (name != Protocol.mcpCallName) return this;
+    final tool = arguments['tool'];
+    if (tool is! String || !Protocol.isServerTool(tool)) return this;
+    final inner = arguments['arguments'];
+    return McpCall(tool, inner is Map ? inner.cast<String, Object?>() : const {});
+  }
 }
 
 sealed class ParseResult {
@@ -184,7 +198,7 @@ class ParseInvalid extends ParseResult {
 abstract final class Protocol {
   /// Bumped whenever a tool schema changes. Stored with each generation so a regeneration
   /// can tell whether it runs under the same protocol as the original.
-  static const schemaVersion = 6;
+  static const schemaVersion = 7;
 
   static final askUser = ToolDefinition(
     name: 'ask_user',
@@ -383,7 +397,9 @@ abstract final class Protocol {
         'command installs the environment (about 30 MB, a few minutes) if the user has not done it '
         'yet. A command that stays inside the environment (/workspace and the container root file '
         'system) runs at once, without waiting for the user; one that reaches the device outside it is '
-        'shown for approval first. Set auto_execute: false to ask first even inside.',
+        'shown for approval first. Set auto_execute: false to ask first even inside. To give the command a '
+        'stored secret as an environment variable, list its name in secrets; the user then approves '
+        'that command every time, and you never see the value.',
     parameters: _objectSchema(
       required: ['command'],
       properties: {
@@ -391,9 +407,49 @@ abstract final class Protocol {
         'cwd': {'type': 'string'},
         'timeout_seconds': {'type': 'integer'},
         'auto_execute': {'type': 'boolean'},
+        'secrets': {
+          'type': 'array',
+          'items': {'type': 'string'},
+        },
       },
     ),
   );
+
+  /// The three tools that stand for every MCP server's tools when their definitions would be too big
+  /// to send each time: look for a tool, read its definition, call it.
+  static const mcpFindName = 'mcp_find';
+  static const mcpDescribeName = 'mcp_describe';
+  static const mcpCallName = 'mcp_call';
+
+  static final mcpFindParameters = _objectSchema(
+    required: [],
+    properties: {
+      'query': {'type': 'string'},
+      'server': {'type': 'string'},
+    },
+  );
+
+  static final mcpDescribeParameters = _objectSchema(
+    required: ['tool'],
+    properties: {
+      'tool': {'type': 'string'},
+    },
+  );
+
+  static final mcpCallParameters = _objectSchema(
+    required: ['tool'],
+    properties: {
+      'tool': {'type': 'string'},
+      'arguments': {'type': 'object'},
+    },
+  );
+
+  /// Whether [name] is `mcp_<server>__<tool>`: a tool of an MCP server (not the on-demand tools above).
+  static bool isServerTool(String name) {
+    if (!name.startsWith('mcp_')) return false;
+    final at = name.indexOf('__', 4);
+    return at > 4 && at + 2 < name.length;
+  }
 
   /// GitHub Actions, read only: what the CI of a branch did, and which steps of one run failed.
   /// The GitHub MCP server the app talks to offers no Actions tools, so this reads the REST API.
@@ -517,7 +573,9 @@ abstract final class ToolApproval {
       final cwd = '${call.arguments['cwd'] ?? '/workspace'}'.trim();
       final seconds = call.arguments['timeout_seconds'];
       final limit = seconds is num ? '・最大 ${seconds.toInt()} 秒' : '';
-      return 'このコマンドを実行します。$reason\n\$ $command\n場所: $cwd$limit';
+      final names = ShellSecrets.names(call.arguments['secrets']) ?? const <String>[];
+      final secrets = names.isEmpty ? '' : '\n秘密を渡します: ${names.join('、')}（このコマンドは、これらの値を読めます。送り先は制限できません）';
+      return 'このコマンドを実行します。$reason\n\$ $command\n場所: $cwd$limit$secrets';
     }
     final b = StringBuffer('この道具を実行します：${label(call.name)}$reason');
     for (final entry in call.arguments.entries) {

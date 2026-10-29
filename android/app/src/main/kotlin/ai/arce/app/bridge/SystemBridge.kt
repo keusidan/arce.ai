@@ -118,6 +118,7 @@ class SystemBridge(private val context: Context, messenger: BinaryMessenger) : M
                         maxOutputChars = (call.argument<Number>("maxOutputChars")?.toInt() ?: 20000).coerceIn(500, 1000000),
                         workspaceLimitBytes = call.argument<Number>("workspaceLimitBytes")?.toLong() ?: 0L,
                         noSeccomp = call.argument<Boolean>("noSeccomp") == true,
+                        secrets = call.argument<Map<String, String>>("secrets").orEmpty(),
                     )
                     offMain(result) { linux.run(params) }
                 }

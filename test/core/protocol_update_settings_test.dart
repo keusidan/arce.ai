@@ -81,8 +81,9 @@ void main() {
   });
 
   test('プロトコルの版が上がっている', () {
-    // 5: run_command and ci_status joined the tools (0.12.0)
-    expect(Protocol.schemaVersion, 6);
+    // 5: run_command and ci_status joined the tools (0.12.0); 6: delegate got ids and depends_on (0.12.4);
+    // 7: run_command takes secrets and mcp_find / mcp_describe / mcp_call exist (0.12.8)
+    expect(Protocol.schemaVersion, 7);
   });
 
   test('既存の道具はそのまま動く', () {

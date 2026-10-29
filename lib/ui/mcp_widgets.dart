@@ -64,6 +64,7 @@ class McpSection extends StatelessWidget {
                   style: ts(context, 9, color: context.c.muted, height: 1.5),
                 ),
               ),
+              _OnDemand(app: app),
               if (app.settings.value.approvedTools.isNotEmpty) _ApprovedTools(app: app),
             ],
           ),
@@ -128,6 +129,10 @@ class _ServerRow extends StatelessWidget {
       ),
     );
     await app.settings.forgetMcpToken(server.id);
+    // a secret whose value was this server's token has nothing to read any more
+    for (final secret in app.settings.value.shellSecrets.where((s) => s.mcpServerId == server.id).toList()) {
+      await app.settings.removeShellSecret(secret.name);
+    }
     app.showToast('削除しました');
   }
 
@@ -434,6 +439,49 @@ class _ApprovedTools extends StatelessWidget {
               ),
             ]),
           ),
+      ]),
+    );
+  }
+}
+
+/// How the MCP tools reach the model: every definition in every request, or three small tools that
+/// look a tool up when it is needed (so a server with dozens of tools does not fill the context).
+class _OnDemand extends StatelessWidget {
+  const _OnDemand({required this.app});
+
+  final AppController app;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final s = app.settings.value;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text('道具が多いときは、探して呼ぶ', style: ts(context, 11, weight: FontWeight.w700))),
+          ArceSwitch(value: s.mcpOnDemand, onChanged: (v) => app.settings.update((x) => x.copyWith(mcpOnDemand: v))),
+        ]),
+        Padding(
+          padding: const EdgeInsets.only(top: 3, bottom: 6),
+          child: Text(
+            'MCP の道具の定義が合わせて ${s.mcpOnDemandTokens == 0 ? '0' : '約 ${s.mcpOnDemandTokens}'} トークンを超えるとき、毎回の送信に定義を載せず、'
+            'モデルに mcp_find（探す）・mcp_describe（定義を読む）・mcp_call（呼ぶ）の 3 つだけを渡します。'
+            'モデルは、必要になった道具をそのとき探して呼びます（送る文が小さくなります）。'
+            '書き込みの確認と「次から確認しない」は、呼んだ道具そのものに効きます。'
+            '小さなモデルは、探してから呼ぶ手順を守れないことがあります。そのときはオフにしてください。',
+            style: ts(context, 9, color: c.muted, height: 1.5),
+          ),
+        ),
+        Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          Text('この大きさを超えたら', style: ts(context, 10, color: c.muted)),
+          for (final v in const [0, 1000, 2000, 5000, 10000])
+            ChoiceChip(
+              label: Text(v == 0 ? '常に' : '$v'),
+              selected: s.mcpOnDemandTokens == v,
+              onSelected: (_) => app.settings.update((x) => x.copyWith(mcpOnDemandTokens: v)),
+            ),
+        ]),
       ]),
     );
   }

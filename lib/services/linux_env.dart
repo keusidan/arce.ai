@@ -204,6 +204,7 @@ class LinuxBridge {
     required int maxOutputChars,
     required int workspaceLimitBytes,
     required bool noSeccomp,
+    Map<String, String> secrets = const {},
   }) async =>
       _map(await _channel.invokeMethod<Map<Object?, Object?>>('linuxRun', {
         'command': command,
@@ -212,6 +213,7 @@ class LinuxBridge {
         'maxOutputChars': maxOutputChars,
         'workspaceLimitBytes': workspaceLimitBytes,
         'noSeccomp': noSeccomp,
+        'secrets': secrets,
       }));
 
   Future<void> remove() => _channel.invokeMethod<void>('linuxRemove');
@@ -389,6 +391,7 @@ class LinuxEnvironment extends ChangeNotifier {
     required String cwd,
     required int timeoutSeconds,
     required int maxOutputChars,
+    Map<String, String> secrets = const {},
   }) async {
     if (!ready) throw StateError('Linux 環境がまだ使えません。設定から入れてください。');
     final outcome = ShellOutcome.fromMap(await _bridge.run(
@@ -398,6 +401,7 @@ class LinuxEnvironment extends ChangeNotifier {
       maxOutputChars: maxOutputChars,
       workspaceLimitBytes: config.workspaceLimitBytes,
       noSeccomp: config.compatMode,
+      secrets: secrets,
     ));
     final previous = _status;
     if (previous != null) {

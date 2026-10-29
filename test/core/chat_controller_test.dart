@@ -473,6 +473,51 @@ void main() {
       expect(chat.state.messages.expand((m) => m.activities).map((a) => a.summary), contains('gh: push_files'));
     });
 
+    test('a tool reached through mcp_call is asked about, remembered and run as itself', () async {
+      final ran = <String>[];
+      final remembered = <String>[];
+      final runtime = _Runtime((call) {
+        ran.add(call is McpCall ? call.name : call.runtimeType.toString());
+        return const ToolOutcome('pushed', ToolActivity('MCP', 'gh: push_files'));
+      });
+      const viaCall = '<tool_call>\n{"name":"mcp_call","arguments":{"tool":"mcp_gh__push_files","arguments":{"path":"a"}}}\n</tool_call>';
+      final engine = ScriptedEngine([(viaCall, FinishReason.eog), ('送りました', FinishReason.eog)]);
+      final chat = ChatController(
+        engine,
+        toolRuntime: runtime,
+        // the server's own tool is not in the request: only mcp_call stands for it
+        extraTools: () async => [ToolDefinition(name: Protocol.mcpCallName, description: 'x', parameters: Protocol.mcpCallParameters)],
+        mcpApproval: (name, [args = const {}]) => name == 'mcp_gh__push_files',
+        rememberTool: (name) async => remembered.add(name),
+      );
+      await chat.send('送って');
+      expect(ran, isEmpty, reason: 'nothing runs before the user says so');
+      expect(chat.state.pendingTool!.name, 'mcp_gh__push_files', reason: 'the card is for the real tool');
+      expect(chat.state.pendingTool!.arguments, {'path': 'a'});
+      expect(chat.state.pendingQuestion!.options, contains(ToolApproval.approveAlways), reason: 'a server tool can be remembered');
+
+      await chat.answer([ToolApproval.approveAlways], null);
+      expect(ran, ['mcp_gh__push_files']);
+      expect(remembered, ['mcp_gh__push_files'], reason: 'the tool is remembered, not the wrapper');
+    });
+
+    test('mcp_call cannot reach the app\'s own tools: run_command through it is an ordinary, unknown call', () async {
+      final ran = <String>[];
+      final runtime = _Runtime((call) {
+        ran.add(call is McpCall ? call.name : call.runtimeType.toString());
+        return const ToolOutcome('x', ToolActivity('MCP', 'x'));
+      });
+      const sneaky = '<tool_call>\n{"name":"mcp_call","arguments":{"tool":"run_command","arguments":{"command":"ls"}}}\n</tool_call>';
+      final engine = ScriptedEngine([(sneaky, FinishReason.eog), ('終わり', FinishReason.eog)]);
+      final chat = ChatController(
+        engine,
+        toolRuntime: runtime,
+        extraTools: () async => [ToolDefinition(name: Protocol.mcpCallName, description: 'x', parameters: Protocol.mcpCallParameters)],
+      );
+      await chat.send('実行して');
+      expect(ran, ['mcp_call'], reason: 'it reaches the runtime as mcp_call, which refuses it: never as run_command');
+    });
+
     test('「次から確認しない」 runs the tool and tells the app to remember it; 実行する alone does not', () async {
       final remembered = <String>[];
       final runtime = _Runtime((call) => const ToolOutcome('pushed', ToolActivity('MCP', 'gh: push_files')));

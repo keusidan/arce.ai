@@ -50,6 +50,7 @@ class FakeBridge extends LinuxBridge {
     required int maxOutputChars,
     required int workspaceLimitBytes,
     required bool noSeccomp,
+    Map<String, String> secrets = const {},
   }) async {
     calls.add('run');
     lastRun = {
@@ -59,6 +60,7 @@ class FakeBridge extends LinuxBridge {
       'maxOutputChars': maxOutputChars,
       'workspaceLimitBytes': workspaceLimitBytes,
       'noSeccomp': noSeccomp,
+      'secrets': secrets,
     };
     return runAnswer;
   }
@@ -188,6 +190,7 @@ void main() {
       'maxOutputChars': 4000,
       'workspaceLimitBytes': 100 * 1024 * 1024,
       'noSeccomp': true,
+      'secrets': <String, String>{},
     });
     expect(outcome.ok, isTrue);
     expect(outcome.describe(), allOf(contains('exit: 0'), contains('stdout:\nok'), contains('所要: 1.5秒')));

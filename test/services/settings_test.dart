@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/settings_spec.dart';
 import 'package:arce_ai/core/search.dart';
+import 'package:arce_ai/core/shell_secrets.dart';
 import 'package:arce_ai/mcp/mcp_server.dart';
 import 'package:arce_ai/services/settings.dart';
 import 'package:flutter/material.dart';
@@ -131,6 +132,44 @@ void main() {
     }
     expect(const AppSettings().shellConfirmAfterExternal, isTrue, reason: 'on by default');
     expect(AppSettings.fromJson(const AppSettings(shellConfirmAfterExternal: false).toJson()).shellConfirmAfterExternal, isFalse);
+  });
+
+  test('the secrets a command may be given are kept as names only, bad names are dropped, and a chat message cannot change them', () {
+    final saved = const AppSettings(shellSecrets: [
+      ShellSecret(name: 'GITHUB_TOKEN', mcpServerId: 'github'),
+      ShellSecret(name: 'NPM_TOKEN'),
+    ]).toJson();
+    expect(jsonEncode(saved), isNot(contains('ghp_')), reason: 'there is no value in the settings');
+    final back = AppSettings.fromJson(saved).shellSecrets;
+    expect([for (final s in back) (s.name, s.mcpServerId)], [('GITHUB_TOKEN', 'github'), ('NPM_TOKEN', '')]);
+    final odd = AppSettings.fromJson({
+      'shellSecrets': [
+        {'name': 'HOME'},
+        {'name': 'OK_ONE'},
+        'text',
+        {'nothing': 1},
+      ],
+    }).shellSecrets;
+    expect([for (final s in odd) s.name], ['OK_ONE']);
+    expect(AppSettings.fromJson(const {'shellSecrets': 'x'}).shellSecrets, isEmpty);
+    expect(AgentSettings.isEditable('shellSecrets'), isFalse);
+    expect(AgentSettings.blocked, contains('shellSecrets'));
+  });
+
+  test('MCP on demand, the notifications and the summary of long conversations are settings, with defaults and ranges', () {
+    const d = AppSettings();
+    expect((d.mcpOnDemand, d.mcpOnDemandTokens), (true, 2000));
+    expect((d.notifyNeedsYou, d.notifyDone, d.notifyFailed, d.notifyOnlyAway), (true, true, true, true));
+    expect((d.compactEnabled, d.compactAtPercent, d.compactKeepTurns), (true, 80, 4));
+    for (final key in ['mcpOnDemand', 'mcpOnDemandTokens', 'notifyNeedsYou', 'notifyDone', 'notifyFailed', 'notifyOnlyAway', 'compactEnabled', 'compactAtPercent', 'compactKeepTurns', 'compactSummaryChars', 'compactToolResultChars']) {
+      expect(AgentSettings.isEditable(key), isTrue, reason: '$key can be changed from the chat');
+      expect(d.toJson().containsKey(key), isTrue, reason: '$key is saved');
+    }
+    final wild = const AppSettings(compactAtPercent: 5, compactKeepTurns: 0, compactSummaryChars: 1, compactToolResultChars: 1).toGeneration(null).compaction;
+    expect((wild.atPercent, wild.keepTurns, wild.summaryChars, wild.toolResultChars), (30, 1, 300, 200));
+    final huge = const AppSettings(compactAtPercent: 500, compactKeepTurns: 999, compactSummaryChars: 99999999, compactToolResultChars: 99999999).toGeneration(null).compaction;
+    expect((huge.atPercent, huge.keepTurns, huge.summaryChars, huge.toolResultChars), (95, 30, 20000, 50000));
+    expect(AppSettings.fromJson(const AppSettings(compactEnabled: false, mcpOnDemand: false).toJson()).compactEnabled, isFalse);
   });
 
   test('the preview page limit is a setting, kept inside its range', () {

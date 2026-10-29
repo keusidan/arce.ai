@@ -1092,7 +1092,9 @@ class ChatController extends ChangeNotifier {
       final parsed = result.toolCallJson == null
           ? null
           : ToolCallParser.parse(result.toolCallJson!, tools);
-      final call = parsed is ParseOk ? parsed.call : null;
+      // a call that went through mcp_call is the server's own tool from here on: the card, the memory of
+      // tools that are not asked about again and the run all see the real tool
+      final call = parsed is ParseOk ? (parsed.call is McpCall ? (parsed.call as McpCall).unwrapped : parsed.call) : null;
       if (unusableReason != null) {
         unusableCalls++;
         // the broken call is not kept in the history (a provider would be sent JSON it cannot read);

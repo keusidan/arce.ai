@@ -323,6 +323,7 @@ class AppController extends ChangeNotifier {
     providers,
     _http,
     _httpPost,
+    () => _mcpTools,
   );
 
   /// Applies the settings the user approved in the chat (protocol `update_settings`). The reply
@@ -458,7 +459,18 @@ class AppController extends ChangeNotifier {
     ciToken: _ciToken,
     approved: settings.value.approvedTools.toSet(),
     shell: _shellSettings,
+    secrets: _shellSecretValues(),
+    onDemand: settings.value.mcpOnDemand,
+    onDemandTokens: settings.value.mcpOnDemandTokens,
+    resultMaxChars: settings.value.mcpResultMaxChars,
   );
+
+  /// The secrets a command may be given, name -> value; one without a value is left out (it cannot be
+  /// given, and the model is not told it exists).
+  Map<String, String> _shellSecretValues() => {
+        for (final secret in settings.value.shellSecrets)
+          if (settings.shellSecretValue(secret).isNotEmpty) secret.name: settings.shellSecretValue(secret),
+      };
 
   /// The user answered an approval with 「この道具は次から確認しない」: the tool is added to the list in
   /// the settings (where it can be taken out again).
@@ -1251,49 +1263,20 @@ class PromptTokens {
 
 /// Tools read the settings at call time, so a changed SearXNG address or search switch applies at once.
 class _SettingsToolRuntime implements ToolRuntime {
-  _SettingsToolRuntime(this._settings, this._providers, this._http, this._httpPost);
+  _SettingsToolRuntime(this._settings, this._providers, this._http, this._httpPost, this._mcp);
 
   final SettingsStore _settings;
   final ProviderStore _providers;
   final HttpGet _http;
   final HttpPost _httpPost;
 
+  /// The MCP tools and the app's own (`run_command`, `ci_status`), built from the current settings: the
+  /// same object the chat asks for definitions and approvals, so what runs is what was shown.
+  final McpTools Function() _mcp;
+
   @override
   Future<ToolOutcome> run(call) {
-    if (call is McpCall) {
-      final servers = [
-        for (final server in _settings.value.mcpServers)
-          if (server.enabled &&
-              (server.url.trim().startsWith('http://') ||
-                  server.url.trim().startsWith('https://')))
-            McpServerClient(
-              server,
-              McpClient(
-                url: server.url.trim(),
-                token: _settings.mcpTokenOf(server.id),
-                timeout: Duration(seconds: _settings.value.mcpTimeoutSeconds.clamp(5, 600)),
-                maxResultChars: _settings.value.mcpResultMaxChars,
-              ),
-            ),
-      ];
-      final s0 = _settings.value;
-      return McpTools(
-        servers,
-        shell: ShellSettings(
-          enabled: s0.shellEnabled,
-          confirm: s0.shellConfirm,
-          timeoutSeconds: s0.shellTimeoutSeconds,
-          maxTimeoutSeconds: s0.shellMaxTimeoutSeconds,
-          maxOutputChars: s0.shellMaxOutputChars,
-          workspaceLimitMb: s0.workspaceLimitMb,
-          rootfsUrl: s0.linuxRootfsUrl,
-          rootfsSha256: s0.linuxRootfsSha256,
-          dns: s0.linuxDns,
-          compatMode: s0.shellCompatMode,
-          downloadConnections: s0.downloadConnections,
-        ),
-      ).run(call);
-    }
+    if (call is McpCall) return _mcp().run(call);
     final s = _settings.value;
     final providers = <SearchProvider>[
       if (s.searxngUrl.trim().isNotEmpty)

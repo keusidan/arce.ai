@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../ai/token_budget.dart';
 import '../core/protocol.dart';
+import '../core/shell_secrets.dart';
 import '../core/tool_runtime.dart';
 import '../services/ci_client.dart';
 import '../services/linux_env.dart';
@@ -94,7 +95,19 @@ class McpTools {
     this.ciToken = '',
     this.approved = const {},
     this.shell = ShellSettings.defaults,
-  }) : _cache = cache ?? {};
+    this.secrets = const {},
+    this.onDemand = false,
+    this.onDemandTokens = 2000,
+    this.resultMaxChars = 15000,
+    LinuxEnvironment? environment,
+    bool? shellSupported,
+  })  : _cache = cache ?? {},
+        _environment = environment ?? shellEnvironment,
+        _shellSupported = shellSupported ?? LinuxEnvironment.supported;
+
+  /// The environment commands run in, and whether this system has one (a test says so for itself).
+  final LinuxEnvironment _environment;
+  final bool _shellSupported;
 
   final List<McpServerClient> _servers;
   final Map<String, List<McpTool>> _cache;
@@ -105,6 +118,20 @@ class McpTools {
 
   /// What `run_command` may do (the Linux environment's settings).
   final ShellSettings shell;
+
+  /// The secrets a command may be given: the name it sees -> the value (only those the user set and
+  /// has a value for). The model is told the names; a value never leaves here except into the one
+  /// command the user approved, and is taken out of what that command printed.
+  final Map<String, String> secrets;
+
+  /// Offer `mcp_find` / `mcp_describe` / `mcp_call` instead of every server's tools when those
+  /// definitions would be bigger than [onDemandTokens] (0: always): the model looks a tool up when it
+  /// needs one, and the request stays small.
+  final bool onDemand;
+  final int onDemandTokens;
+
+  /// How long what `mcp_find` and `mcp_describe` answer may be, in characters.
+  final int resultMaxChars;
 
   static const prefix = 'mcp_';
   static const separator = '__';
@@ -144,7 +171,9 @@ class McpTools {
     // B (docs 19.5, 2026-10-29): a command that stays inside the sandbox (/workspace and the
     // Ubuntu rootfs) runs without asking; only one that reaches the device outside it asks.
     if (name == Protocol.runCommandName) {
-      if (!shell.enabled || !LinuxEnvironment.supported) return false;
+      if (!shell.enabled || !_shellSupported) return false;
+      // a command that is given a secret is approved every time, whatever it does: it can send it anywhere
+      if ((ShellSecrets.names(arguments['secrets']) ?? const ['?']).isNotEmpty) return true;
       if (shell.confirm) return true;
       return !SandboxPolicy.isInsideSandbox(McpCall(name, arguments));
     }
@@ -178,15 +207,22 @@ class McpTools {
     }
   }
 
-  /// The tools of all reachable servers in the app's own form.
+  /// The tools of all reachable servers in the app's own form. When they are too big to send each
+  /// time (see [onDemand]), the three tools that look them up and call them stand in for them.
   Future<List<ToolDefinition>> definitions() async {
     final out = <ToolDefinition>[
-      if (shell.enabled && LinuxEnvironment.supported) _runCommandFor(shell),
+      if (shell.enabled && _shellSupported) _runCommandFor(shell, secrets.keys.toList()),
       Protocol.ciStatus,
     ];
+    final reachable = <(McpServerClient, List<McpTool>)>[];
     for (final server in _servers) {
       final tools = await _toolsOf(server);
-      if (tools == null) continue;
+      if (tools != null) reachable.add((server, tools));
+    }
+    final total = TokenBudget.estimate(_definitionText([for (final (_, tools) in reachable) ...tools]));
+    final lazy = onDemand && reachable.any((r) => r.$2.isNotEmpty) && (onDemandTokens <= 0 || total > onDemandTokens);
+    if (lazy) return [...out, ..._onDemandTools(reachable)];
+    for (final (server, tools) in reachable) {
       for (final tool in tools) {
         out.add(
           ToolDefinition(
@@ -200,6 +236,37 @@ class McpTools {
       }
     }
     return out;
+  }
+
+  /// `mcp_find`, `mcp_describe` and `mcp_call`, with the servers written into the first one's description
+  /// (the model cannot look up what exists unless it is told that something does).
+  List<ToolDefinition> _onDemandTools(List<(McpServerClient, List<McpTool>)> reachable) {
+    final servers = [
+      for (final (server, tools) in reachable)
+        '${server.config.id} (${server.config.name}, ${tools.length} tools)',
+    ].join('; ');
+    return [
+      ToolDefinition(
+        name: Protocol.mcpFindName,
+        description: 'Look for a tool of the MCP servers that are connected: $servers. Without query it lists every '
+            'tool with a short description; with query, only the tools whose name or description contains it '
+            '(case does not matter); server limits it to one server by its id. The tools are not described '
+            'in this request: find one here, read its definition with mcp_describe, then call it with mcp_call.',
+        parameters: Protocol.mcpFindParameters,
+      ),
+      ToolDefinition(
+        name: Protocol.mcpDescribeName,
+        description: 'The full description and parameters of one MCP tool, by the name mcp_find gave. '
+            'Read it before the first call to a tool.',
+        parameters: Protocol.mcpDescribeParameters,
+      ),
+      ToolDefinition(
+        name: Protocol.mcpCallName,
+        description: 'Call an MCP tool by the name mcp_find gave, with arguments as its definition says. A tool that '
+            'changes something outside the device is shown to the user for approval first.',
+        parameters: Protocol.mcpCallParameters,
+      ),
+    ];
   }
 
   /// Human-readable list for the settings screen, for one server.
@@ -228,7 +295,16 @@ class McpTools {
 
   Future<ToolOutcome> run(McpCall call) async {
     if (call.name == Protocol.ciStatusName) return _runCiStatus(call.arguments);
-    if (call.name == Protocol.runCommandName && LinuxEnvironment.supported) {
+    if (call.name == Protocol.mcpFindName) return _find(call.arguments);
+    if (call.name == Protocol.mcpDescribeName) return _describeTool(call.arguments);
+    if (call.name == Protocol.mcpCallName) {
+      // the chat turns a good mcp_call into the server's own call before it gets here
+      return const ToolOutcome(
+        'mcp_call needs "tool": the full name of an MCP tool, as mcp_find lists it (mcp_<server>__<tool>).',
+        ToolActivity('MCP', 'mcp_call の道具名が読めませんでした', failed: true),
+      );
+    }
+    if (call.name == Protocol.runCommandName && _shellSupported) {
       return _runShell(call.arguments);
     }
     final parsed = parseName(call.name);
@@ -256,6 +332,79 @@ class McpTools {
         ),
       );
     }
+  }
+
+  // ---------------------------------------------------------------- on demand
+
+  static String _firstLine(String text, int max) {
+    final line = text.trim().split('\n').first.trim();
+    return line.length <= max ? line : '${line.substring(0, max - 1)}…';
+  }
+
+  String _cut(String text) => text.length <= resultMaxChars
+      ? text
+      : '${text.substring(0, resultMaxChars)}\n[… ${text.length - resultMaxChars} characters left out]';
+
+  /// `mcp_find`: the tools that match, as lines of `name: description`.
+  Future<ToolOutcome> _find(Map<String, Object?> arguments) async {
+    final query = '${arguments['query'] ?? ''}'.trim().toLowerCase();
+    final only = '${arguments['server'] ?? ''}'.trim();
+    final lines = <String>[];
+    var total = 0;
+    final unreachable = <String>[];
+    for (final server in _servers) {
+      if (only.isNotEmpty && server.config.id != only) continue;
+      final tools = await _toolsOf(server);
+      if (tools == null) {
+        unreachable.add(server.config.name);
+        continue;
+      }
+      for (final tool in tools) {
+        total++;
+        final name = toolName(server.config.id, tool.name);
+        if (query.isNotEmpty && !'${tool.name} ${tool.description}'.toLowerCase().contains(query)) continue;
+        final about = _firstLine(tool.description, 140);
+        lines.add(about.isEmpty ? name : '$name: $about');
+      }
+    }
+    final head = '${lines.length} of $total tools${query.isEmpty ? '' : ' match "$query"'}'
+        '${unreachable.isEmpty ? '' : '. Not reachable: ${unreachable.join(', ')}'}';
+    if (lines.isEmpty) {
+      return ToolOutcome(
+        '$head. Try another word, or call mcp_find without query to list everything.',
+        ToolActivity('MCP', '道具を探しました（${query.isEmpty ? 'すべて' : query}）: 該当なし'),
+      );
+    }
+    return ToolOutcome(
+      _cut('$head:\n${lines.join('\n')}'),
+      ToolActivity('MCP', '道具を探しました（${query.isEmpty ? 'すべて' : query}）: ${lines.length} 件'),
+    );
+  }
+
+  /// `mcp_describe`: one tool's description and parameters.
+  Future<ToolOutcome> _describeTool(Map<String, Object?> arguments) async {
+    final name = '${arguments['tool'] ?? ''}'.trim();
+    final parsed = parseName(name);
+    final server = parsed == null ? null : _serverById(parsed.$1);
+    if (parsed == null || server == null) {
+      return ToolOutcome(
+        'No such tool: "$name". Use the name as mcp_find lists it (mcp_<server>__<tool>).',
+        ToolActivity('MCP', '道具が見つかりません: $name', failed: true),
+      );
+    }
+    final tools = await _toolsOf(server);
+    McpTool? tool;
+    for (final candidate in tools ?? const <McpTool>[]) {
+      if (candidate.name == parsed.$2) tool = candidate;
+    }
+    if (tool == null) {
+      return ToolOutcome(
+        tools == null ? 'The server ${server.config.name} cannot be reached.' : 'No such tool: "$name".',
+        ToolActivity('MCP', '道具が見つかりません: $name', failed: true),
+      );
+    }
+    final text = 'name: $name\n${tool.description.trim()}\nparameters (JSON Schema): ${jsonEncode(tool.parameters)}';
+    return ToolOutcome(_cut(text), ToolActivity('MCP', '定義を読みました: ${tool.name}'));
   }
 
   // ---------------------------------------------------------------- ci_status
@@ -311,7 +460,7 @@ class McpTools {
 
   /// The tool, with what the settings allow written into its description: the model cannot look
   /// the limits up, so they are said here (docs 19.5, item 4).
-  static ToolDefinition _runCommandFor(ShellSettings s) => ToolDefinition(
+  static ToolDefinition _runCommandFor(ShellSettings s, List<String> secretNames) => ToolDefinition(
     name: Protocol.runCommandName,
     description:
         'Run one shell command in the Linux environment (Ubuntu 24.04, arm64) that lives inside this '
@@ -323,7 +472,8 @@ class McpTools {
         'the command is stopped after ${s.timeoutSeconds} seconds by default or when it runs longer '
         'than timeout_seconds (at most ${s.maxTimeoutSeconds}), or when it fills the workspace. '
         'The first command installs the environment (about 30 MB, a few minutes) if the user has not '
-        'done it yet.${s.confirm ? ' The user approves every command first.' : ''}',
+        'done it yet.${s.confirm ? ' The user approves every command first.' : ''}'
+        '${secretNames.isEmpty ? '' : ' Stored secrets you may ask for, by name, in secrets (the command then gets each as an environment variable of that name, the user approves that command every time, and you never see the value): ${secretNames.join(', ')}.'}',
     parameters: Protocol.runCommand.parameters,
   );
 
@@ -348,22 +498,42 @@ class McpTools {
     final asked = wanted is num ? wanted.toInt() : shell.timeoutSeconds;
     final seconds = asked.clamp(1, shell.maxTimeoutSeconds).toInt();
     final config = shell.config;
+    // the secrets this command asked for: only names the user made available, and each must have a value
+    final askedSecrets = ShellSecrets.names(arguments['secrets']);
+    if (askedSecrets == null) {
+      return const ToolOutcome(
+        '"secrets" must be a list of names.',
+        ToolActivity('Shell', 'secrets の形が違います', failed: true),
+      );
+    }
+    final unknown = [for (final name in askedSecrets) if (!secrets.containsKey(name)) name];
+    if (unknown.isNotEmpty) {
+      return ToolOutcome(
+        'No secret is available under the name ${unknown.join(', ')}. '
+        '${secrets.isEmpty ? 'The user has made none available.' : 'Available: ${secrets.keys.join(', ')}.'} '
+        'Nothing was run.',
+        ToolActivity('Shell', '使えない秘密: ${unknown.join(', ')}', failed: true),
+      );
+    }
+    final given = {for (final name in askedSecrets) name: secrets[name]!};
     try {
       // the first command installs the environment; the user approved this call already
-      if (!shellEnvironment.ready) {
-        await shellEnvironment.refresh(config);
-        if (!shellEnvironment.ready) await shellEnvironment.install(config);
+      if (!_environment.ready) {
+        await _environment.refresh(config);
+        if (!_environment.ready) await _environment.install(config);
       }
-      final outcome = await shellEnvironment.run(
+      final outcome = await _environment.run(
         config: config,
         command: command,
         cwd: cwd,
         timeoutSeconds: seconds,
         maxOutputChars: shell.maxOutputChars,
+        secrets: given,
       );
+      // a command that printed its environment must not hand the value to the model
       return ToolOutcome(
-        outcome.describe(),
-        ToolActivity('Shell', '\$ $command', failed: !outcome.ok),
+        ShellSecrets.redact(outcome.describe(), given),
+        ToolActivity('Shell', '\$ $command${given.isEmpty ? '' : '  （秘密: ${given.keys.join(', ')}）'}', failed: !outcome.ok),
       );
     } catch (e) {
       return ToolOutcome(

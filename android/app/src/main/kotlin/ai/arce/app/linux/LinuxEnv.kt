@@ -107,7 +107,7 @@ class LinuxEnv(
     }
 
     /** The proot command line for [command] (an `sh -c` string), run in [cwd] inside the root file system. */
-    internal fun prootCommand(command: String, cwd: String): List<String> = listOf(
+    internal fun prootCommand(command: String, cwd: String, secrets: Map<String, String> = emptyMap()): List<String> = listOf(
         proot.path,
         "--kill-on-exit",
         "--link2symlink",
@@ -124,6 +124,9 @@ class LinuxEnv(
         "TERM=dumb",
         "TMPDIR=/tmp",
         "SHELL=/bin/bash",
+        // secrets the user approved for this command: `env -i` clears everything else, so they are named here
+        // (and only here: no file, no log). The names were checked by the caller.
+        *secrets.map { (name, value) -> "$name=$value" }.toTypedArray(),
         "/bin/bash", "-c", command,
     )
 
@@ -133,6 +136,8 @@ class LinuxEnv(
         val timeoutSeconds: Int,
         val maxOutputChars: Int,
         val workspaceLimitBytes: Long,
+        /** Environment variables for this one command (name -> value); see [validSecretName]. */
+        val secrets: Map<String, String> = emptyMap(),
         /** Starts proot without its seccomp filter (some devices refuse it). */
         val noSeccomp: Boolean,
         val watchEveryMs: Long = 2000,
@@ -144,6 +149,10 @@ class LinuxEnv(
         if (!proot.isFile || !loader.isFile) throw IOException("this app has no proot")
         require(params.cwd.startsWith("/") && !params.cwd.contains('\n') && !params.cwd.contains('\u0000')) { "cwd must be an absolute path" }
         require(!params.command.contains('\u0000')) { "the command has a NUL character" }
+        for ((name, value) in params.secrets) {
+            require(validSecretName(name)) { "not a usable name for a secret: $name" }
+            require(!value.contains('\u0000')) { "a secret has a NUL character" }
+        }
         synchronized(lock) {
             workspace.mkdirs()
             workspaceHome().mkdirs()
@@ -154,7 +163,7 @@ class LinuxEnv(
             val limit = params.workspaceLimitBytes
             val result = ShellRunner().run(
                 ShellRunner.Request(
-                    command = prootCommand(params.command, params.cwd),
+                    command = prootCommand(params.command, params.cwd, params.secrets),
                     env = env,
                     timeoutMs = params.timeoutSeconds * 1000L,
                     maxOutputBytes = params.maxOutputChars * 3,
@@ -183,6 +192,16 @@ class LinuxEnv(
     }
 
     companion object {
+        private val SECRET_NAME = Regex("[A-Za-z_][A-Za-z0-9_]{0,63}")
+
+        /** Names the app sets itself, or that change how a program is loaded: a secret may not take them. */
+        private val RESERVED = setOf(
+            "HOME", "PATH", "LANG", "TERM", "TMPDIR", "SHELL", "USER", "PWD",
+            "PROOT_LOADER", "PROOT_TMP_DIR", "PROOT_NO_SECCOMP", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "ENV",
+        )
+
+        fun validSecretName(name: String): Boolean = SECRET_NAME.matches(name) && name.uppercase() !in RESERVED
+
         fun sha256Of(file: File): String {
             val digest = MessageDigest.getInstance("SHA-256")
             file.inputStream().buffered(1 shl 16).use { input ->
