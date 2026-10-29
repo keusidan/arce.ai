@@ -489,30 +489,66 @@ abstract final class ProviderApproval {
 /// every `run_command` (a command can do anything the app itself can).
 abstract final class ToolApproval {
   static const approve = '実行する';
+
+  /// Runs it, and does not ask again for this tool (settings: 確認しない道具). Not offered for a
+  /// command: what a command does depends on the command, not on the tool.
+  static const approveAlways = '実行する（この道具は次から確認しない）';
   static const reject = 'やめる';
 
-  static QuestionTile tile(McpCall call) => QuestionTile(
-    title: _title(call),
-    options: const [approve, reject],
+  /// The card for [call]. [note] says why it asks when that is not obvious (a command asks after
+  /// the model has read something from outside); [rememberable] adds [approveAlways].
+  static QuestionTile tile(McpCall call, {String note = '', bool rememberable = false}) => QuestionTile(
+    title: _title(call, note),
+    options: [approve, if (rememberable && canRemember(call.name)) approveAlways, reject],
     allowFreeInput: false,
     multiSelect: false,
   );
 
+  /// Only an MCP tool can be remembered (`mcp_server__tool`): a command always asks when it asks.
+  static bool canRemember(String name) => name != Protocol.runCommandName && name.startsWith('mcp_');
+
   /// A command is shown as it is (`$ command`), with where and for how long: the model's words
-  /// about it are not what the user approves. Everything else keeps the name and the arguments.
-  static String _title(McpCall call) {
+  /// about it are not what the user approves. Another tool is shown by its name (server and tool)
+  /// and its arguments one to a line, a long value cut with its size, never as a dumped map.
+  static String _title(McpCall call, String note) {
+    final reason = note.isEmpty ? '' : '\n（$note）';
     if (call.name == Protocol.runCommandName) {
       final command = '${call.arguments['command'] ?? ''}'.trim();
       final cwd = '${call.arguments['cwd'] ?? '/workspace'}'.trim();
       final seconds = call.arguments['timeout_seconds'];
       final limit = seconds is num ? '・最大 ${seconds.toInt()} 秒' : '';
-      return 'このコマンドを実行します。\n\$ $command\n場所: $cwd$limit';
+      return 'このコマンドを実行します。$reason\n\$ $command\n場所: $cwd$limit';
     }
-    return 'この道具を実行します。${call.name}\n'
-        '${call.arguments.isEmpty ? '' : call.arguments.toString()}';
+    final b = StringBuffer('この道具を実行します：${label(call.name)}$reason');
+    for (final entry in call.arguments.entries) {
+      b
+        ..writeln()
+        ..write('${entry.key}: ${summarize(entry.value)}');
+    }
+    return b.toString();
   }
 
-  static bool isApproval(List<String> selected) => selected.contains(approve);
+  /// `mcp_github__create_or_update_file` -> `github · create_or_update_file`.
+  static String label(String name) {
+    final at = name.lastIndexOf('__');
+    if (!name.startsWith('mcp_') || at < 0) return name;
+    return '${name.substring(4, at)} · ${name.substring(at + 2)}';
+  }
+
+  /// A value for the card: short ones whole, a long text cut at [maxChars] with how long it was, a
+  /// list or an object as JSON cut the same way.
+  static String summarize(Object? value, {int maxChars = 240}) {
+    final text = value is String ? value : jsonEncode(value);
+    final flat = text.replaceAll(RegExp(r'\s*\n\s*'), ' ⏎ ').trim();
+    if (flat.length <= maxChars) return flat;
+    final lines = text.split('\n').length;
+    return '${flat.substring(0, maxChars)}…（全部で ${text.length} 文字${lines > 1 ? '・$lines 行' : ''}）';
+  }
+
+  static bool isApproval(List<String> selected) => selected.contains(approve) || selected.contains(approveAlways);
+
+  /// The user asked not to be asked about this tool again.
+  static bool isAlways(List<String> selected) => selected.contains(approveAlways);
 
   /// The words of a tool name that mean it changes something outside the device (create, delete,
   /// submit, start ...). A tool name is read word by word, whatever its style (`create_or_update_file`,
@@ -551,6 +587,16 @@ abstract final class SandboxPolicy {
     r'''(?:^|[\s'"`=:/])(?:/sdcard(?:/|$)|/storage/(?:emulated|self)(?:/|$)|/data/(?:data|user|app)(?:/|$)|/system/(?:bin|xbin|app|priv-app)(?:/|$)|/vendor(?:/|$)|/apex(?:/|$))''',
   );
 
+  /// proot translates paths; it does not close the real file system. A process reaches the device
+  /// through the proc entries of itself or of another process (`/proc/self/root`, `/proc/<pid>/cwd`,
+  /// `/proc/self/exe`, its memory and environment), and through the file descriptors it holds. These
+  /// are the doors a command can name; one that does is not "inside the sandbox". (A command that
+  /// builds the name out of variables is not caught: proot is not a boundary, and what stops that is
+  /// the question the app asks after the model has read something from outside, docs 15.4.)
+  static final _procDoors = RegExp(
+    r'''proc/(?:self|thread-self|\d+|\$\$|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\(.*?\))/(?:root|cwd|exe|mem|environ|map_files|fd|fdinfo|task)\b''',
+  );
+
   static const _forbiddenCwdPrefixes = [
     '/sdcard',
     '/storage',
@@ -578,6 +624,7 @@ abstract final class SandboxPolicy {
     final command = '${call.arguments['command'] ?? ''}'.trim();
     if (command.isEmpty) return false;
     if (_hostPaths.hasMatch(command)) return false;
+    if (_procDoors.hasMatch(command) || _procDoors.hasMatch(rawCwd)) return false;
     return true;
   }
 

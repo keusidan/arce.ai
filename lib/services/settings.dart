@@ -8,6 +8,7 @@ import '../core/attachments.dart';
 import '../core/chat_controller.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
+import '../core/protocol.dart' show ToolApproval;
 import '../core/search.dart';
 import '../core/settings_spec.dart';
 import '../mcp/mcp_server.dart';
@@ -69,6 +70,7 @@ class AppSettings {
     this.codingDeveloperMaxTokens = 0,
     this.codingResultChars = 12000,
     this.attachMaxFiles = 5,
+    this.previewMaxPages = 50,
     this.attachCharsPerFile = 8000,
     this.attachTotalChars = 16000,
     this.attachImageMb = 4,
@@ -107,6 +109,8 @@ class AppSettings {
     this.fetchModelInfoFromHub = true,
     this.shellEnabled = true,
     this.shellConfirm = false,
+    this.shellConfirmAfterExternal = true,
+    this.approvedTools = const [],
     this.shellTimeoutSeconds = 120,
     this.shellMaxTimeoutSeconds = 600,
     this.shellMaxOutputChars = 20000,
@@ -206,6 +210,9 @@ class AppSettings {
 
   /// How much of the attached files reaches the model (see `AttachmentPolicy`).
   final int attachMaxFiles;
+
+  /// How many generated pages the local preview server keeps (the oldest goes).
+  final int previewMaxPages;
   final int attachCharsPerFile;
   final int attachTotalChars;
 
@@ -326,6 +333,14 @@ class AppSettings {
   /// one that reaches the device outside it is shown. Not changeable from a chat message.
   final bool shellConfirm;
 
+  /// A command asks first once the model has read something from outside (a search result, an MCP
+  /// tool's answer), even when it stays inside the environment: that text may say "now run ...".
+  final bool shellConfirmAfterExternal;
+
+  /// MCP tools (`mcp_server__tool`) the user chose not to be asked about again (the approval card's
+  /// 「この道具は次から確認しない」). Not reachable from the chat: a message must not switch off a question.
+  final List<String> approvedTools;
+
   /// Seconds a command may run by default (the model may ask for up to [shellMaxTimeoutSeconds]).
   final int shellTimeoutSeconds;
 
@@ -432,6 +447,7 @@ class AppSettings {
     int? codingDeveloperMaxTokens,
     int? codingResultChars,
     int? attachMaxFiles,
+    int? previewMaxPages,
     int? attachCharsPerFile,
     int? attachTotalChars,
     int? attachImageMb,
@@ -470,6 +486,8 @@ class AppSettings {
     bool? fetchModelInfoFromHub,
     bool? shellEnabled,
     bool? shellConfirm,
+    bool? shellConfirmAfterExternal,
+    List<String>? approvedTools,
     int? shellTimeoutSeconds,
     int? shellMaxTimeoutSeconds,
     int? shellMaxOutputChars,
@@ -527,6 +545,7 @@ class AppSettings {
     codingDeveloperMaxTokens: codingDeveloperMaxTokens ?? this.codingDeveloperMaxTokens,
     codingResultChars: codingResultChars ?? this.codingResultChars,
     attachMaxFiles: attachMaxFiles ?? this.attachMaxFiles,
+    previewMaxPages: previewMaxPages ?? this.previewMaxPages,
     attachCharsPerFile: attachCharsPerFile ?? this.attachCharsPerFile,
     attachTotalChars: attachTotalChars ?? this.attachTotalChars,
     attachImageMb: attachImageMb ?? this.attachImageMb,
@@ -565,6 +584,8 @@ class AppSettings {
     fetchModelInfoFromHub: fetchModelInfoFromHub ?? this.fetchModelInfoFromHub,
     shellEnabled: shellEnabled ?? this.shellEnabled,
     shellConfirm: shellConfirm ?? this.shellConfirm,
+    shellConfirmAfterExternal: shellConfirmAfterExternal ?? this.shellConfirmAfterExternal,
+    approvedTools: approvedTools ?? this.approvedTools,
     shellTimeoutSeconds: shellTimeoutSeconds ?? this.shellTimeoutSeconds,
     shellMaxTimeoutSeconds: shellMaxTimeoutSeconds ?? this.shellMaxTimeoutSeconds,
     shellMaxOutputChars: shellMaxOutputChars ?? this.shellMaxOutputChars,
@@ -624,6 +645,7 @@ class AppSettings {
     'codingDeveloperMaxTokens': codingDeveloperMaxTokens,
     'codingResultChars': codingResultChars,
     'attachMaxFiles': attachMaxFiles,
+    'previewMaxPages': previewMaxPages,
     'attachCharsPerFile': attachCharsPerFile,
     'attachTotalChars': attachTotalChars,
     'attachImageMb': attachImageMb,
@@ -663,6 +685,8 @@ class AppSettings {
     'shellEnabled': shellEnabled,
     'shellConfirm': shellConfirm,
     'shellConfirmAlways': shellConfirm,
+    'shellConfirmAfterExternal': shellConfirmAfterExternal,
+    'approvedTools': approvedTools,
     'shellTimeoutSeconds': shellTimeoutSeconds,
     'shellMaxTimeoutSeconds': shellMaxTimeoutSeconds,
     'shellMaxOutputChars': shellMaxOutputChars,
@@ -751,6 +775,7 @@ class AppSettings {
           : whole('codingDeveloperMaxTokens', d.codingDeveloperMaxTokens),
       codingResultChars: whole('codingResultChars', d.codingResultChars),
       attachMaxFiles: whole('attachMaxFiles', d.attachMaxFiles),
+      previewMaxPages: whole('previewMaxPages', d.previewMaxPages).clamp(1, 500),
       attachCharsPerFile: whole('attachCharsPerFile', d.attachCharsPerFile),
       attachTotalChars: whole('attachTotalChars', d.attachTotalChars),
       attachImageMb: whole('attachImageMb', d.attachImageMb),
@@ -801,6 +826,12 @@ class AppSettings {
       linuxRootfsSha256: text('linuxRootfsSha256', d.linuxRootfsSha256),
       linuxDns: text('linuxDns', d.linuxDns),
       shellCompatMode: flag('shellCompatMode', d.shellCompatMode),
+      shellConfirmAfterExternal: flag('shellConfirmAfterExternal', d.shellConfirmAfterExternal),
+      approvedTools: [
+        if (json['approvedTools'] is List)
+          for (final t in json['approvedTools'] as List)
+            if (t is String && ToolApproval.canRemember(t)) t,
+      ],
       searchApis: SearchApis.decode(json['searchApis']),
       // a save from before multiple servers keeps its one endpoint
       mcpServers: (() {

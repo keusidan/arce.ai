@@ -15,6 +15,7 @@ import '../ai/provider.dart';
 import '../ai/provider_config.dart';
 import '../ai/roles.dart';
 import '../ai/routing_engine.dart';
+import '../ai/token_budget.dart';
 import '../ai/titles.dart';
 import '../core/agents.dart';
 import '../core/error_report.dart';
@@ -125,6 +126,8 @@ class AppController extends ChangeNotifier {
       applySettings: _applySettings,
       addProvider: _addProvider,
       mcpApproval: _mcpApprovalRequired,
+      rememberTool: _rememberTool,
+      confirmAfterExternal: () => settings.value.shellConfirmAfterExternal,
     )..setThinking(settings.value.thinking);
     session.chat.addListener(_syncForeground);
     return session;
@@ -440,8 +443,32 @@ class AppController extends ChangeNotifier {
     _mcpServerClients(),
     cache: _mcpCache,
     ciToken: _ciToken,
+    approved: settings.value.approvedTools.toSet(),
     shell: _shellSettings,
   );
+
+  /// The user answered an approval with 「この道具は次から確認しない」: the tool is added to the list in
+  /// the settings (where it can be taken out again).
+  Future<void> _rememberTool(String name) async {
+    if (!ToolApproval.canRemember(name)) return;
+    final current = settings.value.approvedTools;
+    if (current.contains(name)) return;
+    await settings.update((s) => s.copyWith(approvedTools: [...s.approvedTools, name]));
+  }
+
+  /// How many tokens the next request would be, with [draft] as the message: the app's instructions,
+  /// the tool definitions (every MCP server's too), the conversation and the draft. An estimate
+  /// ([TokenBudget.estimate]); the context is the model's own when it is known.
+  Future<PromptTokens> promptTokens(String draft) async {
+    final parts = await chat.current.promptParts(draft);
+    return PromptTokens(
+      system: TokenBudget.estimate(parts.system),
+      tools: TokenBudget.estimate(parts.tools),
+      conversation: TokenBudget.estimate(parts.conversation),
+      draft: TokenBudget.estimate(parts.draft),
+      context: engine.isCloud ? providers.activeModel?.contextTokens : null,
+    );
+  }
 
   /// The tools of every MCP server, added to the ones the agent already has.
   Future<List<ToolDefinition>> _mcpDefinitions() => _mcpTools.definitions();
@@ -697,6 +724,7 @@ class AppController extends ChangeNotifier {
     cloud.onFallback = _announceFallback;
     cloud.tokenPrecheck = s.tokenPrecheck;
     cloud.overheadRatio = s.tokenOverheadPercent / 100;
+    preview.maxPages = s.previewMaxPages;
   }
 
   void _announceFallback(AiProvider from, AiProvider to, String reason) {
@@ -1159,6 +1187,24 @@ class _NoProvider implements AiProvider {
   @override
   Future<void> verify() async =>
       throw const AiProviderException('プロバイダが設定されていません');
+}
+
+/// What [AppController.promptTokens] says: the tokens of each part of the next request.
+class PromptTokens {
+  const PromptTokens({required this.system, required this.tools, required this.conversation, required this.draft, this.context});
+
+  final int system;
+  final int tools;
+  final int conversation;
+  final int draft;
+
+  /// The model's context window, or null when it is not known.
+  final int? context;
+
+  int get total => system + tools + conversation + draft;
+
+  /// How much of the context the request takes, or null when the context is not known.
+  double? get ratio => context == null || context! <= 0 ? null : total / context!;
 }
 
 /// Tools read the settings at call time, so a changed SearXNG address or search switch applies at once.

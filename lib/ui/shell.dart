@@ -96,8 +96,6 @@ class _NarrowLayout extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   EnginePill(app: app, compact: true),
-                  const SizedBox(width: 7),
-                  IconTap(svg: ArceSvg.settings, tooltip: '設定', onTap: () => app.goTo(AppPage.settings)),
                 ]),
               ),
               SizedBox(
@@ -262,8 +260,6 @@ class _WideLayout extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(child: ThreadTitle(app: app)),
               EnginePill(app: app),
-              const SizedBox(width: 8),
-              IconTap(svg: ArceSvg.settings, tooltip: '設定', onTap: () => app.goTo(AppPage.settings)),
             ]),
           ),
           UpdateBanner(onOpen: () => app.openSettings(SettingsSection.update)),

@@ -1,3 +1,4 @@
+import 'package:arce_ai/core/protocol.dart';
 import 'package:arce_ai/mcp/mcp_client.dart';
 import 'package:arce_ai/mcp/mcp_server.dart';
 import 'package:arce_ai/mcp/mcp_tools.dart';
@@ -40,5 +41,14 @@ void main() {
     final tools = McpTools(servers);
     expect(tools.approvalRequired('mcp_a__push_files'), isTrue);
     expect(tools.approvalRequired('mcp_b__push_files'), isFalse);
+
+    // a tool the user chose not to be asked about again is not asked about; the others still are
+    final remembered = McpTools(servers, approved: {'mcp_a__push_files'});
+    expect(remembered.approvalRequired('mcp_a__push_files'), isFalse);
+    expect(remembered.approvalRequired('mcp_a__delete_file'), isTrue);
+    // a name that cannot be remembered (a command) is not let through by the list
+    expect(ToolApproval.canRemember(Protocol.runCommandName), isFalse);
+    final listed = McpTools(servers, approved: {'web_search', 'mcp_nobody__push_files'});
+    expect(listed.approvalRequired('mcp_a__push_files'), isTrue, reason: 'only the tool named in the list is let through');
   });
 }

@@ -10,6 +10,7 @@ import 'package:arce_ai/services/app_controller.dart';
 import 'package:arce_ai/services/settings.dart';
 import 'package:arce_ai/services/update_service.dart';
 import 'package:arce_ai/app.dart';
+import 'package:arce_ai/ui/chat_widgets.dart' show PromptTokenLine;
 import 'package:arce_ai/ui/provider_widgets.dart';
 import 'package:arce_ai/ui/theme.dart';
 import 'package:arce_ai/ui/widgets.dart';
@@ -850,5 +851,89 @@ void main() {
     await tester.tap(find.byTooltip('サイドバーを開閉'));
     await tester.pump();
     expect(find.text('ダークモード'), findsOneWidget);
+  });
+
+  testWidgets('under the input: the size of the next request in tokens, with what is typed counted, and the model\'s context when it is known', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await app.providers.save(const ProviderConfig(
+      id: 'p',
+      label: 'P',
+      baseUrl: 'https://example.com/v1',
+      models: [ModelConfig(id: 'm', name: 'm', contextTokens: 8000)],
+    ));
+    await app.providers.setActive('p');
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+
+    String? line() {
+      final f = find.byKey(const ValueKey('prompt-tokens'));
+      return f.evaluate().isEmpty ? null : tester.widget<Text>(f).data;
+    }
+
+    expect(line(), isNotNull);
+    expect(line(), allOf(startsWith('約 '), contains('トークン（会話 0・入力 0・'), contains('／文脈 8,000（')));
+    final empty = RegExp(r'約 ([\d,]+)').firstMatch(line()!)!.group(1)!.replaceAll(',', '');
+
+    await tester.enterText(find.byType(TextField).first, 'あ' * 600);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    final typed = RegExp(r'約 ([\d,]+)').firstMatch(line()!)!.group(1)!.replaceAll(',', '');
+    expect(int.parse(typed), greaterThan(int.parse(empty) + 400), reason: 'what is typed is in the count before it is sent');
+    expect(line(), isNot(contains('入力 0')));
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  test('the token line is written the way it is read: grouped digits, the parts, and the context when it is known', () {
+    expect(PromptTokenLine.group(1234567), '1,234,567');
+    expect(PromptTokenLine.group(12), '12');
+    expect(
+      PromptTokenLine.describe(const PromptTokens(system: 1500, tools: 2500, conversation: 8000, draft: 340, context: 131072)),
+      '約 12,340 トークン（会話 8,000・入力 340・指示 1,500・道具 2,500）／文脈 131,072（9%）',
+    );
+    expect(PromptTokenLine.describe(const PromptTokens(system: 1, tools: 2, conversation: 3, draft: 4)), '約 10 トークン（会話 3・入力 4・指示 1・道具 2）');
+    expect(const PromptTokens(system: 50, tools: 0, conversation: 0, draft: 0, context: 100).ratio, .5);
+    expect(const PromptTokens(system: 50, tools: 0, conversation: 0, draft: 0).ratio, isNull);
+  });
+
+  testWidgets('the header has no settings icon (the bar below, or the sidebar, already has 設定)', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+    expect(find.byTooltip('設定'), findsNothing);
+    expect(find.text('設定'), findsWidgets, reason: 'the bottom bar still opens it');
+    await tester.tap(find.text('設定').last);
+    await tester.pumpAndSettle();
+    expect(app.page, AppPage.settings);
+
+    setSize(tester, const Size(1280, 800));
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+    expect(find.byTooltip('設定'), findsNothing);
+    expect(find.text('設定'), findsWidgets, reason: 'the sidebar still has it');
+  });
+
+  testWidgets('settings: the tools that are not asked about again are listed, and one can be taken out', (tester) async {
+    setSize(tester, const Size(411, 1200));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.openSettings(SettingsSection.mcp);
+    await tester.pumpAndSettle();
+    expect(find.text('確認しない道具'), findsNothing, reason: 'nothing is remembered yet');
+
+    await app.settings.update((x) => x.copyWith(approvedTools: ['mcp_github__push_files', 'mcp_kaggle__SubmitToCompetition']));
+    await tester.pumpAndSettle();
+    expect(find.text('確認しない道具'), findsOneWidget);
+    expect(find.text('github · push_files'), findsOneWidget);
+    expect(find.text('kaggle · SubmitToCompetition'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('外す（また確認する）').first);
+    await tester.pumpAndSettle();
+    expect(app.settings.value.approvedTools, ['mcp_kaggle__SubmitToCompetition']);
+    expect(find.text('github · push_files'), findsNothing);
   });
 }

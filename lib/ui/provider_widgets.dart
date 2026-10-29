@@ -431,6 +431,7 @@ class _ProviderEditorState extends State<_ProviderEditor> {
             const SizedBox(height: 12),
             _field('名前', _label, '例: OpenAI / Groq / 自宅の Ollama'),
             _field('Base URL', _baseUrl, 'https://api.openai.com/v1'),
+            ListenableBuilder(listenable: _baseUrl, builder: (context, _) => ClearTextWarning(url: _baseUrl.text, what: 'APIキー')),
             _field('APIキー', _key, 'sk-…（端末の安全な領域に保存します）', obscure: true),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,

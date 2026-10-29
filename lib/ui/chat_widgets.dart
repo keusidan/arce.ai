@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +12,7 @@ import '../core/chat_controller.dart';
 import '../core/generation.dart';
 import '../core/markdown_lite.dart';
 import '../core/protocol.dart';
+import '../core/safe_url.dart';
 import '../core/run_progress.dart';
 import '../core/tool_runtime.dart';
 import '../services/app_controller.dart';
@@ -27,7 +30,13 @@ Future<void> copyToClipboard(BuildContext context, String text) async {
   app?.showToast('コピーしました');
 }
 
-Future<void> openUrl(String url) => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+/// Opens a link in the browser. Only web addresses: a link in a reply comes from a model or a search
+/// result, and another scheme (intent:, tel:, file: ...) would start another app. False when refused.
+Future<bool> openUrl(String url) async {
+  final uri = safeWebUri(url);
+  if (uri == null) return false;
+  return launchUrl(uri, mode: LaunchMode.externalApplication);
+}
 
 /// Opens an HTML artifact in the system browser through the local preview server.
 Future<void> previewHtml(BuildContext context, String html) async {
@@ -818,6 +827,234 @@ class _QuestionCardState extends State<QuestionCard> {
   void _submit() {
     if (_picked.isEmpty && _free.text.trim().isEmpty) return;
     widget.onAnswer(_picked.toList(), _free.text);
+  }
+}
+
+/// The size of the next request in tokens, under the input box: what is typed counts too, so a long
+/// paste shows its cost before it is sent. "約 12,340 トークン（会話 8,000・入力 340・指示 1,500・道具 2,500）／
+/// 文脈 131,072（9%）"; amber when it takes most of the context, red when it does not fit. An estimate
+/// (a third of the UTF-8 bytes), meant to show the size and the trend, not the exact bill.
+class PromptTokenLine extends StatefulWidget {
+  const PromptTokenLine({super.key, required this.app, required this.draft, this.delay = const Duration(milliseconds: 350)});
+
+  final AppController app;
+
+  /// What would be sent: the typed text with the attachments' text.
+  final ValueListenable<String> draft;
+
+  /// How long the typing must pause before the count is made again.
+  final Duration delay;
+
+  /// "12,340"
+  static String group(int n) => n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+
+  /// The line for [t]: the total, the parts, and the context when it is known.
+  static String describe(PromptTokens t) {
+    final parts = '会話 ${group(t.conversation)}・入力 ${group(t.draft)}・指示 ${group(t.system)}・道具 ${group(t.tools)}';
+    final context = t.context;
+    final ratio = t.ratio;
+    final tail = context == null || ratio == null ? '' : '／文脈 ${group(context)}（${(ratio * 100).round()}%）';
+    return '約 ${group(t.total)} トークン（$parts）$tail';
+  }
+
+  @override
+  State<PromptTokenLine> createState() => _PromptTokenLineState();
+}
+
+class _PromptTokenLineState extends State<PromptTokenLine> {
+  PromptTokens? _tokens;
+  Timer? _wait;
+  var _generation = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.draft.addListener(_schedule);
+    widget.app.chat.addListener(_schedule);
+    widget.app.settings.addListener(_schedule);
+    _schedule();
+  }
+
+  @override
+  void dispose() {
+    _wait?.cancel();
+    widget.draft.removeListener(_schedule);
+    widget.app.chat.removeListener(_schedule);
+    widget.app.settings.removeListener(_schedule);
+    super.dispose();
+  }
+
+  void _schedule() {
+    _wait?.cancel();
+    _wait = Timer(widget.delay, _count);
+  }
+
+  Future<void> _count() async {
+    final mine = ++_generation;
+    try {
+      final tokens = await widget.app.promptTokens(widget.draft.value);
+      if (mounted && mine == _generation) setState(() => _tokens = tokens);
+    } catch (_) {
+      // a count that cannot be made (a tool list that does not answer) leaves the last one
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final t = _tokens;
+    if (t == null) return const SizedBox(height: 14);
+    final ratio = t.ratio;
+    final color = ratio == null
+        ? c.muted
+        : ratio >= 1
+            ? c.red
+            : ratio >= .8
+                ? c.amber
+                : c.muted;
+    return SizedBox(
+      height: 14,
+      child: Center(
+        child: Text(
+          PromptTokenLine.describe(t),
+          key: const ValueKey('prompt-tokens'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: ts(context, 9, color: color),
+        ),
+      ),
+    );
+  }
+}
+
+/// The question before a tool runs: what it is (the command as it is, or the tool and its arguments one to
+/// a line, a long value folded with its size and a button that opens all of it), why it asks when that
+/// is not obvious, and three buttons: run it, run it and do not ask again about this tool, and stop. It
+/// replaces the plain question card for a tool call, whose text used to be a dumped map. The buttons
+/// answer at once and only once.
+class ToolApprovalCard extends StatefulWidget {
+  const ToolApprovalCard({super.key, required this.call, required this.tile, required this.onAnswer});
+
+  final McpCall call;
+  final QuestionTile tile;
+  final void Function(List<String> selected, String? freeText) onAnswer;
+
+  @override
+  State<ToolApprovalCard> createState() => _ToolApprovalCardState();
+}
+
+class _ToolApprovalCardState extends State<ToolApprovalCard> {
+  /// The button that was pressed; every button is dead after that (a second press used to run the tool twice).
+  String? _answered;
+  final _open = <String>{};
+
+  bool get _sent => _answered != null;
+
+  void _answer(String option) {
+    if (_sent) return;
+    setState(() => _answered = option);
+    widget.onAnswer([option], null);
+  }
+
+  String _full(Object? value) => value is String ? value : const JsonEncoder.withIndent('  ').convert(value);
+
+  Widget _box(BuildContext context, String text, {double maxHeight = 220}) {
+    final c = context.c;
+    return Container(
+      width: double.infinity,
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      padding: const EdgeInsets.all(9),
+      decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(9), border: Border.all(color: c.line)),
+      child: SingleChildScrollView(child: SelectableText(text, style: ts(context, 11.5, height: 1.5, family: 'monospace', color: c.ink))),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final call = widget.call;
+    final shell = call.name == Protocol.runCommandName;
+    final lines = widget.tile.title.split('\n');
+    final note = lines.length > 1 && lines[1].startsWith('（') ? lines[1] : '';
+    final body = <Widget>[];
+    if (shell) {
+      final cwd = '${call.arguments['cwd'] ?? '/workspace'}';
+      final seconds = call.arguments['timeout_seconds'];
+      body
+        ..add(_box(context, '\$ ${call.arguments['command'] ?? ''}'))
+        ..add(Padding(
+          padding: const EdgeInsets.only(top: 5),
+          child: Text('場所: $cwd${seconds is num ? '・最大 ${seconds.toInt()} 秒' : ''}', style: ts(context, 10.5, color: c.muted)),
+        ));
+    } else {
+      for (final entry in call.arguments.entries) {
+        final value = entry.value;
+        final full = _full(value);
+        final long = full.length > 240;
+        final open = _open.contains(entry.key);
+        body.add(Padding(
+          padding: const EdgeInsets.only(bottom: 7),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(entry.key, style: ts(context, 10, weight: FontWeight.w700, color: c.muted)),
+            const SizedBox(height: 2),
+            if (open)
+              _box(context, full, maxHeight: 260)
+            else
+              Text(ToolApproval.summarize(value), style: ts(context, 12, height: 1.45, family: long ? 'monospace' : null)),
+            if (long)
+              InkWell(
+                onTap: () => setState(() => open ? _open.remove(entry.key) : _open.add(entry.key)),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Text(open ? '閉じる' : '全文を見る（${full.length} 文字）', style: ts(context, 10.5, color: c.accent, weight: FontWeight.w600)),
+                ),
+              ),
+          ]),
+        ));
+      }
+      if (call.arguments.isEmpty) body.add(Text('（引数なし）', style: ts(context, 11, color: c.muted)));
+    }
+    return Container(
+      key: const ValueKey('tool-approval'),
+      margin: const EdgeInsets.fromLTRB(0, 4, 0, 4),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.accent.withValues(alpha: .5)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          ArceIcon(ArceSvg.alert, size: 16, color: c.amber),
+          const SizedBox(width: 7),
+          Expanded(child: Text(shell ? 'このコマンドを実行しますか？' : 'この道具を実行しますか？', style: ts(context, 13, weight: FontWeight.w700))),
+        ]),
+        if (!shell)
+          Padding(
+            padding: const EdgeInsets.only(top: 5, bottom: 8),
+            child: Text(ToolApproval.label(call.name), style: ts(context, 12.5, weight: FontWeight.w700, color: c.accent)),
+          )
+        else
+          const SizedBox(height: 8),
+        if (note.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(note.substring(1, note.length - 1), style: ts(context, 10.5, color: c.amber, height: 1.5)),
+          ),
+        ...body,
+        const SizedBox(height: 4),
+        Wrap(spacing: 7, runSpacing: 7, children: [
+          for (final option in widget.tile.options)
+            if (option == ToolApproval.approve)
+              PrimaryButton(
+                label: _answered == ToolApproval.approve || _answered == ToolApproval.approveAlways ? '実行しています…' : option,
+                onTap: _sent ? null : () => _answer(option),
+              )
+            else
+              SoftButton(label: option, onTap: _sent ? null : () => _answer(option)),
+        ]),
+      ]),
+    );
   }
 }
 

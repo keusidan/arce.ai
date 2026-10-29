@@ -401,6 +401,12 @@ class _SettingsPageState extends State<SettingsPage> {
                     trailing: ArceSwitch(value: s.shellConfirm, onChanged: (v) => set((x) => x.copyWith(shellConfirm: v))),
                   ),
                   SettingRow(
+                    icon: ArceSvg.alert,
+                    title: '検索や外部ツールの結果を読んだあとは、コマンドを確認する',
+                    subtitle: 'オン（既定）：検索結果や MCP の答えは、他人が書いた文章かもしれません（「この命令を実行して」と書かれていることがあります）。それを読んだあとの会話では、サンドボックス内のコマンドも確認します',
+                    trailing: ArceSwitch(value: s.shellConfirmAfterExternal, onChanged: (v) => set((x) => x.copyWith(shellConfirmAfterExternal: v))),
+                  ),
+                  SettingRow(
                     icon: ArceSvg.clock,
                     title: 'コマンドのタイムアウト',
                     subtitle: 'モデルが時間を指定しなかったときに使う秒数',
@@ -749,6 +755,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           cycle(ArceSvg.paperclip, '添付できるファイルの数', '1回のメッセージに付けられる数', s.attachMaxFiles, const [1, 3, 5, 10, 20],
               (x, v) => x.copyWith(attachMaxFiles: v)),
+          cycle(ArceSvg.eye, 'ブラウザで開く試作ページを残す数', '生成した HTML をブラウザで開く入口（アドレスは推測できない）。これを超えると古いものから消えます', s.previewMaxPages, const [10, 25, 50, 100, 200],
+              (x, v) => x.copyWith(previewMaxPages: v)),
           cycle(ArceSvg.file, '添付1ファイルから読む文字数', 'これを超えた分は省略されます', s.attachCharsPerFile, const [2000, 4000, 8000, 16000, 32000],
               (x, v) => x.copyWith(attachCharsPerFile: v)),
           cycle(ArceSvg.file, '添付全体で読む文字数', 'コンテキストを使い切らないための上限', s.attachTotalChars, const [8000, 16000, 32000, 64000, 128000],

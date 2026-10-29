@@ -92,6 +92,7 @@ class McpTools {
     this._servers, {
     Map<String, List<McpTool>>? cache,
     this.ciToken = '',
+    this.approved = const {},
     this.shell = ShellSettings.defaults,
   }) : _cache = cache ?? {};
 
@@ -133,6 +134,9 @@ class McpTools {
   static bool needsApproval(String name, [Map<String, Object?> arguments = const {}]) =>
       ToolApproval.needsApproval(name, arguments);
 
+  /// Tools the user chose not to be asked about again (only MCP tools can be: see [ToolApproval.canRemember]).
+  final Set<String> approved;
+
   /// Whether [name] needs an approval card, following the server's own setting as well.
   bool approvalRequired(String name, [Map<String, Object?> arguments = const {}]) {
     // ci_status only reads GitHub: nothing to approve
@@ -148,6 +152,7 @@ class McpTools {
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
     if (server == null) return false;
+    if (approved.contains(name) && ToolApproval.canRemember(name)) return false;
     return server.config.approveWrites && needsApproval(name, arguments);
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../core/safe_url.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 
@@ -396,4 +397,28 @@ double sheetBottomPadding(BuildContext context) {
   final media = MediaQuery.of(context);
   final inset = media.viewInsets.bottom > media.viewPadding.bottom ? media.viewInsets.bottom : media.viewPadding.bottom;
   return inset + 16;
+}
+
+/// Under an address field: a warning when a key or token sent there would travel unencrypted (`http://`
+/// to a host outside the house). Nothing when the address is fine or empty.
+class ClearTextWarning extends StatelessWidget {
+  const ClearTextWarning({super.key, required this.url, required this.what});
+
+  final String url;
+
+  /// What would be sent ("APIキー", "トークン").
+  final String what;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!sendsSecretsInTheClear(url)) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        'このアドレスは暗号化されません（http）。$whatが、途中の通信（カフェの Wi-Fi など）から読まれるおそれがあります。自宅の中のサーバー以外は https にしてください。',
+        key: const ValueKey('clear-text-warning'),
+        style: ts(context, 10, color: context.c.amber, height: 1.5),
+      ),
+    );
+  }
 }

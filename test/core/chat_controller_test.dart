@@ -41,6 +41,19 @@ class ScriptedEngine implements InferenceEngine {
   }
 }
 
+/// Answers like [inner], but only after [until] completes: a tool that takes a while.
+class _SlowRuntime implements ToolRuntime {
+  _SlowRuntime(this.inner, this.until);
+  final ToolRuntime inner;
+  final Future<void> until;
+
+  @override
+  Future<ToolOutcome> run(ToolCall call) async {
+    await until;
+    return inner.run(call);
+  }
+}
+
 class _Runtime implements ToolRuntime {
   _Runtime(this._outcome);
   final ToolOutcome Function(ToolCall) _outcome;
@@ -344,6 +357,165 @@ void main() {
       isEmpty,
       reason: 'the first round never drops out while the second streams',
     );
+  });
+
+  group('the size of the next request', () {
+    test('the parts add up to what is actually sent: instructions, tools, the conversation so far and what is typed', () async {
+      final engine = ScriptedEngine([('はい、Dart です。', FinishReason.eog), ('どうも', FinishReason.eog)]);
+      final tool = ToolDefinition(name: 'mcp_x__list_things', description: 'lists things', parameters: Protocol.runCommand.parameters);
+      final chat = ChatController(engine, extraTools: () async => [tool]);
+      final empty = await chat.promptParts('');
+      expect(empty.conversation, isEmpty);
+      expect(empty.draft, isEmpty);
+      expect(empty.tools, contains('mcp_x__list_things'));
+      expect(empty.system, contains('Rules'));
+
+      await chat.send('Dart でコードを書いて');
+      final parts = await chat.promptParts('ありがとう、次は Python で');
+      expect(parts.conversation, allOf(contains('Dart でコードを書いて'), contains('はい、Dart です。')));
+      expect(parts.draft, contains('ありがとう、次は Python で'));
+      final before = engine.requests.length;
+      await chat.send('ありがとう、次は Python で');
+      final sent = engine.requests.last.prompt;
+      expect(engine.requests.length, before + 1);
+      expect(parts.system.length + parts.tools.length + parts.conversation.length + parts.draft.length, sent.length,
+          reason: 'the estimate is made from the same pieces the request is');
+    });
+
+    test('the agent\'s own tools are counted even when no MCP server adds any; a longer conversation is a bigger conversation part', () async {
+      final engine = ScriptedEngine([('一つ目', FinishReason.eog)]);
+      final chat = ChatController(engine);
+      final first = await chat.promptParts('こんにちは');
+      expect(first.tools, allOf(contains('ask_user'), isNot(contains('mcp_'))));
+      await chat.send('こんにちは');
+      final second = await chat.promptParts('こんにちは');
+      expect(second.conversation.length, greaterThan(first.conversation.length));
+    });
+  });
+
+  group('approval of a tool', () {
+    const search = '<tool_call>\n{"name":"web_search","arguments":{"query":"q"}}\n</tool_call>';
+    const shell = '<tool_call>\n{"name":"run_command","arguments":{"command":"ls","cwd":"/workspace"}}\n</tool_call>';
+    const push = '<tool_call>\n{"name":"mcp_gh__push_files","arguments":{"path":"a"}}\n</tool_call>';
+    final shellTool = ToolDefinition(name: 'run_command', description: 'x', parameters: Protocol.runCommand.parameters);
+    final pushTool = ToolDefinition(name: 'mcp_gh__push_files', description: 'x', parameters: const {'type': 'object', 'properties': {'path': {'type': 'string'}}});
+
+    ChatController make(ScriptedEngine engine, {required ToolRuntime runtime, bool after = true, Future<void> Function(String)? remember}) => ChatController(
+          engine,
+          toolRuntime: runtime,
+          extraTools: () async => [shellTool, pushTool],
+          // the policy of the app: a command inside the environment does not ask; a push does
+          mcpApproval: (name, [args = const {}]) => name == 'mcp_gh__push_files',
+          confirmAfterExternal: () => after,
+          rememberTool: remember,
+        );
+
+    test('a command inside the environment runs without asking, until the model has read something from outside', () async {
+      final ran = <String>[];
+      final runtime = _Runtime((call) {
+        ran.add(call is McpCall ? call.name : call.runtimeType.toString());
+        return const ToolOutcome('ok', ToolActivity('Shell', 'done'));
+      });
+      final quiet = make(ScriptedEngine([(shell, FinishReason.eog), ('終わり', FinishReason.eog)]), runtime: runtime);
+      await quiet.send('ファイルを見て');
+      expect(ran, ['run_command'], reason: 'nothing from outside was read: it just runs');
+      expect(quiet.state.task, TaskState.completed);
+
+      ran.clear();
+      final read = make(ScriptedEngine([(search, FinishReason.eog), (shell, FinishReason.eog)]), runtime: runtime);
+      await read.send('調べて、実行して');
+      expect(ran, ['WebSearch'], reason: 'the search ran; the command waits');
+      expect(read.state.task, TaskState.userWait);
+      expect(read.state.pendingTool!.name, 'run_command');
+      expect(read.state.pendingQuestion!.title, contains('検索や外部ツールの結果を読んだあとなので、確認します'));
+      expect(read.state.pendingQuestion!.options, [ToolApproval.approve, ToolApproval.reject], reason: 'a command cannot be remembered');
+    });
+
+    test('with the setting off, reading from outside changes nothing', () async {
+      final ran = <String>[];
+      final runtime = _Runtime((call) {
+        ran.add(call is McpCall ? call.name : call.runtimeType.toString());
+        return const ToolOutcome('ok', ToolActivity('Shell', 'done'));
+      });
+      final chat = make(ScriptedEngine([(search, FinishReason.eog), (shell, FinishReason.eog), ('終わり', FinishReason.eog)]), runtime: runtime, after: false);
+      await chat.send('調べて、実行して');
+      expect(ran, ['WebSearch', 'run_command']);
+    });
+
+    test('a conversation that is opened again remembers that it holds text from outside', () async {
+      final runtime = _Runtime((call) => const ToolOutcome('ok', ToolActivity('Shell', 'done')));
+      final first = make(ScriptedEngine([(search, FinishReason.eog), ('調べました', FinishReason.eog)]), runtime: runtime);
+      await first.send('調べて');
+      final saved = first.snapshot();
+      final second = make(ScriptedEngine([(shell, FinishReason.eog)]), runtime: runtime)..restore(saved);
+      await second.send('実行して');
+      expect(second.state.task, TaskState.userWait, reason: 'the earlier search result is still in the conversation');
+    });
+
+    test('pressing 実行する shows the work at once, runs the tool, and the model goes on', () async {
+      final gate = Completer<void>();
+      final runtime = _Runtime((call) => const ToolOutcome('pushed', ToolActivity('MCP', 'gh: push_files')));
+      final slow = _SlowRuntime(runtime, gate.future);
+      final engine = ScriptedEngine([(push, FinishReason.eog), ('送りました', FinishReason.eog)]);
+      final chat = make(engine, runtime: slow);
+      await chat.send('送って');
+      expect(chat.state.pendingQuestion, isNotNull);
+
+      final answering = chat.answer([ToolApproval.approve], null);
+      await Future<void>.delayed(Duration.zero);
+      expect(chat.state.pendingQuestion, isNull, reason: 'the card is gone the moment the button is pressed');
+      expect(chat.state.isGenerating, isTrue);
+      expect(chat.state.progress!.stage, 'ツールを実行しています');
+      expect(chat.state.progress!.detail, 'mcp_gh__push_files');
+      gate.complete();
+      await answering;
+      expect(chat.state.messages.last.text, contains('送りました'));
+      expect(chat.state.messages.expand((m) => m.activities).map((a) => a.summary), contains('gh: push_files'));
+    });
+
+    test('「次から確認しない」 runs the tool and tells the app to remember it; 実行する alone does not', () async {
+      final remembered = <String>[];
+      final runtime = _Runtime((call) => const ToolOutcome('pushed', ToolActivity('MCP', 'gh: push_files')));
+      final once = make(ScriptedEngine([(push, FinishReason.eog), ('済', FinishReason.eog)]), runtime: runtime, remember: (n) async => remembered.add(n));
+      await once.send('送って');
+      await once.answer([ToolApproval.approve], null);
+      expect(remembered, isEmpty);
+
+      final always = make(ScriptedEngine([(push, FinishReason.eog), ('済', FinishReason.eog)]), runtime: runtime, remember: (n) async => remembered.add(n));
+      await always.send('送って');
+      expect(always.state.pendingQuestion!.options, contains(ToolApproval.approveAlways));
+      await always.answer([ToolApproval.approveAlways], null);
+      expect(remembered, ['mcp_gh__push_files']);
+      expect(always.state.messages.last.text, contains('済'));
+    });
+
+    test('a tool that throws does not take the chat down: the model is told it failed', () async {
+      final runtime = _Runtime((call) => throw StateError('boom'));
+      final engine = ScriptedEngine([(push, FinishReason.eog), ('失敗しました', FinishReason.eog)]);
+      final chat = make(engine, runtime: runtime);
+      await chat.send('送って');
+      await chat.answer([ToolApproval.approve], null);
+      expect(chat.state.error, isNull);
+      expect(engine.requests.last.prompt, contains('The tool failed: Bad state: boom'));
+      expect(chat.state.messages.expand((m) => m.activities).last.failed, isTrue);
+      expect(chat.state.messages.last.text, contains('失敗しました'));
+    });
+
+    test('a stop pressed while the tool runs ends the reply without asking the model again', () async {
+      final gate = Completer<void>();
+      final runtime = _SlowRuntime(_Runtime((call) => const ToolOutcome('pushed', ToolActivity('MCP', 'gh'))), gate.future);
+      final engine = ScriptedEngine([(push, FinishReason.eog), ('呼ばれないはず', FinishReason.eog)]);
+      final chat = make(engine, runtime: runtime);
+      await chat.send('送って');
+      final answering = chat.answer([ToolApproval.approve], null);
+      await Future<void>.delayed(Duration.zero);
+      chat.stop();
+      gate.complete();
+      await answering;
+      expect(engine.requests, hasLength(1), reason: 'the model was not asked again');
+      expect(chat.state.task, TaskState.cancelled);
+      expect(chat.isRunning, isFalse);
+    });
   });
 
   test('a reply that is empty after thinking is asked again, and says so when it stays empty', () async {

@@ -120,6 +120,26 @@ void main() {
     expect(local.applyTo(base).topP, base.topP);
   });
 
+  test('the tools that are not asked about again are kept as a list, only MCP tools can be on it, and a chat message cannot change it', () {
+    final saved = const AppSettings(approvedTools: ['mcp_github__push_files', 'run_command', 'web_search']).toJson();
+    expect(AppSettings.fromJson(saved).approvedTools, ['mcp_github__push_files'], reason: 'a command and a built-in tool are never remembered, even if a file says so');
+    expect(AppSettings.fromJson(const {}).approvedTools, isEmpty);
+    expect(AppSettings.fromJson(const {'approvedTools': 'not a list'}).approvedTools, isEmpty);
+    for (final key in ['approvedTools', 'shellConfirmAfterExternal', 'shellConfirm', 'linuxDns', 'linuxRootfsUrl', 'linuxRootfsSha256']) {
+      expect(AgentSettings.isEditable(key), isFalse, reason: '$key must not be reachable from a chat message');
+      expect(AgentSettings.blocked, contains(key));
+    }
+    expect(const AppSettings().shellConfirmAfterExternal, isTrue, reason: 'on by default');
+    expect(AppSettings.fromJson(const AppSettings(shellConfirmAfterExternal: false).toJson()).shellConfirmAfterExternal, isFalse);
+  });
+
+  test('the preview page limit is a setting, kept inside its range', () {
+    expect(const AppSettings().previewMaxPages, 50);
+    expect(AppSettings.fromJson(const {'previewMaxPages': 0}).previewMaxPages, 1);
+    expect(AppSettings.fromJson(const {'previewMaxPages': 99999}).previewMaxPages, 500);
+    expect(AgentSettings.isEditable('previewMaxPages'), isTrue);
+  });
+
   test('the planner follows the model in use by default (a saved fixed planner stays fixed), and more developers round-trip', () {
     expect(const AppSettings().coding.plannerFollowsModel, isTrue);
     expect(AppSettings.fromJson(const {}).coding.plannerFollowsModel, isTrue, reason: 'settings saved before this option existed follow the model in use');

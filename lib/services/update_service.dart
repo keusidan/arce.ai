@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/releases.dart';
+import '../core/safe_url.dart';
 import 'desktop_installer.dart';
 import 'bspatch.dart';
 import 'download_errors.dart';
@@ -467,7 +468,8 @@ class UpdateService extends ChangeNotifier {
 
   Future<void> openReleasePage(Release release) async {
     final url = release.htmlUrl ?? 'https://github.com/${_settings.value.updateRepo}/releases/tag/${release.tag}';
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final uri = safeWebUri(url);
+    if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   void dismiss() => _set(const UpdateIdle());

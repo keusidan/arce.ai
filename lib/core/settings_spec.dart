@@ -247,6 +247,13 @@ abstract final class AgentSettings {
       max: 1048576,
     ),
     // limits and timeouts
+    'previewMaxPages': SettingSpec(
+      key: 'previewMaxPages',
+      label: 'ブラウザで開く試作ページを残す数',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 500,
+    ),
     'attachMaxFiles': SettingSpec(
       key: 'attachMaxFiles',
       label: '添付できるファイルの数',
@@ -510,12 +517,6 @@ abstract final class AgentSettings {
       min: 0,
       max: 65536,
     ),
-    'linuxDns': SettingSpec(
-      key: 'linuxDns',
-      label: 'Linux 環境: DNS（空白区切り）',
-      kind: SettingKind.text,
-      maxLength: 200,
-    ),
     'shellCompatMode': SettingSpec(
       key: 'shellCompatMode',
       label: 'Linux 環境: 互換モード（seccomp を切る）',
@@ -534,8 +535,13 @@ abstract final class AgentSettings {
     'errorReportEnabled',
     'errorReportRepo',
     'shellConfirm',
+    // a message must not switch off a question the app asks before a command or a tool runs
+    'shellConfirmAfterExternal',
+    'approvedTools',
     'linuxRootfsUrl',
     'linuxRootfsSha256',
+    // where the names of the Linux environment are looked up: a chosen resolver can answer for any site
+    'linuxDns',
   };
 
   static bool isEditable(String key) => specs.containsKey(key);

@@ -28,8 +28,17 @@ class _ChatPageState extends State<ChatPage> {
   final _focus = FocusNode();
   final _scroll = ScrollController();
   final _attachments = <Attachment>[];
+
+  /// What would be sent (the typed text with the attachments' text): the token count under the input reads it.
+  final _draft = ValueNotifier<String>('');
   AppController? _app;
   int _lastCount = 0;
+
+  void _syncDraft() {
+    final app = _app;
+    if (app == null) return;
+    _draft.value = AttachmentPolicy.compose(_input.text, _attachments, limits: app.settings.value.attachmentLimits);
+  }
 
   bool get _desktop => const {TargetPlatform.windows, TargetPlatform.linux, TargetPlatform.macOS}.contains(defaultTargetPlatform);
 
@@ -51,6 +60,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _app?.chat.removeListener(_onChat);
+    _draft.dispose();
     _input.dispose();
     _focus.dispose();
     _scroll.dispose();
@@ -90,6 +100,7 @@ class _ChatPageState extends State<ChatPage> {
           maxImageBytes: limits.maxImageBytes,
         );
         setState(() => _attachments.add(attachment));
+        _syncDraft();
       } on AttachmentException catch (e) {
         app.showToast(e.message);
       } catch (_) {
@@ -106,6 +117,7 @@ class _ChatPageState extends State<ChatPage> {
     final files = List<Attachment>.of(_attachments);
     _input.clear();
     setState(_attachments.clear);
+    _syncDraft();
     unawaited(app.chat.send(shown, attachments: files));
   }
 
@@ -134,6 +146,7 @@ class _ChatPageState extends State<ChatPage> {
     _input.selection = TextSelection.collapsed(offset: prompt.length);
     _focus.requestFocus();
     setState(() {});
+    _syncDraft();
   }
 
   Widget _composer(BuildContext context, AppController app) {
@@ -160,7 +173,13 @@ class _ChatPageState extends State<ChatPage> {
                   padding: const EdgeInsets.fromLTRB(2, 0, 2, 6),
                   child: Wrap(spacing: 6, runSpacing: 6, children: [
                     for (var i = 0; i < _attachments.length; i++)
-                      FileChip(name: _attachments[i].name, onRemove: () => setState(() => _attachments.removeAt(i))),
+                      FileChip(
+                        name: _attachments[i].name,
+                        onRemove: () {
+                          setState(() => _attachments.removeAt(i));
+                          _syncDraft();
+                        },
+                      ),
                   ]),
                 ),
               ),
@@ -183,7 +202,10 @@ class _ChatPageState extends State<ChatPage> {
                 minLines: 1,
                 maxLines: 5,
                 maxLength: 4000,
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) {
+                  setState(() {});
+                  _syncDraft();
+                },
                 style: ts(context, 13, height: 1.55),
                 decoration: InputDecoration(
                   isCollapsed: true,
@@ -242,6 +264,7 @@ class _ChatPageState extends State<ChatPage> {
             ]),
           ]),
         ),
+        PromptTokenLine(app: app, draft: _draft),
         SizedBox(
           height: 20,
           child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -297,7 +320,14 @@ class _Messages extends StatelessWidget {
                       if (showThinkingCard)
                         ThinkingCard(task: state.task, style: settings.thinkingStyle),
                       if (state.progress != null) RunStatus(progress: state.progress!),
-                      if (state.pendingQuestion != null)
+                      if (state.pendingQuestion != null && state.pendingTool != null)
+                        ToolApprovalCard(
+                          key: ValueKey(state.messages.length),
+                          call: state.pendingTool!,
+                          tile: state.pendingQuestion!,
+                          onAnswer: (selected, free) => app.chat.answer(selected, free),
+                        )
+                      else if (state.pendingQuestion != null)
                         QuestionCard(
                           key: ValueKey(state.messages.length),
                           tile: state.pendingQuestion!,

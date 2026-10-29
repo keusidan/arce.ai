@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/protocol.dart' show ToolApproval;
 import '../mcp/mcp_server.dart';
 import '../services/app_controller.dart';
 import 'app_scope.dart';
@@ -63,6 +64,7 @@ class McpSection extends StatelessWidget {
                   style: ts(context, 9, color: context.c.muted, height: 1.5),
                 ),
               ),
+              if (app.settings.value.approvedTools.isNotEmpty) _ApprovedTools(app: app),
             ],
           ),
         );
@@ -322,6 +324,7 @@ class _ServerEditorState extends State<_ServerEditor> {
             const SizedBox(height: 12),
             _field('名前', _name, 'GitHub / 自宅のサーバー'),
             _field('URL', _url, 'https://...', keyboard: TextInputType.url),
+            ListenableBuilder(listenable: _url, builder: (context, _) => ClearTextWarning(url: _url.text, what: 'トークン')),
             _field('トークン', _token, 'Bearer で送ります（端末の安全な領域に保存）', obscure: true),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -395,4 +398,43 @@ class _ServerEditorState extends State<_ServerEditor> {
       ),
     ),
   );
+}
+
+/// The tools the user chose not to be asked about again, each with a button that takes it out.
+class _ApprovedTools extends StatelessWidget {
+  const _ApprovedTools({required this.app});
+
+  final AppController app;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final names = app.settings.value.approvedTools;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('確認しない道具', style: ts(context, 11, weight: FontWeight.w700)),
+        Padding(
+          padding: const EdgeInsets.only(top: 3, bottom: 6),
+          child: Text(
+            '承認カードで「この道具は次から確認しない」を選んだ道具です。外すと、また確認します。'
+            'チャットからは変えられません（メッセージで確認を切られないため）。',
+            style: ts(context, 9, color: c.muted, height: 1.5),
+          ),
+        ),
+        for (final name in names)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(children: [
+              Expanded(child: Text(ToolApproval.label(name), style: ts(context, 11, color: c.ink))),
+              IconTap(
+                svg: ArceSvg.close,
+                tooltip: '外す（また確認する）',
+                onTap: () => app.settings.update((s) => s.copyWith(approvedTools: [for (final t in s.approvedTools) if (t != name) t])),
+              ),
+            ]),
+          ),
+      ]),
+    );
+  }
 }

@@ -406,6 +406,23 @@ class _Attempt {
   final bool cutInsideToolCall;
 }
 
+/// The pieces of the next request, as texts (see [ChatController.promptParts]).
+class PromptParts {
+  const PromptParts({required this.system, required this.tools, required this.conversation, required this.draft});
+
+  /// The app's own rules, the agent's role and the extra instructions.
+  final String system;
+
+  /// The tool definitions of the agent and of the MCP servers: sent with every request.
+  final String tools;
+
+  /// The conversation so far, tool calls and their answers included.
+  final String conversation;
+
+  /// What is typed and not sent yet.
+  final String draft;
+}
+
 /// Runs one conversation: picks an agent, builds prompts, streams output through
 /// [StreamSegmenter], runs tool calls through [ToolRuntime] until the model answers, turns
 /// ask_user into a question tile, and regenerates cut-off calls per [RetryPolicy].
@@ -421,6 +438,8 @@ class ChatController extends ChangeNotifier {
     this._addProvider,
     this.delegateEnabled,
     this.delegateInstructions,
+    this.rememberTool,
+    this.confirmAfterExternal,
     this.onFailure,
     StopSignal? stopSignal,
     RunMeter? meter,
@@ -474,6 +493,40 @@ class ChatController extends ChangeNotifier {
 
   /// Told why a reply failed (the text the screen shows), so the app can report it.
   final void Function(String reason)? onFailure;
+
+  /// Called when the user answers an approval with 「次から確認しない」: the tool that should not ask again.
+  final Future<void> Function(String toolName)? rememberTool;
+
+  /// Whether a command asks first once the model has read something from outside (a search result,
+  /// an MCP tool's answer): text a stranger may have written, which can say "now run ...". The
+  /// setting is the user's (`shellConfirmAfterExternal`); without it nothing asks for that reason.
+  final bool Function()? confirmAfterExternal;
+
+  /// Whether this conversation holds text from outside (a search result or an MCP tool's answer, in
+  /// this reply or an earlier one). Recomputed when a conversation is opened.
+  bool _sawExternal = false;
+
+  static bool _isExternal(ToolCall call) => call is WebSearch || (call is McpCall && call.name != Protocol.runCommandName && call.name != Protocol.ciStatusName);
+
+  /// Whether the history holds the answer of an outside tool (a saved conversation that is opened again).
+  static bool _historyHasExternal(Iterable<ChatMessage> history) {
+    for (final turn in history) {
+      if (turn is! AssistantTurn) continue;
+      final json = turn.toolCallJson;
+      if (json == null) continue;
+      try {
+        final name = (jsonDecode(json) as Map)['name'];
+        if (name is String && (name == Protocol.webSearch.name || (name.startsWith('mcp_') && name != Protocol.ciStatusName))) return true;
+      } catch (_) {
+        // a call that cannot be read is not counted
+      }
+    }
+    return false;
+  }
+
+  /// Why a command asks although it stays inside the environment: [_sawExternal] and the setting.
+  bool _askBecauseExternal(McpCall call) =>
+      call.name == Protocol.runCommandName && _sawExternal && (confirmAfterExternal?.call() ?? false);
 
   /// Whether the coding mode can hand jobs to the developer model now. The `delegate` tool is
   /// offered to the coding agent only then.
@@ -535,6 +588,7 @@ class ChatController extends ChangeNotifier {
     _history
       ..clear()
       ..addAll(snapshot.history);
+    _sawExternal = _historyHasExternal(snapshot.history);
     _images.clear();
     _nextId = snapshot.nextId;
     // Choose the agent again for the restored conversation, from its last request.
@@ -557,6 +611,56 @@ class ChatController extends ChangeNotifier {
 
   void clear() =>
       restore(const ConversationSnapshot(messages: [], history: [], nextId: 0));
+
+  /// The texts the next request would carry, split by where they come from, so the screen can say how
+  /// many tokens it is before it is sent: the app's instructions, the tool definitions, the
+  /// conversation so far, and what is typed. The same pieces [_generate] builds from, with the agent
+  /// chosen by the rules only (no request to a model just to count).
+  Future<PromptParts> promptParts(String draft) async {
+    final config = _settings();
+    final agent = _agent ?? await _router.select(draft, false, config.agentOverride, useModel: false);
+    final extra = _extraTools == null ? const <ToolDefinition>[] : await _extraTools();
+    final canDelegate = delegateEnabled?.call() ?? false;
+    final tools = [
+      for (final t in agent.tools)
+        if ((config.searchEnabled || t != Protocol.webSearch) && (t != Protocol.delegate || canDelegate)) t,
+      ...extra,
+    ];
+    final instructions = [
+      'Current role: ${agent.displayName}. ${agent.instructions}',
+      if (canDelegate && agent.tools.contains(Protocol.delegate) && delegateInstructions != null) delegateInstructions!(),
+      if (config.maxChars > 0) 'Keep each reply under ${config.maxChars} characters.',
+      if (config.extraPrompt.isNotEmpty) config.cleanExtraPrompt(),
+    ];
+    final thinking = config.effectiveThinking(_state.thinkingEnabled);
+    String build(List<ChatMessage> history, List<ToolDefinition> toolList) => ChatMlPromptBuilder.build(
+          history,
+          toolList,
+          config.tone,
+          thinking,
+          extraInstructions: instructions,
+        );
+    final bare = build(const [], const []);
+    final withTools = build(const [], tools);
+    final withHistory = build(_history, tools);
+    final withDraft = build([..._history, UserTurn(draft)], tools);
+    // each step only inserts text, so what a step added is the difference in length
+    return PromptParts(
+      system: bare,
+      tools: withTools.substring(bare.indexOf('<|im_end|>'), bare.indexOf('<|im_end|>') + withTools.length - bare.length),
+      conversation: _inserted(withTools, withHistory),
+      draft: draft.trim().isEmpty ? '' : _inserted(withHistory, withDraft),
+    );
+  }
+
+  /// What [longer] has that [shorter] does not, when [longer] is [shorter] with text inserted once.
+  static String _inserted(String shorter, String longer) {
+    var start = 0;
+    while (start < shorter.length && start < longer.length && shorter.codeUnitAt(start) == longer.codeUnitAt(start)) {
+      start++;
+    }
+    return longer.substring(start, start + longer.length - shorter.length);
+  }
 
   /// Returns when the reply has finished (or stopped for a question); callers may ignore it.
   Future<void> send(String text, {List<Attachment> attachments = const []}) {
@@ -600,7 +704,32 @@ class ChatController extends ChangeNotifier {
       _busy = true;
       try {
         if (ToolApproval.isApproval(selected)) {
-          final outcome = await _toolRuntime.run(pending);
+          // The card goes the moment the button is pressed, and the screen says what runs: a tool can
+          // take a minute, and a card that stays there looked as if the button had frozen. The state
+          // stays "working" until the next request is sent, so nothing (the foreground service
+          // included) sees a gap in between.
+          meter.begin();
+          final (stage, detail) = _toolStage(pending);
+          meter.stage(stage, detail: detail);
+          _stopRequested = false;
+          _stopSignal.reset();
+          _update((s) => s.copyWith(task: TaskState.generation));
+          if (ToolApproval.isAlways(selected)) {
+            try {
+              await rememberTool?.call(pending.name);
+            } catch (_) {
+              // the answer is still "run it"; only the memory failed
+            }
+          }
+          ToolOutcome outcome;
+          try {
+            outcome = await _toolRuntime.run(pending);
+          } catch (e) {
+            // a tool that throws must not take the chat down with it: the model is told, like any failure
+            outcome = ToolOutcome('The tool failed: $e', ToolActivity('Tool', '${ToolApproval.label(pending.name)} に失敗: $e', failed: true));
+          }
+          meter.toolRun();
+          if (_isExternal(pending)) _sawExternal = true;
           toolResponse = outcome.response;
           _update(
             (s) => s.copyWith(
@@ -653,6 +782,14 @@ class ChatController extends ChangeNotifier {
         time: DateTime.now(),
       ),
     );
+    // stopped while the tool ran: it is over, and the model is not asked again (the history is complete:
+    // the tool's answer is in it)
+    if (_stopRequested) {
+      _stopRequested = false;
+      meter.end();
+      _finishWith(TaskState.cancelled);
+      return Future.value();
+    }
     return _start('');
   }
 
@@ -968,13 +1105,18 @@ class ChatController extends ChangeNotifier {
           return;
         case final McpCall mcp
             when (_mcpApproval?.call(mcp.name, mcp.arguments) ??
-                ToolApproval.needsApproval(mcp.name, mcp.arguments)):
+                    ToolApproval.needsApproval(mcp.name, mcp.arguments)) ||
+                _askBecauseExternal(mcp):
           // a tool that writes outside the device: one card, and nothing runs until 実行する
           _replace(
             id,
             (m) => m.copyWith(
               text: shown,
-              question: ToolApproval.tile(mcp),
+              question: ToolApproval.tile(
+                mcp,
+                rememberable: true,
+                note: _askBecauseExternal(mcp) ? '検索や外部ツールの結果を読んだあとなので、確認します' : '',
+              ),
               tool: mcp,
               finish: result.reason,
               activities: List.of(activities),
@@ -1030,6 +1172,7 @@ class ChatController extends ChangeNotifier {
           meter.stage(toolStage, detail: toolDetail);
           final outcome = await _toolRuntime.run(call);
           meter.toolRun();
+          if (_isExternal(call)) _sawExternal = true;
           activities.add(outcome.activity);
           _history.add(ToolResponseTurn(outcome.response));
           earlierText = outcome.shown == null ? shown : _join(shown, outcome.shown!);
