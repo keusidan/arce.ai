@@ -760,6 +760,121 @@ void main() {
     expect(saved.first, contains('時刻を調べる'));
     expect(saved.last, contains('答える'));
   });
+  group('a message written while the reply goes on', () {
+    const search = '<tool_call>\n{"name":"web_search","arguments":{"query":"q"}}\n</tool_call>';
+    final runtime = _Runtime((call) => const ToolOutcome('結果', ToolActivity('Search', 'q')));
+
+    test('is read by the model at the next break between two tools, as a message of its own', () async {
+      final gate = Completer<void>();
+      final engine = ScriptedEngine([(search, FinishReason.eog), ('両方答えます', FinishReason.eog)]);
+      final chat = ChatController(engine, toolRuntime: _SlowRuntime(runtime, gate.future));
+      final sending = chat.send('調べて');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(chat.isRunning, isTrue);
+
+      expect(chat.interject('  価格も教えて '), isTrue);
+      expect(chat.state.queued, ['価格も教えて'], reason: 'shown under the input until the model has read it');
+      expect(engine.requests, hasLength(1), reason: 'the tool that is running is not cut off');
+
+      gate.complete();
+      await sending;
+      expect(chat.state.queued, isEmpty);
+      expect(engine.requests, hasLength(2));
+      expect(engine.requests.last.prompt, contains('価格も教えて'));
+      expect(
+        engine.requests.last.prompt.indexOf('結果'),
+        lessThan(engine.requests.last.prompt.indexOf('価格も教えて')),
+        reason: 'the tool result comes first, then the new message',
+      );
+      expect(
+        [for (final m in chat.state.messages) (m.role, m.text)],
+        [(Role.user, '調べて'), (Role.assistant, ''), (Role.user, '価格も教えて'), (Role.assistant, '両方答えます')],
+      );
+      expect(chat.state.messages[1].activities, hasLength(1), reason: 'the work before the break stays with its own reply');
+      expect(chat.state.messages.last.activities, isEmpty);
+      expect(chat.state.task, TaskState.completed);
+    });
+
+    test('when the reply ends first, it is sent as the next message', () async {
+      final engine = ScriptedEngine([('一つ目', FinishReason.eog), ('二つ目', FinishReason.eog)]);
+      final chat = ChatController(_Paced(engine));
+      final sending = chat.send('こんにちは');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(chat.interject('もう一つ'), isTrue);
+      await sending;
+      expect(engine.requests, hasLength(2));
+      expect(engine.requests.last.prompt, contains('もう一つ'));
+      expect([for (final m in chat.state.messages) m.text], ['こんにちは', '一つ目', 'もう一つ', '二つ目']);
+      expect(chat.state.queued, isEmpty);
+    });
+
+    test('nothing running: it is not taken (the screen sends it as a message); an empty text is never taken', () async {
+      final chat = ChatController(ScriptedEngine(const []));
+      expect(chat.interject('こんにちは'), isFalse);
+      expect(chat.state.queued, isEmpty);
+      final gate = Completer<void>();
+      final busy = ChatController(
+        ScriptedEngine([(search, FinishReason.eog), ('終', FinishReason.eog)]),
+        toolRuntime: _SlowRuntime(runtime, gate.future),
+      );
+      final sending = busy.send('調べて');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(busy.interject('  '), isFalse);
+      gate.complete();
+      await sending;
+    });
+
+    test('a queued text can be taken back before the model reads it', () async {
+      final gate = Completer<void>();
+      final engine = ScriptedEngine([(search, FinishReason.eog), ('終', FinishReason.eog)]);
+      final chat = ChatController(engine, toolRuntime: _SlowRuntime(runtime, gate.future));
+      final sending = chat.send('調べて');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      chat.interject('一つ目');
+      chat.interject('二つ目');
+      chat.unqueue(0);
+      chat.unqueue(5);
+      expect(chat.state.queued, ['二つ目']);
+      gate.complete();
+      await sending;
+      expect(engine.requests.last.prompt, isNot(contains('一つ目')));
+      expect(engine.requests.last.prompt, contains('二つ目'));
+    });
+
+    test('several texts go in as one message', () async {
+      final gate = Completer<void>();
+      final engine = ScriptedEngine([(search, FinishReason.eog), ('終', FinishReason.eog)]);
+      final chat = ChatController(engine, toolRuntime: _SlowRuntime(runtime, gate.future));
+      final sending = chat.send('調べて');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      chat.interject('一つ目');
+      chat.interject('二つ目');
+      gate.complete();
+      await sending;
+      expect(chat.state.messages.where((m) => m.role == Role.user).map((m) => m.text), ['調べて', '一つ目\n\n二つ目']);
+    });
+  });
+}
+
+/// Answers like [inner] after a short wait, so that a test can write a message while the reply goes on.
+class _Paced implements InferenceEngine {
+  _Paced(this.inner);
+  final ScriptedEngine inner;
+
+  @override
+  bool get isLoaded => true;
+  @override
+  Future<void> load(LoadParams params) async {}
+  @override
+  void cancel() {}
+  @override
+  Future<void> unload() async {}
+
+  @override
+  Stream<GenerationEvent> generate(GenerateRequest request) async* {
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    yield* inner.generate(request);
+  }
 }
 
 /// Thinks for 120 ms (a think block) and then answers; with [answer] false it thinks until stopped.

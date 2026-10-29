@@ -198,6 +198,10 @@ abstract final class AgentSettings {
       label: 'コーディングモード（プランナー＋開発の分担）',
       kind: SettingKind.flag,
     ),
+    'notifyNeedsYou': SettingSpec(key: 'notifyNeedsYou', label: '通知: 許可や答えが必要になったとき', kind: SettingKind.flag),
+    'notifyDone': SettingSpec(key: 'notifyDone', label: '通知: 返信が終わったとき', kind: SettingKind.flag),
+    'notifyFailed': SettingSpec(key: 'notifyFailed', label: '通知: 失敗したとき', kind: SettingKind.flag),
+    'notifyOnlyAway': SettingSpec(key: 'notifyOnlyAway', label: '通知: そのチャットを開いていないときだけ出す', kind: SettingKind.flag),
     'codingPlannerFollows': SettingSpec(
       key: 'codingPlannerFollows',
       label: 'コーディング: プランナーは、使用中のモデルに合わせる（オフなら下のプランナーモデル）',

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -238,6 +239,30 @@ class _SettingsPageState extends State<SettingsPage> {
         return ArceCard(
           child: Column(
             children: [
+              SettingRow(
+                icon: ArceSvg.alert,
+                title: '許可や答えが必要になったら通知する',
+                subtitle: '承認カードや質問で返信が止まったとき（Android）',
+                trailing: ArceSwitch(value: s.notifyNeedsYou, onChanged: (v) => _notifySetting(app, set, (x) => x.copyWith(notifyNeedsYou: v), v)),
+              ),
+              SettingRow(
+                icon: ArceSvg.check,
+                title: '返信が終わったら通知する',
+                subtitle: '長い作業を任せて、ほかのアプリを開いているとき',
+                trailing: ArceSwitch(value: s.notifyDone, onChanged: (v) => _notifySetting(app, set, (x) => x.copyWith(notifyDone: v), v)),
+              ),
+              SettingRow(
+                icon: ArceSvg.alert,
+                title: '失敗したら通知する',
+                subtitle: 'エラーで返信が止まったとき',
+                trailing: ArceSwitch(value: s.notifyFailed, onChanged: (v) => _notifySetting(app, set, (x) => x.copyWith(notifyFailed: v), v)),
+              ),
+              SettingRow(
+                icon: ArceSvg.info,
+                title: 'そのチャットを開いているときは通知しない',
+                subtitle: 'オフにすると、画面を見ているときも通知します',
+                trailing: ArceSwitch(value: s.notifyOnlyAway, onChanged: (v) => set((x) => x.copyWith(notifyOnlyAway: v))),
+              ),
               SettingRow(
                 icon: ArceSvg.file,
                 title: '文字の大きさ',
@@ -1894,4 +1919,15 @@ class _ReportCardState extends State<_ReportCard> {
       },
     );
   }
+}
+
+/// Changes a notification setting; turning one on also asks the system for the permission to notify.
+void _notifySetting(
+  AppController app,
+  void Function(AppSettings Function(AppSettings)) set,
+  AppSettings Function(AppSettings) change,
+  bool on,
+) {
+  set(change);
+  if (on) unawaited(app.askForNotifications());
 }

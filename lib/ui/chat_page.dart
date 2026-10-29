@@ -113,6 +113,18 @@ class _ChatPageState extends State<ChatPage> {
     final app = ArceScope.of(context);
     final text = _input.text;
     if (text.trim().isEmpty && _attachments.isEmpty) return;
+    if (app.chat.isRunning) {
+      // a reply is going on: the text is read by the model at the next break between two tools
+      if (_attachments.isNotEmpty) {
+        app.showToast('ファイルの添付は、返信が終わってから送れます');
+        return;
+      }
+      if (app.chat.interject(text)) {
+        _input.clear();
+        _syncDraft();
+        return;
+      }
+    }
     final shown = text.trim().isEmpty ? 'ファイルを添付しました。' : text;
     final files = List<Attachment>.of(_attachments);
     _input.clear();
@@ -183,6 +195,20 @@ class _ChatPageState extends State<ChatPage> {
                   ]),
                 ),
               ),
+            if (chat.queued.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(2, 0, 2, 6),
+                  child: Wrap(spacing: 6, runSpacing: 6, children: [
+                    for (var i = 0; i < chat.queued.length; i++)
+                      FileChip(
+                        name: '次の区切りで伝える: ${chat.queued[i]}',
+                        onRemove: () => app.chat.unqueue(i),
+                      ),
+                  ]),
+                ),
+              ),
             Focus(
               onKeyEvent: (node, event) {
                 // Enter sends on desktop; Shift+Enter adds a line
@@ -191,7 +217,7 @@ class _ChatPageState extends State<ChatPage> {
                     event.logicalKey == LogicalKeyboardKey.enter &&
                     !HardwareKeyboard.instance.isShiftPressed &&
                     !_input.value.composing.isValid) {
-                  if (!chat.isGenerating) _send();
+                  _send();
                   return KeyEventResult.handled;
                 }
                 return KeyEventResult.ignored;
@@ -257,9 +283,13 @@ class _ChatPageState extends State<ChatPage> {
                 },
               ),
               const Spacer(),
-              if (chat.isGenerating)
-                _SendButton(label: '停止', svg: ArceSvg.stop, onTap: app.chat.stop, stop: true)
-              else
+              if (chat.isGenerating) ...[
+                if (canSend) ...[
+                  _SendButton(label: '割り込む', svg: ArceSvg.send, onTap: _send),
+                  const SizedBox(width: 6),
+                ],
+                _SendButton(label: '停止', svg: ArceSvg.stop, onTap: app.chat.stop, stop: true),
+              ] else
                 _SendButton(label: '送信', svg: ArceSvg.send, onTap: canSend ? _send : null),
             ]),
           ]),

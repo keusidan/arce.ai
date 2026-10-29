@@ -48,9 +48,32 @@ class _BootstrapState extends State<Bootstrap> {
       );
 }
 
-class ArceApp extends StatelessWidget {
+class ArceApp extends StatefulWidget {
   const ArceApp({super.key, required this.app});
   final AppController app;
+
+  @override
+  State<ArceApp> createState() => _ArceAppState();
+}
+
+class _ArceAppState extends State<ArceApp> with WidgetsBindingObserver {
+  AppController get app => widget.app;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // a notification is for the user who is not looking: the app is in front only while it is resumed
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => app.inForeground = state == AppLifecycleState.resumed;
 
   @override
   Widget build(BuildContext context) => ArceScope(

@@ -110,6 +110,10 @@ class AppSettings {
     this.shellEnabled = true,
     this.shellConfirm = false,
     this.shellConfirmAfterExternal = true,
+    this.notifyNeedsYou = true,
+    this.notifyDone = true,
+    this.notifyFailed = true,
+    this.notifyOnlyAway = true,
     this.approvedTools = const [],
     this.shellTimeoutSeconds = 120,
     this.shellMaxTimeoutSeconds = 600,
@@ -337,6 +341,13 @@ class AppSettings {
   /// tool's answer), even when it stays inside the environment: that text may say "now run ...".
   final bool shellConfirmAfterExternal;
 
+  /// Android notifications about a reply: it waits for the user (an approval, a question), it is
+  /// finished, it failed. With [notifyOnlyAway] they come only when the chat is not in front.
+  final bool notifyNeedsYou;
+  final bool notifyDone;
+  final bool notifyFailed;
+  final bool notifyOnlyAway;
+
   /// MCP tools (`mcp_server__tool`) the user chose not to be asked about again (the approval card's
   /// 「この道具は次から確認しない」). Not reachable from the chat: a message must not switch off a question.
   final List<String> approvedTools;
@@ -487,6 +498,10 @@ class AppSettings {
     bool? shellEnabled,
     bool? shellConfirm,
     bool? shellConfirmAfterExternal,
+    bool? notifyNeedsYou,
+    bool? notifyDone,
+    bool? notifyFailed,
+    bool? notifyOnlyAway,
     List<String>? approvedTools,
     int? shellTimeoutSeconds,
     int? shellMaxTimeoutSeconds,
@@ -585,6 +600,10 @@ class AppSettings {
     shellEnabled: shellEnabled ?? this.shellEnabled,
     shellConfirm: shellConfirm ?? this.shellConfirm,
     shellConfirmAfterExternal: shellConfirmAfterExternal ?? this.shellConfirmAfterExternal,
+    notifyNeedsYou: notifyNeedsYou ?? this.notifyNeedsYou,
+    notifyDone: notifyDone ?? this.notifyDone,
+    notifyFailed: notifyFailed ?? this.notifyFailed,
+    notifyOnlyAway: notifyOnlyAway ?? this.notifyOnlyAway,
     approvedTools: approvedTools ?? this.approvedTools,
     shellTimeoutSeconds: shellTimeoutSeconds ?? this.shellTimeoutSeconds,
     shellMaxTimeoutSeconds: shellMaxTimeoutSeconds ?? this.shellMaxTimeoutSeconds,
@@ -686,6 +705,10 @@ class AppSettings {
     'shellConfirm': shellConfirm,
     'shellConfirmAlways': shellConfirm,
     'shellConfirmAfterExternal': shellConfirmAfterExternal,
+    'notifyNeedsYou': notifyNeedsYou,
+    'notifyDone': notifyDone,
+    'notifyFailed': notifyFailed,
+    'notifyOnlyAway': notifyOnlyAway,
     'approvedTools': approvedTools,
     'shellTimeoutSeconds': shellTimeoutSeconds,
     'shellMaxTimeoutSeconds': shellMaxTimeoutSeconds,
@@ -827,6 +850,10 @@ class AppSettings {
       linuxDns: text('linuxDns', d.linuxDns),
       shellCompatMode: flag('shellCompatMode', d.shellCompatMode),
       shellConfirmAfterExternal: flag('shellConfirmAfterExternal', d.shellConfirmAfterExternal),
+      notifyNeedsYou: flag('notifyNeedsYou', d.notifyNeedsYou),
+      notifyDone: flag('notifyDone', d.notifyDone),
+      notifyFailed: flag('notifyFailed', d.notifyFailed),
+      notifyOnlyAway: flag('notifyOnlyAway', d.notifyOnlyAway),
       approvedTools: [
         if (json['approvedTools'] is List)
           for (final t in json['approvedTools'] as List)

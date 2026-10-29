@@ -42,6 +42,8 @@ import 'error_reporter.dart';
 import 'linux_env.dart';
 import 'model_info_fetcher.dart';
 import 'foreground_service.dart';
+import 'reply_notifier.dart';
+import '../core/reply_event.dart';
 import 'kv_snapshots.dart';
 import 'model_manager.dart';
 import 'preview_server.dart';
@@ -92,6 +94,7 @@ class AppController extends ChangeNotifier {
     required this.preview,
     required this.errors,
     required this.linux,
+    this.notifier = const ReplyNotifier(),
   }) {
     _current = _newSession();
     chat = ChatHandle(_current.chat);
@@ -130,6 +133,7 @@ class AppController extends ChangeNotifier {
       confirmAfterExternal: () => settings.value.shellConfirmAfterExternal,
     )..setThinking(settings.value.thinking);
     session.chat.addListener(_syncForeground);
+    session.chat.addListener(() => _notifyAbout(session));
     return session;
   }
 
@@ -196,6 +200,12 @@ class AppController extends ChangeNotifier {
 
   /// Shared with [updates]: a download keeps running when another app is in front.
   final ForegroundService foreground;
+
+  /// System notifications for a reply that waits, ends or fails (Android).
+  final ReplyNotifier notifier;
+
+  /// Whether the app is in front of the user; set by the root widget from the system's lifecycle.
+  bool inForeground = true;
   late final ChatHandle chat;
 
   /// Whether the model that answers takes images, so attached pictures are read as pictures.
@@ -236,6 +246,7 @@ class AppController extends ChangeNotifier {
     UpdateService? updateService,
     http.Client? reportClient,
     LinuxEnvironment? linux,
+    ReplyNotifier? notifier,
   }) async {
     final settings = await SettingsStore.load();
     final providers = await ProviderStore.load();
@@ -282,6 +293,7 @@ class AppController extends ChangeNotifier {
       ),
       // the same environment the tool runs in, so the settings screen shows its real state
       linux: linux ?? McpTools.shellEnvironment,
+      notifier: notifier ?? const ReplyNotifier(),
     );
     final local = app.engine.local;
     if (local is KvStatePersistence) {
@@ -663,6 +675,30 @@ class AppController extends ChangeNotifier {
       fallback: settings.value.fallbackEnabled ? providers.fallbackPlanFor(provider) : null,
       onFallback: _announceFallback,
     );
+  }
+
+  /// A notification for a reply that now waits for the user, is finished or failed, when the
+  /// settings ask for it and (by default) the user is not looking at that chat.
+  void _notifyAbout(_Session session) {
+    final event = session.watch.update(session.chat.state);
+    if (event == null) return;
+    final s = settings.value;
+    final wanted = switch (event.kind) {
+      ReplyEventKind.needsYou => s.notifyNeedsYou,
+      ReplyEventKind.done => s.notifyDone,
+      ReplyEventKind.failed => s.notifyFailed,
+    };
+    if (!wanted) return;
+    if (s.notifyOnlyAway && inForeground && identical(session, _current)) return;
+    unawaited(notifier.show(event, group: session.id ?? ''));
+  }
+
+  /// Asks for the permission to notify when a notification setting is turned on.
+  Future<void> askForNotifications() async {
+    if (!notifier.supported || await notifier.allowed()) return;
+    if (!await notifier.request()) {
+      showToast('通知が許可されていません。端末の設定でこのアプリの通知をオンにしてください');
+    }
   }
 
   /// Keeps Android's foreground service in step with whether a reply is being generated.
@@ -1153,6 +1189,7 @@ class _SessionToolRuntime implements ToolRuntime {
 /// One chat: the controller that runs it, and the id of its saved conversation (null until it is saved).
 class _Session {
   late final ChatController chat;
+  final watch = ReplyWatch();
   String? id;
 
   /// Whether this conversation has its title (written by a model, or one it already had when opened).

@@ -6,7 +6,9 @@ import 'package:arce_ai/ai/thinking_config.dart';
 import 'package:arce_ai/core/chat_controller.dart';
 import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/releases.dart';
+import 'package:arce_ai/core/reply_event.dart';
 import 'package:arce_ai/services/app_controller.dart';
+import 'package:arce_ai/services/reply_notifier.dart';
 import 'package:arce_ai/services/settings.dart';
 import 'package:arce_ai/services/update_service.dart';
 import 'package:arce_ai/app.dart';
@@ -20,7 +22,7 @@ import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<AppController> makeApp(WidgetTester tester, {http.Client? reportClient}) async {
+Future<AppController> makeApp(WidgetTester tester, {http.Client? reportClient, ReplyNotifier? notifier}) async {
   SharedPreferences.setMockInitialValues({
     // no network in tests: skip the automatic update check
     'settings.v1': '{"autoUpdateCheck":false}',
@@ -34,6 +36,7 @@ Future<AppController> makeApp(WidgetTester tester, {http.Client? reportClient}) 
       supportDirectory: dir,
       updateService: UpdateService(settings, currentVersion: const Version(0, 4, 0)),
       reportClient: reportClient,
+      notifier: notifier,
     );
   });
   addTearDown(() async {
@@ -936,4 +939,43 @@ void main() {
     expect(app.settings.value.approvedTools, ['mcp_kaggle__SubmitToCompetition']);
     expect(find.text('github · push_files'), findsNothing);
   });
+
+  group('notifications about a reply', () {
+    testWidgets('the app in front of the chat: nothing; away: one when the reply is finished; each kind has its own setting', (tester) async {
+      final shown = <ReplyEventKind>[];
+      final app = await makeApp(tester, notifier: _FakeNotifier(shown));
+      await tester.pumpWidget(ArceApp(app: app));
+      await tester.pump();
+
+      await tester.runAsync(() => app.chat.send('こんにちは'));
+      expect(shown, isEmpty, reason: 'the user is looking at this chat');
+
+      app.inForeground = false;
+      await tester.runAsync(() => app.chat.send('もう一度'));
+      expect(shown, [ReplyEventKind.done]);
+
+      await app.settings.update((s) => s.copyWith(notifyDone: false));
+      await tester.runAsync(() => app.chat.send('三度目'));
+      expect(shown, [ReplyEventKind.done], reason: 'finished replies are switched off');
+
+      await app.settings.update((s) => s.copyWith(notifyDone: true, notifyOnlyAway: false));
+      app.inForeground = true;
+      await tester.runAsync(() => app.chat.send('四度目'));
+      expect(shown, [ReplyEventKind.done, ReplyEventKind.done], reason: 'with "only away" off, the front chat notifies too');
+    });
+  });
+}
+
+class _FakeNotifier extends ReplyNotifier {
+  _FakeNotifier(this.shown);
+  final List<ReplyEventKind> shown;
+
+  @override
+  bool get supported => true;
+
+  @override
+  Future<bool> allowed() async => true;
+
+  @override
+  Future<void> show(ReplyEvent event, {String group = ''}) async => shown.add(event.kind);
 }

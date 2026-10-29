@@ -162,6 +162,7 @@ class ChatState {
     this.error,
     this.notice,
     this.progress,
+    this.queued = const [],
   });
 
   final List<UiMessage> messages;
@@ -172,6 +173,10 @@ class ChatState {
   /// What the reply that is going on (or the last one) has done: the step, the requests, the time.
   /// Not saved with the conversation.
   final RunProgress? progress;
+
+  /// Texts the user wrote while the reply was going on. They reach the model at the next break between
+  /// two tools; what is left when the reply ends is sent as the next message. Not saved.
+  final List<String> queued;
 
   /// e.g. the selected agent expects a larger model than the one loaded (spec §17.2).
   final String? notice;
@@ -219,6 +224,7 @@ class ChatState {
     Object? error = _unset,
     Object? notice = _unset,
     Object? progress = _unset,
+    List<String>? queued,
   }) => ChatState(
     messages: messages ?? this.messages,
     task: task ?? this.task,
@@ -226,6 +232,7 @@ class ChatState {
     error: identical(error, _unset) ? this.error : error as String?,
     notice: identical(notice, _unset) ? this.notice : notice as String?,
     progress: identical(progress, _unset) ? this.progress : progress as RunProgress?,
+    queued: queued ?? this.queued,
   );
 }
 
@@ -689,6 +696,28 @@ class ChatController extends ChangeNotifier {
     return _start('');
   }
 
+  /// Puts [text] in the reply that is going on: it is read by the model at the next break between two
+  /// tools (a tool that is running is not cut off), or sent as the next message when the reply ends
+  /// first. Returns false when nothing is running (use [send]) or the text is empty.
+  bool interject(String text) {
+    if (text.trim().isEmpty || !isRunning) return false;
+    _update((s) => s.copyWith(queued: [...s.queued, text.trim()]));
+    return true;
+  }
+
+  /// Takes back a text that was queued by [interject], before the model has read it.
+  void unqueue(int index) {
+    if (index < 0 || index >= _state.queued.length) return;
+    _update((s) => s.copyWith(queued: [...s.queued]..removeAt(index)));
+  }
+
+  /// The queued texts as one message, and the queue emptied.
+  String _takeQueued() {
+    final text = _state.queued.join('\n\n');
+    if (_state.queued.isNotEmpty) _update((s) => s.copyWith(queued: const []));
+    return text;
+  }
+
   /// Answers the pending question tile (or approves a settings change) and resumes generation.
   Future<void> answer(List<String> selected, String? freeText) async {
     if (_state.pendingQuestion == null || _busy) return Future.value();
@@ -788,7 +817,7 @@ class ChatController extends ChangeNotifier {
       _stopRequested = false;
       meter.end();
       _finishWith(TaskState.cancelled);
-      return Future.value();
+      return _sendQueued();
     }
     return _start('');
   }
@@ -895,6 +924,16 @@ class ChatController extends ChangeNotifier {
       // the state may not have changed since the last notification, but "running" has
       notifyListeners();
     }
+    await _sendQueued();
+  }
+
+  /// What the user wrote during the reply and the model has not read: sent as the next message once
+  /// the reply has ended (finished or stopped). After an error or a question the texts stay queued,
+  /// shown under the input, until the user takes them back or the next reply reads them.
+  Future<void> _sendQueued() {
+    final done = _state.task == TaskState.completed || _state.task == TaskState.cancelled;
+    if (!done || _state.queued.isEmpty || _busy || _state.isGenerating) return Future.value();
+    return send(_takeQueued());
   }
 
   Future<void> _generate(String prefill) async {
@@ -930,7 +969,7 @@ class ChatController extends ChangeNotifier {
         ? '「${agent.displayName}」は${agent.minModelParamsB}B以上のモデルを推奨します（現在 ${modelB}B）。モデルは自動で変更しません。'
         : null;
 
-    final id = _nextId++;
+    var id = _nextId++;
     _append(
       UiMessage(
         id: id,
@@ -1185,6 +1224,19 @@ class ChatController extends ChangeNotifier {
           // what the reply has so far is kept now: a coding reply takes minutes, and the system may
           // close the app or the user may leave before it is over
           _store(snapshot(), generating: true);
+          // a break between two tools: what the user wrote meanwhile is read now, as a message of its
+          // own, and the model goes on in a new reply under it
+          final interjected = _takeQueued();
+          if (interjected.isNotEmpty && !_stopRequested) {
+            _history.add(UserTurn(interjected));
+            _append(UiMessage(id: _nextId++, role: Role.user, text: interjected, time: DateTime.now()));
+            id = _nextId++;
+            _append(UiMessage(id: id, role: Role.assistant, text: '', agent: agent.displayName, time: DateTime.now()));
+            earlierText = '';
+            earlierThinking = '';
+            activities.clear();
+            _store(snapshot(), generating: true);
+          }
       }
     }
   }

@@ -30,6 +30,9 @@ class ChatHandle extends ChangeNotifier {
   Future<void> regenerate() => _target.regenerate();
   Future<void> continueReply() => _target.continueReply();
   void stop() => _target.stop();
+  bool get isRunning => _target.isRunning;
+  bool interject(String text) => _target.interject(text);
+  void unqueue(int index) => _target.unqueue(index);
   void clear() => _target.clear();
   void restore(ConversationSnapshot snapshot) => _target.restore(snapshot);
   ConversationSnapshot snapshot() => _target.snapshot();
