@@ -813,6 +813,9 @@ class ChatController extends ChangeNotifier {
     // the planner of the coding mode, or the one model that answers
     final actor = canDelegate && agent.tools.contains(Protocol.delegate) ? 'プランナー' : 'モデル';
     var emptyReplies = 0;
+    // tool calls the model wrote that could not be used (a task with no instructions, a plan that
+    // loops ...): the model is told why and writes it again, instead of the reply ending in an error
+    var unusableCalls = 0;
     final activities = <ToolActivity>[];
     var rounds = 0;
     var roundPrefill = prefill;
@@ -857,6 +860,7 @@ class ChatController extends ChangeNotifier {
 
       var attempts = 0;
       late _Attempt result;
+      String? unusableReason;
       while (true) {
         try {
           result = await _attempt(id, request, earlierText, roundPrefill, earlierThinking: earlierThinking, actor: actor);
@@ -867,7 +871,15 @@ class ChatController extends ChangeNotifier {
         final parsed = result.toolCallJson == null
             ? null
             : ToolCallParser.parse(result.toolCallJson!, tools);
-        final semanticError = parsed is ParseInvalid ? parsed.reason : null;
+        var semanticError = parsed is ParseInvalid ? parsed.reason : null;
+        unusableReason = null;
+        if (semanticError != null &&
+            unusableCalls < config.retryLimit &&
+            result.reason != FinishReason.cancelled &&
+            !(result.reason == FinishReason.length && result.cutInsideToolCall)) {
+          unusableReason = semanticError;
+          semanticError = null;
+        }
         final step = retry.decide(
           result.reason,
           endedInsideToolCall: result.cutInsideToolCall,
@@ -888,6 +900,20 @@ class ChatController extends ChangeNotifier {
           ? null
           : ToolCallParser.parse(result.toolCallJson!, tools);
       final call = parsed is ParseOk ? parsed.call : null;
+      if (unusableReason != null) {
+        unusableCalls++;
+        // the broken call is not kept in the history (a provider would be sent JSON it cannot read);
+        // the model hears what was wrong as a note from the app
+        _history
+          ..add(AssistantTurn(result.answer.trim().isEmpty ? '(a tool call that could not be used)' : result.answer, null, result.thinking))
+          ..add(UserTurn('[from the app] Your last tool call could not be used: $unusableReason. Call the tool again in a correct form, or answer without it.'));
+        earlierThinking = _join(earlierThinking, result.thinking);
+        earlierText = _join(earlierText, result.answer);
+        activities.add(ToolActivity('Tool', '道具の呼び出しが読めませんでした（$unusableReason）。書き直します', failed: true));
+        roundPrefill = '';
+        _replace(id, (m) => m.copyWith(text: earlierText, activities: List.of(activities)));
+        continue;
+      }
       _history.add(
         AssistantTurn(result.answer, call == null ? null : result.toolCallJson, result.thinking),
       );

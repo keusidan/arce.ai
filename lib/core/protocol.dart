@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'plan_graph.dart';
 import 'settings_spec.dart';
 
 /// A tool the model may call. [parameters] is a JSON Schema object; the same schema is shown
@@ -112,7 +113,22 @@ class AddProvider extends ToolCall {
 
 /// One job the planner model gives to the developer model.
 class DelegateTask {
-  const DelegateTask({required this.title, required this.instructions, this.files = const [], this.revise});
+  const DelegateTask({
+    required this.title,
+    required this.instructions,
+    this.files = const [],
+    this.revise,
+    this.id = '',
+    this.dependsOn = const [],
+  });
+
+  /// Names this job inside one `delegate` call: the node of the plan, and what other jobs wait for.
+  /// The parser gives every job one (`t1`, `t2` ...) when the planner wrote none.
+  final String id;
+
+  /// The ids of the jobs of this call that must be done first (their results go to this one). The
+  /// arrows of the plan and the planner's own `depends_on` are merged here.
+  final List<String> dependsOn;
 
   final String title;
 
@@ -131,11 +147,15 @@ class DelegateTask {
 /// out (all at the same time, up to the limit) and returns what came back; what to split, whether
 /// the result is good and whether to send work back are the planner's own decisions.
 class Delegate extends ToolCall {
-  const Delegate({required this.summary, required this.tasks});
+  const Delegate({required this.summary, required this.tasks, this.plan = ''});
 
   /// What every task shares: the decisions, names and interfaces the tasks must agree on.
   final String summary;
   final List<DelegateTask> tasks;
+
+  /// The split as the planner drew it: a Mermaid flowchart (`a["title"]`, `a --> b`). Empty when it
+  /// gave only a list; the app then draws one from the jobs and their dependencies.
+  final String plan;
 }
 
 /// A tool that comes from an MCP server. [arguments] is exactly what the server was sent.
@@ -164,7 +184,7 @@ class ParseInvalid extends ParseResult {
 abstract final class Protocol {
   /// Bumped whenever a tool schema changes. Stored with each generation so a regeneration
   /// can tell whether it runs under the same protocol as the original.
-  static const schemaVersion = 5;
+  static const schemaVersion = 6;
 
   static final askUser = ToolDefinition(
     name: 'ask_user',
@@ -294,20 +314,26 @@ abstract final class Protocol {
   );
 
   /// Most tasks one `delegate` call may carry (the grammar's limit; the setting can be lower).
-  static const maxDelegateTasks = 8;
+  static const maxDelegateTasks = 16;
 
   static final delegate = ToolDefinition(
     name: 'delegate',
     description:
-        'Coding mode: hand jobs to the developer model, which writes the code. The jobs run at the same '
-        'time and cannot see each other, so put the names, signatures and data formats they must agree '
-        'on in summary and in every job that touches them. Each job must be complete: the developer sees '
-        'nothing else. You get each result back with an id. The user sees the developer\'s files as they '
-        'come, so do not copy them into your answer; read them, and if something is wrong call delegate '
-        'again with revise (the id of that result) and exactly what to change.',
+        'Coding mode: hand jobs to the developer models, which write the code. Split the work into many '
+        'SMALL jobs (one file or one group of functions each). Draw the split in plan as a Mermaid flowchart: '
+        'one node per job, written id["title"], and an arrow a --> b when b needs the result of a. Jobs '
+        'with no arrow into them run at the same time on different models, so keep as many as possible '
+        'independent. Jobs that run at the same time cannot see each other, so put the names, signatures '
+        'and data formats they must agree on in summary and in every job that touches them. A job that '
+        'waits for others is given their results. Each job must be complete: the developer sees nothing '
+        'else, decides every detail itself and does not ask you. You get each result back with an id. The '
+        'user sees the developers\' files as they come, so do not copy them into your answer; read them, '
+        'and if something is wrong call delegate again with revise (the id of that result) and exactly '
+        'what to change.',
     parameters: _objectSchema(
       required: ['tasks'],
       properties: {
+        'plan': {'type': 'string'},
         'summary': {'type': 'string'},
         'tasks': {
           'type': 'array',
@@ -316,7 +342,12 @@ abstract final class Protocol {
           'items': {
             'type': 'object',
             'properties': {
+              'id': {'type': 'string'},
               'title': {'type': 'string'},
+              'depends_on': {
+                'type': 'array',
+                'items': {'type': 'string'},
+              },
               'instructions': {'type': 'string'},
               'files': {
                 'type': 'array',
@@ -732,13 +763,25 @@ abstract final class ToolCallParser {
     final raw = args['tasks'];
     if (raw is! List) throw _WrongType('tasks');
     final tasks = <DelegateTask>[];
+    final ids = <String>{};
     for (final item in raw) {
       if (item is! Map) throw _WrongType('tasks');
       final instructions = _requiredText(item, 'instructions');
       if (instructions == null) return const ParseInvalid('a task has no instructions');
       final files = item['files'];
+      final written = _requiredText(item, 'id')?.replaceAll(RegExp(r'[^A-Za-z0-9_]'), '');
+      var id = written == null || written.isEmpty ? 't${tasks.length + 1}' : written;
+      if (!ids.add(id)) {
+        // the planner reused an id: the second job is a different job, not an error worth stopping for
+        var n = tasks.length + 1;
+        while (!ids.add(id = 't$n')) {
+          n++;
+        }
+      }
+      final dependsOn = item['depends_on'];
       tasks.add(
         DelegateTask(
+          id: id,
           title: _requiredText(item, 'title') ?? 'タスク ${tasks.length + 1}',
           instructions: instructions,
           files: [
@@ -747,11 +790,59 @@ abstract final class ToolCallParser {
                 if (f is String && f.trim().isNotEmpty) f.trim(),
           ],
           revise: _requiredText(item, 'revise'),
+          dependsOn: [
+            if (dependsOn is List)
+              for (final d in dependsOn)
+                if (d is String && d.trim().isNotEmpty) d.trim(),
+          ],
         ),
       );
     }
     if (tasks.isEmpty) return const ParseInvalid('delegate has no tasks');
-    return ParseOk(Delegate(summary: _requiredText(args, 'summary') ?? '', tasks: tasks));
+
+    // the plan (a Mermaid flowchart) and the lists say the same thing in two ways: merged, and checked
+    final plan = _requiredText(args, 'plan') ?? '';
+    final merged = {for (final t in tasks) t.id: <String>{...t.dependsOn}};
+    if (plan.isNotEmpty) {
+      final graph = PlanGraph.parse(plan);
+      if (graph == null) {
+        return const ParseInvalid('plan has no node: write a Mermaid flowchart such as flowchart TD, a["title"], a --> b');
+      }
+      for (final id in graph.labels.keys) {
+        if (!merged.containsKey(id)) return ParseInvalid("plan names '$id', which is not the id of a task");
+      }
+      for (final (from, to) in graph.edges) {
+        merged[to]!.add(from);
+      }
+    }
+    for (final entry in merged.entries) {
+      for (final dep in entry.value) {
+        if (!merged.containsKey(dep)) return ParseInvalid("task '${entry.key}' waits for '$dep', which is not the id of a task");
+        if (dep == entry.key) return ParseInvalid("task '$dep' waits for itself");
+      }
+    }
+    final cycle = PlanGraph(
+      {for (final t in tasks) t.id: t.title},
+      [for (final entry in merged.entries) for (final dep in entry.value) (dep, entry.key)],
+    ).cycle();
+    if (cycle != null) return ParseInvalid('the tasks wait for each other in a circle: ${cycle.join(' -> ')}');
+    return ParseOk(
+      Delegate(
+        summary: _requiredText(args, 'summary') ?? '',
+        plan: plan,
+        tasks: [
+          for (final t in tasks)
+            DelegateTask(
+              id: t.id,
+              title: t.title,
+              instructions: t.instructions,
+              files: t.files,
+              revise: t.revise,
+              dependsOn: merged[t.id]!.toList(),
+            ),
+        ],
+      ),
+    );
   }
 
   static ParseResult _parseAddProvider(Map<dynamic, dynamic> args) {

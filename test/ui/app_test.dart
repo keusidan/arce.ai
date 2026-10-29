@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:arce_ai/ai/provider_config.dart';
 import 'package:arce_ai/ai/thinking_config.dart';
 import 'package:arce_ai/core/chat_controller.dart';
+import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/releases.dart';
 import 'package:arce_ai/services/app_controller.dart';
 import 'package:arce_ai/services/settings.dart';
@@ -328,20 +329,55 @@ void main() {
 
     app.openSettings(SettingsSection.coding);
     await tester.pumpAndSettle();
-    expect(find.text('プランナーモデル'), findsOneWidget);
+    expect(find.text('プランナーは、使用中のモデルに合わせる'), findsOneWidget);
+    expect(find.text('プランナーモデル'), findsNothing, reason: 'the planner follows the model in use, so there is nothing to choose');
     expect(find.text('開発モデル'), findsOneWidget);
-    expect(find.textContaining('両方を選ぶと'), findsNothing, reason: 'no warning while the mode is off');
+    expect(find.text('開発モデルを追加'), findsOneWidget);
+    expect(find.textContaining('開発モデルを 1 つ以上選ぶと'), findsNothing, reason: 'no warning while the mode is off');
 
     await app.settings.update((s) => s.copyWith(codingPlanEnabled: true));
     await tester.pumpAndSettle();
-    expect(find.textContaining('両方を選ぶと'), findsOneWidget);
+    expect(find.textContaining('開発モデルを 1 つ以上選ぶと'), findsOneWidget);
     expect(app.settings.value.coding.isReady, isFalse);
 
-    await app.settings.update((s) => s.copyWith(plannerModel: 'openai|gpt-4o', developerModel: 'local|'));
+    await app.settings.update((s) => s.copyWith(developerModel: 'local|'));
+    await tester.pumpAndSettle();
+    expect(app.settings.value.coding.isReady, isTrue, reason: 'the planner is the model in use: only a developer is needed');
+    expect(find.textContaining('開発モデルを 1 つ以上選ぶと'), findsNothing);
+    expect(find.textContaining('まだ読み込まれていません'), findsOneWidget, reason: 'the device model is not loaded in a test');
+
+    // fixing the planner shows its field, and asks for one
+    await app.settings.update((s) => s.copyWith(codingPlannerFollows: false));
+    await tester.pumpAndSettle();
+    expect(find.text('プランナーモデル'), findsOneWidget);
+    expect(find.textContaining('プランナーモデルを選ぶか'), findsOneWidget);
+    await app.settings.update((s) => s.copyWith(plannerModel: 'openai|gpt-4o'));
     await tester.pumpAndSettle();
     expect(app.settings.value.coding.isReady, isTrue);
-    expect(find.textContaining('両方を選ぶと'), findsNothing);
-    expect(find.textContaining('まだ読み込まれていません'), findsOneWidget, reason: 'the device model is not loaded in a test');
+  });
+
+  testWidgets('coding mode: the planner is the model in use, so switching the model in the chat changes it too; a fixed planner stays', (tester) async {
+    final app = await makeApp(tester);
+    for (final id in ['p1', 'p2']) {
+      await app.providers.save(ProviderConfig(id: id, label: id, baseUrl: 'https://example.com/v1', models: [ModelConfig(id: 'm', name: 'm')]));
+    }
+    GenerateRequest request(String agent) => GenerateRequest(
+          prompt: 'x',
+          toolCallSchema: null,
+          thinking: false,
+          maxTokens: 10,
+          sampling: SamplingParams.qwen3NonThinking,
+          agentId: agent,
+        );
+    await app.settings.update((s) => s.copyWith(codingPlanEnabled: true, developerModel: 'p2|m', plannerModel: 'p1|m'));
+    expect(app.engine.planner!(request('coding')), isNull, reason: 'it follows the model in use: no separate engine answers');
+
+    await app.settings.update((s) => s.copyWith(codingPlannerFollows: false));
+    expect(app.engine.planner!(request('coding')), isNotNull, reason: 'a fixed planner answers the coding agent');
+    expect(app.engine.planner!(request('general')), isNull, reason: 'only the coding agent hands work over');
+
+    await app.settings.update((s) => s.copyWith(codingPlannerFollows: true, plannerModel: ''));
+    expect(app.engine.planner!(request('coding')), isNull);
   });
 
   testWidgets('chat: the 分担 button turns the coding mode on and goes to its settings when it is not ready', (tester) async {
@@ -355,7 +391,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(app.settings.value.codingPlanEnabled, isTrue);
     expect(app.page, AppPage.settings, reason: 'it cannot work yet, so the settings open');
-    expect(find.text('プランナーモデル'), findsOneWidget);
+    expect(find.text('開発モデル'), findsOneWidget);
     await tester.pump(const Duration(seconds: 3)); // the toast's timer
   });
 
@@ -392,6 +428,8 @@ void main() {
     await tester.pumpWidget(ArceApp(app: app));
     await tester.pump();
 
+    // the planner field shows only when the planner is fixed (by default it follows the model in use)
+    await app.settings.update((s) => s.copyWith(codingPlannerFollows: false));
     app.openSettings(SettingsSection.coding);
     await tester.pumpAndSettle();
     await tester.tap(find.text('未選択').first);

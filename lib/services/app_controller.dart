@@ -568,26 +568,34 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  /// Carries out the planner's `delegate` calls with the developer model (see [DelegateRunner]).
+  /// Carries out the planner's `delegate` calls with the developer models (see [DelegateRunner]).
   late final _delegate = DelegateRunner(
     settings: () => settings.value.coding,
-    developer: () => _roleFor(settings.value.coding.developer),
+    developers: _developerRoles,
   );
 
-  /// Whether the coding mode can work now: it is on, and both the planner and the developer model
-  /// can be used. Only then is the `delegate` tool offered and the planner the one that answers.
+  /// The developer models that can be used now, in the order of the settings.
+  List<RoleModel> _developerRoles({bool note = true}) => [
+        for (final ref in settings.value.coding.developers) ?_roleFor(ref, note: note),
+      ];
+
+  /// Whether the coding mode can work now: it is on, at least one developer model can be used, and
+  /// the planner is known (the model in use, or the one chosen). Only then is the `delegate` tool
+  /// offered.
   bool _delegateAvailable() {
     final s = settings.value.coding;
-    return s.isReady && _roleFor(s.developer, note: false) != null && _plannerEngine(null, note: false) != null;
+    if (!s.isReady || _developerRoles(note: false).isEmpty) return false;
+    return s.plannerFollowsModel || _plannerEngine(null, note: false) != null;
   }
 
   /// The engine of the planner model for [request], or null when the model in use answers: the
-  /// coding mode is off or not ready, or the request is not the coding agent's.
+  /// coding mode is off or not ready, the planner follows the model in use, or the request is not
+  /// the coding agent's.
   InferenceEngine? _plannerEngine(GenerateRequest? request, {bool note = true}) {
     final s = settings.value.coding;
-    if (!s.isReady) return null;
+    if (!s.isReady || s.plannerFollowsModel) return null;
     if (request != null && request.agentId != Agents.coding.id) return null;
-    if (_roleFor(s.developer, note: false) == null) return null;
+    if (_developerRoles(note: false).isEmpty) return null;
     final parsed = CodingSettings.parseRef(s.planner);
     if (parsed == null) return null;
     final (providerId, modelId) = parsed;

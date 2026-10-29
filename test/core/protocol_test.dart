@@ -77,6 +77,37 @@ void main() {
       expect(parse('{"tasks":[]}'), isA<ParseInvalid>());
     });
 
+    test('仕事に id が付く（無ければ t1, t2 …、重なれば別の id）。待つ仕事は depends_on で書ける', () {
+      final call = (parse('{"tasks":[{"id":"a","title":"A","instructions":"x"},{"title":"B","instructions":"y","depends_on":["a"]},{"id":"a","title":"C","instructions":"z"}]}') as ParseOk).call as Delegate;
+      expect(call.tasks.map((t) => t.id), ['a', 't2', 't3'], reason: 'a repeated id becomes another job, not an error');
+      expect(call.tasks[1].dependsOn, ['a']);
+      expect(call.plan, isEmpty);
+    });
+
+    test('Mermaid の図の矢印は、依存として仕事に入る（depends_on と合わせる）', () {
+      final call = (parse(
+        '{"plan":"flowchart TD\\n  a[\\"土台\\"] --> b[\\"上物\\"]\\n  b --> c","tasks":['
+        '{"id":"a","title":"土台","instructions":"x"},'
+        '{"id":"b","title":"上物","instructions":"y"},'
+        '{"id":"c","title":"仕上げ","instructions":"z","depends_on":["a"]}]}',
+      ) as ParseOk)
+          .call as Delegate;
+      expect(call.plan, startsWith('flowchart TD'));
+      expect(call.tasks[0].dependsOn, isEmpty);
+      expect(call.tasks[1].dependsOn, ['a']);
+      expect(call.tasks[2].dependsOn.toSet(), {'a', 'b'}, reason: 'the arrow b --> c and the list agree');
+    });
+
+    test('使えない図や依存は、理由を付けて断る（モデルが書き直せるように）', () {
+      String reason(String json) => (parse(json) as ParseInvalid).reason;
+      const t = '"tasks":[{"id":"a","title":"A","instructions":"x"},{"id":"b","title":"B","instructions":"y"}]';
+      expect(reason('{"plan":"これは図ではない（記号なし）!",$t}'), contains('plan has no node'));
+      expect(reason('{"plan":"a --> z",$t}'), contains("'z', which is not the id of a task"));
+      expect(reason('{"plan":"a --> b\\nb --> a",$t}'), contains('wait for each other in a circle'));
+      expect(reason('{"tasks":[{"id":"a","title":"A","instructions":"x","depends_on":["q"]}]}'), contains("waits for 'q'"));
+      expect(reason('{"tasks":[{"id":"a","title":"A","instructions":"x","depends_on":["a"]}]}'), contains('waits for itself'));
+    });
+
     test('道具の定義は、タスクの数に上限があり、指示を必須にする（ローカルの文法が守らせる）', () {
       final tasks = (Protocol.delegate.parameters['properties']! as Map)['tasks']! as Map;
       expect(tasks['maxItems'], Protocol.maxDelegateTasks);

@@ -60,9 +60,11 @@ class AppSettings {
     this.onlinePrompt = '',
     this.codingPlanEnabled = false,
     this.plannerModel = '',
+    this.codingPlannerFollows = true,
+    this.developerModelsMore = '',
     this.developerModel = '',
-    this.codingMaxTasks = 4,
-    this.codingParallel = 3,
+    this.codingMaxTasks = 8,
+    this.codingParallel = 4,
     this.codingReviewRounds = 1,
     this.codingDeveloperMaxTokens = 0,
     this.codingResultChars = 12000,
@@ -182,8 +184,16 @@ class AppSettings {
   /// `provider|model` of the model that designs and reviews (`local|` is the model on the device).
   final String plannerModel;
 
+  /// The planner is the model in use (the one picked in the chat). Off: [plannerModel] answers the
+  /// coding agent's requests, whatever the chat shows.
+  final bool codingPlannerFollows;
+
   /// `provider|model` of the model that writes the code.
   final String developerModel;
+
+  /// More developer models (`provider|model`, one per line): the jobs of one call are spread over
+  /// all the developers, so several models write at the same time.
+  final String developerModelsMore;
   final int codingMaxTasks;
   final int codingParallel;
   final int codingReviewRounds;
@@ -354,8 +364,13 @@ class AppSettings {
   CodingSettings get coding => CodingSettings(
     enabled: codingPlanEnabled,
     planner: plannerModel,
+    plannerFollowsModel: codingPlannerFollows,
+    moreDevelopers: [
+      for (final line in developerModelsMore.split(RegExp(r'[\n,]')))
+        if (line.trim().isNotEmpty) line.trim(),
+    ],
     developer: developerModel,
-    maxTasks: codingMaxTasks.clamp(1, 8),
+    maxTasks: codingMaxTasks.clamp(1, 16),
     parallel: codingParallel.clamp(1, 8),
     reviewRounds: codingReviewRounds.clamp(0, 3),
     developerMaxTokens: codingDeveloperMaxTokens <= 0 ? 0 : codingDeveloperMaxTokens.clamp(256, 1048576),
@@ -408,6 +423,8 @@ class AppSettings {
     String? onlinePrompt,
     bool? codingPlanEnabled,
     String? plannerModel,
+    bool? codingPlannerFollows,
+    String? developerModelsMore,
     String? developerModel,
     int? codingMaxTasks,
     int? codingParallel,
@@ -501,6 +518,8 @@ class AppSettings {
     onlinePrompt: onlinePrompt ?? this.onlinePrompt,
     codingPlanEnabled: codingPlanEnabled ?? this.codingPlanEnabled,
     plannerModel: plannerModel ?? this.plannerModel,
+    codingPlannerFollows: codingPlannerFollows ?? this.codingPlannerFollows,
+    developerModelsMore: developerModelsMore ?? this.developerModelsMore,
     developerModel: developerModel ?? this.developerModel,
     codingMaxTasks: codingMaxTasks ?? this.codingMaxTasks,
     codingParallel: codingParallel ?? this.codingParallel,
@@ -596,6 +615,8 @@ class AppSettings {
     'onlinePrompt': onlinePrompt,
     'codingPlanEnabled': codingPlanEnabled,
     'plannerModel': plannerModel,
+    'codingPlannerFollows': codingPlannerFollows,
+    'developerModelsMore': developerModelsMore,
     'developerModel': developerModel,
     'codingMaxTasks': codingMaxTasks,
     'codingParallel': codingParallel,
@@ -717,6 +738,8 @@ class AppSettings {
       onlinePrompt: text('onlinePrompt', d.onlinePrompt),
       codingPlanEnabled: flag('codingPlanEnabled', d.codingPlanEnabled),
       plannerModel: text('plannerModel', d.plannerModel),
+      codingPlannerFollows: flag('codingPlannerFollows', d.codingPlannerFollows),
+      developerModelsMore: text('developerModelsMore', d.developerModelsMore),
       developerModel: text('developerModel', d.developerModel),
       codingMaxTasks: whole('codingMaxTasks', d.codingMaxTasks),
       codingParallel: whole('codingParallel', d.codingParallel),

@@ -198,6 +198,17 @@ abstract final class AgentSettings {
       label: 'コーディングモード（プランナー＋開発の分担）',
       kind: SettingKind.flag,
     ),
+    'codingPlannerFollows': SettingSpec(
+      key: 'codingPlannerFollows',
+      label: 'コーディング: プランナーは、使用中のモデルに合わせる（オフなら下のプランナーモデル）',
+      kind: SettingKind.flag,
+    ),
+    'developerModelsMore': SettingSpec(
+      key: 'developerModelsMore',
+      label: 'コーディング: 追加の開発モデル（provider|model を 1 行に 1 つ）',
+      kind: SettingKind.text,
+      maxLength: 1000,
+    ),
     'plannerModel': SettingSpec(key: 'plannerModel', label: 'プランナーモデル（provider|model）', kind: SettingKind.text, maxLength: 120),
     'developerModel': SettingSpec(key: 'developerModel', label: '開発モデル（provider|model）', kind: SettingKind.text, maxLength: 120),
     'codingMaxTasks': SettingSpec(
@@ -205,11 +216,11 @@ abstract final class AgentSettings {
       label: 'コーディング: 1 回の依頼に入れるタスクの最大数',
       kind: SettingKind.whole,
       min: 1,
-      max: 8,
+      max: 16,
     ),
     'codingParallel': SettingSpec(
       key: 'codingParallel',
-      label: 'コーディング: 同時に走らせる数',
+      label: 'コーディング: 1 つの開発モデルが同時に走らせる数',
       kind: SettingKind.whole,
       min: 1,
       max: 8,

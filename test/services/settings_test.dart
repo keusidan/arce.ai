@@ -120,6 +120,18 @@ void main() {
     expect(local.applyTo(base).topP, base.topP);
   });
 
+  test('the planner follows the model in use by default (a saved fixed planner stays fixed), and more developers round-trip', () {
+    expect(const AppSettings().coding.plannerFollowsModel, isTrue);
+    expect(AppSettings.fromJson(const {}).coding.plannerFollowsModel, isTrue, reason: 'settings saved before this option existed follow the model in use');
+    final back = AppSettings.fromJson(const AppSettings(codingPlannerFollows: false, developerModel: 'a|1', developerModelsMore: 'b|2\nc|3, d|4').toJson());
+    expect(back.coding.plannerFollowsModel, isFalse);
+    expect(back.coding.developers, ['a|1', 'b|2', 'c|3', 'd|4']);
+    expect(AgentSettings.isEditable('codingPlannerFollows'), isTrue);
+    expect(AgentSettings.isEditable('developerModelsMore'), isTrue);
+    expect(const AppSettings().coding.maxTasks, 8, reason: 'jobs are split finely, so the default is higher');
+    expect(const AppSettings().coding.parallel, 4);
+  });
+
   test('the coding mode settings round-trip, and are kept inside their limits', () {
     const s = AppSettings(
       codingPlanEnabled: true,
@@ -134,7 +146,7 @@ void main() {
     expect(back.coding.enabled, isTrue);
     expect(back.coding.planner, 'openai|gpt-4o');
     expect(back.coding.developer, 'local|');
-    expect(back.coding.maxTasks, 8, reason: 'too many tasks is cut to the limit');
+    expect(back.coding.maxTasks, 16, reason: 'too many tasks is cut to the limit');
     expect(back.coding.parallel, 1);
     expect(back.coding.reviewRounds, 0);
     expect(back.coding.developerMaxTokens, 8192);

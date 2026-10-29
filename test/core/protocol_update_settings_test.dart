@@ -82,7 +82,7 @@ void main() {
 
   test('プロトコルの版が上がっている', () {
     // 5: run_command and ci_status joined the tools (0.12.0)
-    expect(Protocol.schemaVersion, 5);
+    expect(Protocol.schemaVersion, 6);
   });
 
   test('既存の道具はそのまま動く', () {

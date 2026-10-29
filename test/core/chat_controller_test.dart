@@ -165,16 +165,45 @@ void main() {
     expect(engine.requests[0].prompt, engine.requests[1].prompt);
   });
 
-  test('an invalid question is reported, not shown', () async {
-    const bad =
-        '{"name":"ask_user","arguments":{"title":"q","options":["a","a"]}}';
+  const badQuestion = '{"name":"ask_user","arguments":{"title":"q","options":["a","a"]}}';
+
+  test('an invalid question is reported, not shown, when no retry is allowed', () async {
     final chat = ChatController(
-      ScriptedEngine([('<tool_call>\n$bad\n</tool_call>', FinishReason.eog)]),
+      ScriptedEngine([('<tool_call>\n$badQuestion\n</tool_call>', FinishReason.eog)]),
+      settings: () => const GenerationSettings(retryLimit: 0),
     );
     await chat.send('質問して');
     expect(chat.state.task, TaskState.error);
     expect(chat.state.error, 'options are not distinct');
     expect(chat.state.pendingQuestion, isNull);
+  });
+
+  test('a tool call that cannot be used is not an error: the model is told why and writes it again', () async {
+    final engine = ScriptedEngine([
+      ('確認します。<tool_call>\n$badQuestion\n</tool_call>', FinishReason.eog),
+      ('<tool_call>\n$askJson\n</tool_call>', FinishReason.eog),
+    ]);
+    final failures = <String>[];
+    final chat = ChatController(engine, onFailure: failures.add);
+    await chat.send('質問して');
+    expect(engine.requests, hasLength(2));
+    expect(engine.requests.last.prompt, contains('could not be used: options are not distinct'));
+    expect(chat.state.task, TaskState.userWait, reason: 'the second try is a good question, and it is shown');
+    expect(chat.state.error, isNull);
+    expect(failures, isEmpty);
+    final reply = chat.state.messages.last;
+    expect(reply.activities.single.failed, isTrue, reason: 'the screen says the first call could not be read');
+    expect(reply.activities.single.summary, contains('options are not distinct'));
+    expect(reply.text, contains('確認します'));
+  });
+
+  test('a model that keeps writing unusable calls is stopped after the retry limit, with the reason', () async {
+    final engine = ScriptedEngine([for (var i = 0; i < 3; i++) ('<tool_call>\n$badQuestion\n</tool_call>', FinishReason.eog)]);
+    final chat = ChatController(engine);
+    await chat.send('質問して');
+    expect(engine.requests, hasLength(3), reason: 'once, and the retry limit (2) more');
+    expect(chat.state.task, TaskState.error);
+    expect(chat.state.error, 'options are not distinct');
   });
 
   test('two tool calls in one reply (parallel calls): the first one is run, not the last and not a failure', () async {

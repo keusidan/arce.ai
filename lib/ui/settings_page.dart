@@ -826,16 +826,57 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// The developer models after the first one: each can be changed or removed, and one more is added
+  /// by choosing a model in the last row. The jobs of one `delegate` call are spread over all of them.
+  List<Widget> _moreDevelopers(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
+    final more = s.coding.moreDevelopers;
+    void save(List<String> refs) => set((x) => x.copyWith(developerModelsMore: refs.where((r) => r.trim().isNotEmpty).join('\n')));
+    return [
+      for (var i = 0; i < more.length; i++)
+        SettingRow(
+          icon: ArceSvg.bolt,
+          title: '追加の開発モデル ${i + 1}',
+          subtitle: '仕事を分け合って、同時に書きます',
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            _ModelRefField(
+              app: app,
+              value: more[i],
+              title: '追加の開発モデル ${i + 1}',
+              width: 140,
+              onChanged: (v) => save([for (var j = 0; j < more.length; j++) j == i ? v : more[j]]),
+            ),
+            IconTap(svg: ArceSvg.close, tooltip: '外す', onTap: () => save([for (var j = 0; j < more.length; j++) if (j != i) more[j]])),
+          ]),
+        ),
+      SettingRow(
+        icon: ArceSvg.plus,
+        title: '開発モデルを追加',
+        subtitle: '右で選ぶと、開発モデルが増えます（安いモデルを並べると速くなります）',
+        trailing: _ModelRefField(
+          app: app,
+          value: '',
+          title: '追加の開発モデル',
+          width: 140,
+          onChanged: (v) {
+            if (v.isNotEmpty) save([...more, v]);
+          },
+        ),
+      ),
+    ];
+  }
+
   Widget _codingMode(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
     final c = context.c;
     final coding = s.coding;
     final String? problem;
     if (!coding.enabled) {
       problem = null;
-    } else if (coding.planner.isEmpty || coding.developer.isEmpty) {
-      problem = 'プランナーモデルと開発モデルの両方を選ぶと、分担が始まります。';
-    } else if ((coding.planner.startsWith('${CodingSettings.localProvider}|') ||
-            coding.developer.startsWith('${CodingSettings.localProvider}|')) &&
+    } else if (coding.developers.isEmpty) {
+      problem = '開発モデルを 1 つ以上選ぶと、分担が始まります。';
+    } else if (!coding.plannerFollowsModel && coding.planner.isEmpty) {
+      problem = 'プランナーモデルを選ぶか、「使用中のモデルに合わせる」をオンにすると、分担が始まります。';
+    } else if (((!coding.plannerFollowsModel && coding.planner.startsWith('${CodingSettings.localProvider}|')) ||
+            coding.developers.any((d) => d.startsWith('${CodingSettings.localProvider}|'))) &&
         !app.models.isLoaded) {
       problem = '端末のモデルを選んでいますが、まだ読み込まれていません。読み込むまで、いつもどおり1つのモデルで答えます。';
     } else {
@@ -872,25 +913,33 @@ class _SettingsPageState extends State<SettingsPage> {
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(problem, style: ts(context, 10, color: c.amber, height: 1.6)),
             ),
-          pick(ArceSvg.compass, 'プランナーモデル', 'あなたに答え、仕事を分けて渡し、結果を確認します（高性能なモデル向き）', s.plannerModel,
-              (v) => set((x) => x.copyWith(plannerModel: v))),
+          SettingRow(
+            icon: ArceSvg.compass,
+            title: 'プランナーは、使用中のモデルに合わせる',
+            subtitle: 'オン：入力欄で選んだモデルがプランナーになります（切り替えると、コーディングの依頼もそのモデルで答えます）。オフ：下で決めたモデルに固定します',
+            trailing: ArceSwitch(value: s.codingPlannerFollows, onChanged: (v) => set((x) => x.copyWith(codingPlannerFollows: v))),
+          ),
+          if (!s.codingPlannerFollows)
+            pick(ArceSvg.compass, 'プランナーモデル', 'あなたに答え、仕事を分けて渡し、結果を確認します（高性能なモデル向き）', s.plannerModel,
+                (v) => set((x) => x.copyWith(plannerModel: v))),
           pick(ArceSvg.bolt, '開発モデル', 'コードを書きます（安いモデル・端末のモデル向き）', s.developerModel,
               (v) => set((x) => x.copyWith(developerModel: v))),
+          ..._moreDevelopers(app, s, set),
           SettingRow(
             icon: ArceSvg.grid,
             title: 'タスクの最大数',
             subtitle: 'プランナーが 1 回の依頼に入れてよい仕事の数（超えた分は断ります）',
             trailing: _Cycle<int>(
               value: coding.maxTasks,
-              values: const [1, 2, 3, 4, 6, 8],
+              values: const [1, 2, 3, 4, 6, 8, 12, 16],
               label: (v) => '$v',
               onChanged: (v) => set((x) => x.copyWith(codingMaxTasks: v)),
             ),
           ),
           SettingRow(
             icon: ArceSvg.sliders2,
-            title: '同時に走らせる数',
-            subtitle: '開発モデルへの同時リクエスト数（端末のモデルは常に1）',
+            title: '1 つの開発モデルが同時に走らせる数',
+            subtitle: '開発モデルが何個の仕事を同時に受けるか（端末のモデルは常に1）。開発モデルが複数あれば、その合計だけ同時に走ります',
             trailing: _Cycle<int>(
               value: coding.parallel,
               values: const [1, 2, 3, 4, 6, 8],

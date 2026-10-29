@@ -100,7 +100,7 @@ const delegateCall =
   final stop = StopSignal();
   final runner = DelegateRunner(
     settings: () => const CodingSettings(enabled: true, planner: 'p|m', developer: 'd|m', maxTasks: 4, parallel: 3),
-    developer: () => developer,
+    developers: () => [developer],
   );
   final meter = RunMeter();
   final chat = ChatController(
@@ -129,10 +129,10 @@ void main() {
     expect(t.developer.asked, hasLength(1));
     expect(t.developer.asked.single[1].text, allOf(contains('画面を作る'), contains('index.html'), contains('S')));
     // the planner read the result by its id, and finished
-    expect(t.planner.requests.last.prompt, allOf(contains('<tool_response>'), contains('## d1: 画面'), contains('<p>画面</p>')));
+    expect(t.planner.requests.last.prompt, allOf(contains('<tool_response>'), contains('## d1 (t1): 画面'), contains('<p>画面</p>')));
     // the user's reply has the developer's file (shown by the app) and the planner's closing words
     final reply = t.chat.state.messages.last;
-    expect(reply.text, allOf(contains('> 開発: 開発'), contains('### 画面'), contains('<p>画面</p>'), contains('作りました。')));
+    expect(reply.text, allOf(contains('> 開発: 1 件を、開発 で並列に'), contains('### 画面'), contains('<p>画面</p>'), contains('作りました。')));
     expect(reply.text.indexOf('<p>画面</p>'), lessThan(reply.text.indexOf('作りました。')), reason: 'the file first, then the summary');
     expect(reply.activities.single.tool, 'Delegate');
     expect(reply.finish, FinishReason.eog);
