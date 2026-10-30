@@ -415,6 +415,9 @@ abstract final class Protocol {
     ),
   );
 
+  /// The tool that calls an address for the model, with secrets put in by placeholder (docs 15.13, path A).
+  static const httpRequestName = 'http_request';
+
   /// A program that is talked to: it keeps running, asks for input, shows a screen. Starts under a pseudo
   /// terminal; the answer is always the terminal screen as text.
   static const shellSessionName = 'shell_session';

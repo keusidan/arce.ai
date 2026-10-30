@@ -107,6 +107,12 @@ class AppSettings {
     this.markBlockedModels = true,
     this.autoCheckSelectedModel = true,
     this.modelCheckAsksToo = false,
+    this.secretsOffForModel = const [],
+    this.httpRequestEnabled = true,
+    this.httpRequestConfirm = 'secretOrWrite',
+    this.httpRequestMaxResponseChars = 20000,
+    this.httpRequestTimeoutSeconds = 30,
+    this.httpRequestAllowInsecure = false,
     this.modelProbeConcurrency = 3,
     this.modelProbeTimeoutSeconds = 30,
     this.modelAvailabilityTrustDays = 7,
@@ -344,6 +350,23 @@ class AppSettings {
   /// A model that the key's model list has is also asked the shortest question (which shows what a list
   /// cannot: that a free tier has no quota for it). Off: the list alone judges, and uses no quota.
   final bool modelCheckAsksToo;
+
+  /// Secrets (by `SecretInfo.stableKey`: `provider:gem`, `mcp:github`, `own:NAME`) that the user does not
+  /// let a model use by placeholder. Blocked from the chat.
+  final List<String> secretsOffForModel;
+
+  /// The tool `http_request`: a model asks the app to call an address, and the app puts the secrets the model
+  /// named by placeholder into the request (only for the hosts each secret is bound to).
+  final bool httpRequestEnabled;
+
+  /// When the user approves a call first: `secretOrWrite` (one that uses a secret, or is not a read),
+  /// `all`, or `never` (the secret's hosts still bind it). Blocked from the chat.
+  final String httpRequestConfirm;
+  final int httpRequestMaxResponseChars;
+  final int httpRequestTimeoutSeconds;
+
+  /// Allow `http://` (not encrypted) for a call that carries a secret. Blocked from the chat.
+  final bool httpRequestAllowInsecure;
   final int modelProbeConcurrency;
   final int modelProbeTimeoutSeconds;
   final int modelAvailabilityTrustDays;
@@ -569,6 +592,12 @@ class AppSettings {
     bool? markBlockedModels,
     bool? autoCheckSelectedModel,
     bool? modelCheckAsksToo,
+    List<String>? secretsOffForModel,
+    bool? httpRequestEnabled,
+    String? httpRequestConfirm,
+    int? httpRequestMaxResponseChars,
+    int? httpRequestTimeoutSeconds,
+    bool? httpRequestAllowInsecure,
     int? modelProbeConcurrency,
     int? modelProbeTimeoutSeconds,
     int? modelAvailabilityTrustDays,
@@ -694,6 +723,12 @@ class AppSettings {
     markBlockedModels: markBlockedModels ?? this.markBlockedModels,
     autoCheckSelectedModel: autoCheckSelectedModel ?? this.autoCheckSelectedModel,
     modelCheckAsksToo: modelCheckAsksToo ?? this.modelCheckAsksToo,
+    secretsOffForModel: secretsOffForModel ?? this.secretsOffForModel,
+    httpRequestEnabled: httpRequestEnabled ?? this.httpRequestEnabled,
+    httpRequestConfirm: httpRequestConfirm ?? this.httpRequestConfirm,
+    httpRequestMaxResponseChars: httpRequestMaxResponseChars ?? this.httpRequestMaxResponseChars,
+    httpRequestTimeoutSeconds: httpRequestTimeoutSeconds ?? this.httpRequestTimeoutSeconds,
+    httpRequestAllowInsecure: httpRequestAllowInsecure ?? this.httpRequestAllowInsecure,
     modelProbeConcurrency: modelProbeConcurrency ?? this.modelProbeConcurrency,
     modelProbeTimeoutSeconds: modelProbeTimeoutSeconds ?? this.modelProbeTimeoutSeconds,
     modelAvailabilityTrustDays: modelAvailabilityTrustDays ?? this.modelAvailabilityTrustDays,
@@ -821,6 +856,12 @@ class AppSettings {
     'markBlockedModels': markBlockedModels,
     'autoCheckSelectedModel': autoCheckSelectedModel,
     'modelCheckAsksToo': modelCheckAsksToo,
+    'secretsOffForModel': secretsOffForModel,
+    'httpRequestEnabled': httpRequestEnabled,
+    'httpRequestConfirm': httpRequestConfirm,
+    'httpRequestMaxResponseChars': httpRequestMaxResponseChars,
+    'httpRequestTimeoutSeconds': httpRequestTimeoutSeconds,
+    'httpRequestAllowInsecure': httpRequestAllowInsecure,
     'modelProbeConcurrency': modelProbeConcurrency,
     'modelProbeTimeoutSeconds': modelProbeTimeoutSeconds,
     'modelAvailabilityTrustDays': modelAvailabilityTrustDays,
@@ -978,6 +1019,16 @@ class AppSettings {
       markBlockedModels: flag('markBlockedModels', d.markBlockedModels),
       autoCheckSelectedModel: flag('autoCheckSelectedModel', d.autoCheckSelectedModel),
       modelCheckAsksToo: flag('modelCheckAsksToo', d.modelCheckAsksToo),
+      secretsOffForModel: [
+        if (json['secretsOffForModel'] is List)
+          for (final k in json['secretsOffForModel'] as List)
+            if (k is String && k.trim().isNotEmpty) k.trim(),
+      ],
+      httpRequestEnabled: flag('httpRequestEnabled', d.httpRequestEnabled),
+      httpRequestConfirm: const ['secretOrWrite', 'all', 'never'].contains(json['httpRequestConfirm']) ? json['httpRequestConfirm']! as String : d.httpRequestConfirm,
+      httpRequestMaxResponseChars: whole('httpRequestMaxResponseChars', d.httpRequestMaxResponseChars).clamp(500, 1000000),
+      httpRequestTimeoutSeconds: whole('httpRequestTimeoutSeconds', d.httpRequestTimeoutSeconds).clamp(3, 600),
+      httpRequestAllowInsecure: flag('httpRequestAllowInsecure', d.httpRequestAllowInsecure),
       modelProbeConcurrency: whole('modelProbeConcurrency', d.modelProbeConcurrency).clamp(1, 8),
       modelProbeTimeoutSeconds: whole('modelProbeTimeoutSeconds', d.modelProbeTimeoutSeconds).clamp(5, 120),
       modelAvailabilityTrustDays: whole('modelAvailabilityTrustDays', d.modelAvailabilityTrustDays).clamp(1, 90),

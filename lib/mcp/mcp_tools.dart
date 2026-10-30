@@ -1,12 +1,16 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
+
 import '../ai/token_budget.dart';
 import '../core/protocol.dart';
+import '../core/secret_book.dart';
 import '../core/shell_secrets.dart';
 import '../core/tool_runtime.dart';
 import '../services/ci_client.dart';
 import '../services/linux_env.dart';
 import '../services/shell_sessions.dart';
+import 'http_request_tool.dart';
 import 'mcp_client.dart';
 import 'mcp_server.dart';
 
@@ -107,12 +111,24 @@ class McpTools {
     LinuxEnvironment? environment,
     bool? shellSupported,
     ShellSessionManager? sessionManager,
+    this.secretBook = const EmptySecretBook(),
+    this.httpRequest = const HttpRequestSettings(),
+    this.httpClient,
   })  : _cache = cache ?? {},
         _environment = environment ?? shellEnvironment,
         _shellSupported = shellSupported ?? LinuxEnvironment.supported,
         _sessions = sessionManager ?? shellSessions;
 
   final ShellSessionManager _sessions;
+
+  /// Every secret by id (docs 15.13): what a model may name in `{{secret:ID}}`. Never a value of its own.
+  final SecretBook secretBook;
+
+  /// What `http_request` reads from the settings, and the client it uses (a test gives its own).
+  final HttpRequestSettings httpRequest;
+  final http.Client? httpClient;
+
+  HttpRequestTool get _http => HttpRequestTool(book: secretBook, settings: httpRequest, client: httpClient);
 
   /// The sessions of the whole app, like [shellEnvironment]: a session outlives the call that began it.
   static final ShellSessionManager shellSessions = ShellSessionManager();
@@ -190,6 +206,7 @@ class McpTools {
       return !SandboxPolicy.isInsideSandbox(McpCall(name, arguments));
     }
     if (name == Protocol.shellSessionName) return _sessionNeedsApproval(arguments);
+    if (name == Protocol.httpRequestName) return _http.needsApproval(arguments);
     final parsed = parseName(name);
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
@@ -242,6 +259,7 @@ class McpTools {
     final out = <ToolDefinition>[
       if (shell.enabled && _shellSupported) _runCommandFor(shell, secrets.keys.toList()),
       if (shell.enabled && _shellSupported) _shellSessionFor(shell),
+      ...[?_http.definition()],
       Protocol.ciStatus,
     ];
     final reachable = <(McpServerClient, List<McpTool>)>[];
@@ -326,6 +344,7 @@ class McpTools {
   Future<ToolOutcome> run(McpCall call) async {
     if (call.name == Protocol.ciStatusName) return _runCiStatus(call.arguments);
     if (call.name == Protocol.shellSessionName && _shellSupported) return _runSession(call.arguments);
+    if (call.name == Protocol.httpRequestName) return _http.run(call.arguments);
     if (call.name == Protocol.mcpFindName) return _find(call.arguments);
     if (call.name == Protocol.mcpDescribeName) return _describeTool(call.arguments);
     if (call.name == Protocol.mcpCallName) {

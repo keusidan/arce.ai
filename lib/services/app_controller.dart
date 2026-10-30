@@ -31,11 +31,13 @@ import '../core/http_get.dart';
 import '../core/protocol.dart';
 import '../core/run_progress.dart';
 import '../core/search.dart';
+import '../core/secret_book.dart';
 import '../core/settings_spec.dart';
 import '../core/tool_runtime.dart';
 import '../core/weather.dart';
 import '../engine/demo_engine.dart';
 import '../mcp/mcp_client.dart';
+import '../mcp/http_request_tool.dart';
 import '../mcp/mcp_tools.dart';
 import '../engine/hybrid_engine.dart';
 import '../engine/native_engine.dart';
@@ -487,10 +489,50 @@ class AppController extends ChangeNotifier {
     approved: settings.value.approvedTools.toSet(),
     shell: _shellSettings,
     secrets: _shellSecretValues(),
+    secretBook: secretBook(),
+    httpRequest: HttpRequestSettings(
+      enabled: settings.value.httpRequestEnabled,
+      confirm: settings.value.httpRequestConfirm,
+      maxResponseChars: settings.value.httpRequestMaxResponseChars,
+      timeoutSeconds: settings.value.httpRequestTimeoutSeconds,
+      allowInsecure: settings.value.httpRequestAllowInsecure,
+    ),
     onDemand: settings.value.mcpOnDemand,
     onDemandTokens: settings.value.mcpOnDemandTokens,
     resultMaxChars: settings.value.mcpResultMaxChars,
   );
+
+  /// Every item that holds a key or a token, each with an id made from its name (docs 15.13): the
+  /// providers' API keys, the MCP servers' tokens, the search services' keys, the GitHub tokens and the
+  /// values typed for commands. A model names one in `{{secret:ID}}`; its value goes only to the hosts it is
+  /// bound to (the host of the provider's address, of the server's address, ... or the ones the user wrote).
+  SecretBook secretBook() {
+    final s = settings.value;
+    String? hostOf(String url) => SecretRegistry.hostOfUrl(url);
+    List<String> hosts(String url) => [...?(hostOf(url) == null ? null : [hostOf(url)!])];
+    return SecretRegistry(
+      [
+        for (final secret in s.shellSecrets)
+          if (!secret.fromMcp)
+            SecretSource(kind: SecretKind.own, name: secret.name, source: secret.name, hosts: secret.hosts, value: settings.shellSecretValue(secret)),
+        for (final provider in providers.providers)
+          SecretSource(kind: SecretKind.provider, name: provider.label, source: provider.id, hosts: hosts(provider.baseUrl), value: providers.keyOf(provider.id)),
+        for (final server in s.mcpServers)
+          SecretSource(kind: SecretKind.mcp, name: server.name.isEmpty ? server.id : server.name, source: server.id, hosts: hosts(server.url), value: settings.mcpTokenOf(server.id)),
+        for (final api in s.searchApis)
+          SecretSource(
+            kind: SecretKind.search,
+            name: api.name,
+            source: api.id,
+            hosts: hosts(api.url.replaceAll(SearchApiConfig.queryMark, 'q').replaceAll(SearchApiConfig.countMark, '1').replaceAll(SearchApiConfig.keyMark, 'k')),
+            value: settings.searchKeyOf(api.id),
+          ),
+        SecretSource(kind: SecretKind.github, name: 'GitHub token', source: 'token', hosts: const ['api.github.com'], value: settings.githubToken),
+        SecretSource(kind: SecretKind.github, name: 'GitHub issue token', source: 'issue', hosts: const ['api.github.com'], value: settings.issueToken),
+      ],
+      off: s.secretsOffForModel.toSet(),
+    );
+  }
 
   /// The secrets a command may be given, name -> value; one without a value is left out (it cannot be
   /// given, and the model is not told it exists).

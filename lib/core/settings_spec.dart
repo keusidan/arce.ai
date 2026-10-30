@@ -446,6 +446,9 @@ abstract final class AgentSettings {
       label: '使えないと分かったモデルを、選択肢から隠す（オフなら、灰色にして最後に並べる）',
       kind: SettingKind.flag,
     ),
+    'httpRequestEnabled': SettingSpec(key: 'httpRequestEnabled', label: 'モデルが http_request（アプリが API を呼ぶ道具）を使えるようにする', kind: SettingKind.flag),
+    'httpRequestMaxResponseChars': SettingSpec(key: 'httpRequestMaxResponseChars', label: 'http_request の応答を、モデルに渡す文字数の上限', kind: SettingKind.whole, min: 500, max: 1000000),
+    'httpRequestTimeoutSeconds': SettingSpec(key: 'httpRequestTimeoutSeconds', label: 'http_request の待ち時間（秒）', kind: SettingKind.whole, min: 3, max: 600),
     'modelCheckAsksToo': SettingSpec(key: 'modelCheckAsksToo', label: 'モデルの確認で、一覧にあるモデルにも短い問い合わせを 1 回送る（無料枠の使える・使えないまで分かる。回数を使う）', kind: SettingKind.flag),
     'autoCheckSelectedModel': SettingSpec(key: 'autoCheckSelectedModel', label: 'モデルを選んだとき、そのモデルがこのキーで使えるかを 1 回だけ確かめる', kind: SettingKind.flag),
     'markBlockedModels': SettingSpec(
@@ -592,6 +595,11 @@ abstract final class AgentSettings {
     'approvedTools',
     // which secrets a command may ask for: a message must not hand a token to a command
     'shellSecrets',
+    // which secrets a model may use by placeholder: a message must not open a key to a model
+    'secretsOffForModel',
+    // a message must not switch off the question before a call that carries a secret, nor allow an unencrypted one
+    'httpRequestConfirm',
+    'httpRequestAllowInsecure',
     'linuxRootfsUrl',
     'linuxRootfsSha256',
     // where the names of the Linux environment are looked up: a chosen resolver can answer for any site

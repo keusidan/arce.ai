@@ -172,6 +172,26 @@ void main() {
     expect(AppSettings.fromJson(const AppSettings(compactEnabled: false, mcpOnDemand: false).toJson()).compactEnabled, isFalse);
   });
 
+  test('the settings of the secrets a model may use by placeholder and of http_request: defaults, ranges, and which ones a chat message cannot change', () {
+    const d = AppSettings();
+    expect((d.httpRequestEnabled, d.httpRequestConfirm, d.httpRequestMaxResponseChars, d.httpRequestTimeoutSeconds, d.httpRequestAllowInsecure), (true, 'secretOrWrite', 20000, 30, false));
+    expect(d.secretsOffForModel, isEmpty);
+    final back = AppSettings.fromJson(const AppSettings(secretsOffForModel: ['provider:gem'], httpRequestConfirm: 'all', httpRequestAllowInsecure: true).toJson());
+    expect(back.secretsOffForModel, ['provider:gem']);
+    expect((back.httpRequestConfirm, back.httpRequestAllowInsecure), ('all', true));
+    expect(AppSettings.fromJson(const {'httpRequestConfirm': 'sometimes'}).httpRequestConfirm, 'secretOrWrite', reason: 'an unknown mode is the safe default');
+    expect(AppSettings.fromJson(const {'httpRequestMaxResponseChars': 1, 'httpRequestTimeoutSeconds': 99999}).httpRequestMaxResponseChars, 500);
+    expect(AppSettings.fromJson(const {'httpRequestTimeoutSeconds': 99999}).httpRequestTimeoutSeconds, 600);
+    expect(AppSettings.fromJson(const {'secretsOffForModel': 'x'}).secretsOffForModel, isEmpty);
+    for (final key in ['secretsOffForModel', 'httpRequestConfirm', 'httpRequestAllowInsecure']) {
+      expect(AgentSettings.isEditable(key), isFalse, reason: '$key must not be reachable from a chat message');
+      expect(AgentSettings.blocked, contains(key));
+    }
+    for (final key in ['httpRequestEnabled', 'httpRequestMaxResponseChars', 'httpRequestTimeoutSeconds']) {
+      expect(AgentSettings.isEditable(key), isTrue, reason: key);
+    }
+  });
+
   test('the preview page limit is a setting, kept inside its range', () {
     expect(const AppSettings().previewMaxPages, 50);
     expect(AppSettings.fromJson(const {'previewMaxPages': 0}).previewMaxPages, 1);
