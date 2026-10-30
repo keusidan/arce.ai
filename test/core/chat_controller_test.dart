@@ -8,6 +8,7 @@ import 'package:arce_ai/core/engine.dart';
 import 'package:arce_ai/core/generation.dart';
 import 'package:arce_ai/core/prompt.dart';
 import 'package:arce_ai/core/protocol.dart';
+import 'package:arce_ai/core/secret_book.dart';
 import 'package:arce_ai/core/tool_runtime.dart';
 import 'package:arce_ai/mcp/mcp_tools.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -492,6 +493,38 @@ void main() {
       expect(chat.state.pendingQuestion!.title, contains('秘密を渡します: GITHUB_TOKEN'));
       await chat.answer([ToolApproval.approve], null);
       expect(seen.single.arguments['secrets'], ['GITHUB_TOKEN']);
+    });
+
+    test('a command with a {{secret:ID}} waits for the user, and the card says which secret may go where (end to end, the model\'s text to the tool)', () async {
+      final seen = <McpCall>[];
+      final runtime = _Runtime((call) {
+        if (call is McpCall) seen.add(call);
+        return const ToolOutcome('ok', ToolActivity('Shell', 'done'));
+      });
+      final policy = McpTools(
+        const [],
+        shellSupported: true,
+        secretBook: SecretRegistry(const [
+          SecretSource(kind: SecretKind.provider, name: 'Gemini', source: 'gem', hosts: ['generativelanguage.googleapis.com'], value: 'AIzaSyExampleKey1234567890'),
+        ]),
+      );
+      const withPlaceholder =
+          '<tool_call>\n{"name":"run_command","arguments":{"command":"curl -H \\"k: {{secret:gemini}}\\" https://generativelanguage.googleapis.com/v1beta/models","cwd":"/workspace"}}\n</tool_call>';
+      final chat = ChatController(
+        ScriptedEngine([(withPlaceholder, FinishReason.eog), ('見ました', FinishReason.eog)]),
+        toolRuntime: runtime,
+        extraTools: () async => [shellTool],
+        mcpApproval: (name, [args = const {}]) => policy.approvalRequired(name, args),
+        approvalDetails: policy.approvalDetails,
+      );
+      await chat.send('モデル一覧を見て');
+      expect(seen, isEmpty, reason: 'a placeholder waits for the user even inside the sandbox');
+      final card = chat.state.pendingQuestion!.title;
+      expect(card, contains('{{secret:gemini}}'), reason: 'the command as the model wrote it');
+      expect(card, contains('gemini（送ってよいホスト：generativelanguage.googleapis.com）'));
+      expect(card, isNot(contains('AIzaSy')));
+      await chat.answer([ToolApproval.approve], null);
+      expect(seen.single.arguments['command'], contains('{{secret:gemini}}'), reason: 'the tool is handed the text as written');
     });
 
     test('with the setting off, reading from outside changes nothing', () async {

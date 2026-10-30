@@ -140,6 +140,7 @@ class AppController extends ChangeNotifier {
       applySettings: _applySettings,
       addProvider: _addProvider,
       mcpApproval: _mcpApprovalRequired,
+      approvalDetails: (name, arguments) => _mcpTools.approvalDetails(name, arguments),
       rememberTool: _rememberTool,
       confirmAfterExternal: () => settings.value.shellConfirmAfterExternal,
       conversationKey: () => session.cacheKey,

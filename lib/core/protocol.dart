@@ -400,7 +400,14 @@ abstract final class Protocol {
         'system) runs at once, without waiting for the user; one that reaches the device outside it is '
         'shown for approval first. Set auto_execute: false to ask first even inside. To give the command a '
         'stored secret as an environment variable, list its name in secrets; the user then approves '
-        'that command every time, and you never see the value.',
+        'that command every time, and you never see the value. You can also write {{secret:ID}} where a key '
+        'or a token goes in the command (for example -H "Authorization: Bearer {{secret:ID}}"): the app puts it '
+        'in at the moment of use, only for the addresses that secret is bound to, and the user approves that '
+        'command every time. Write the whole https:// address in the command so that it can be checked. For '
+        'a plain call to an API prefer http_request (the app sends it and the key can only go to its own host); '
+        'use a command for what needs a program. Inside a here-document ({{secret:ID}} is not replaced there, '
+        'so that the key is never written into a file) a script reads the key from the environment variable '
+        'ARCE_SECRET_<ID in capitals, - as _>.',
     parameters: _objectSchema(
       required: ['command'],
       properties: {
@@ -460,7 +467,9 @@ abstract final class Protocol {
         'input is typed as it is (a line break is the Enter key); keys are names pressed after the input: '
         'Enter, Tab, Esc, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, Space, '
         'Ctrl-C, Ctrl-D, Ctrl-<letter>. wait_ms is how long to wait for output before answering. '
-        'A command that does not need talking to is better run with run_command.',
+        'A command that does not need talking to is better run with run_command. {{secret:ID}} may stand in '
+        'command (as for run_command), and in input only for a secret the session was started with; the user '
+        'approves it every time.',
     parameters: _objectSchema(
       required: ['action'],
       properties: {
@@ -625,9 +634,11 @@ abstract final class ToolApproval {
   static const reject = 'やめる';
 
   /// The card for [call]. [note] says why it asks when that is not obvious (a command asks after
-  /// the model has read something from outside); [rememberable] adds [approveAlways].
-  static QuestionTile tile(McpCall call, {String note = '', bool rememberable = false}) => QuestionTile(
-    title: _title(call, note),
+  /// the model has read something from outside); [rememberable] adds [approveAlways]. [details] are lines
+  /// the app adds under a command or a line typed into a session (which secrets it uses, where each may go,
+  /// the addresses written in it): the command itself is shown as the model wrote it, placeholders and all.
+  static QuestionTile tile(McpCall call, {String note = '', bool rememberable = false, String details = ''}) => QuestionTile(
+    title: _title(call, note, details),
     options: [approve, if (rememberable && canRemember(call.name)) approveAlways, reject],
     allowFreeInput: false,
     multiSelect: false,
@@ -639,8 +650,9 @@ abstract final class ToolApproval {
   /// A command is shown as it is (`$ command`), with where and for how long: the model's words
   /// about it are not what the user approves. Another tool is shown by its name (server and tool)
   /// and its arguments one to a line, a long value cut with its size, never as a dumped map.
-  static String _title(McpCall call, String note) {
+  static String _title(McpCall call, String note, [String details = '']) {
     final reason = note.isEmpty ? '' : '\n（$note）';
+    final more = details.isEmpty ? '' : '\n$details';
     if (call.name == Protocol.runCommandName) {
       final command = '${call.arguments['command'] ?? ''}'.trim();
       final cwd = '${call.arguments['cwd'] ?? '/workspace'}'.trim();
@@ -648,7 +660,7 @@ abstract final class ToolApproval {
       final limit = seconds is num ? '・最大 ${seconds.toInt()} 秒' : '';
       final names = ShellSecrets.names(call.arguments['secrets']) ?? const <String>[];
       final secrets = names.isEmpty ? '' : '\n秘密を渡します: ${names.join('、')}（このコマンドは、これらの値を読めます。送り先は制限できません）';
-      return 'このコマンドを実行します。$reason\n\$ $command\n場所: $cwd$limit$secrets';
+      return 'このコマンドを実行します。$reason\n\$ $command\n場所: $cwd$limit$secrets$more';
     }
     if (call.name == Protocol.httpRequestName) return _httpRequestTitle(call, reason);
     if (call.name == Protocol.shellSessionName) {
@@ -657,12 +669,12 @@ abstract final class ToolApproval {
       if (call.arguments['action'] == 'start') {
         final command = '${call.arguments['command'] ?? ''}'.trim();
         final cwd = '${call.arguments['cwd'] ?? '/workspace'}'.trim();
-        return 'このコマンドを、対話できるセッションとして始めます。$reason\n\$ $command\n場所: $cwd$secrets';
+        return 'このコマンドを、対話できるセッションとして始めます。$reason\n\$ $command\n場所: $cwd$secrets$more';
       }
       final input = '${call.arguments['input'] ?? ''}';
       final keys = call.arguments['keys'];
       final pressed = keys is List && keys.isNotEmpty ? '\nキー: ${keys.join(' ')}' : '';
-      return 'セッション ${call.arguments['session'] ?? ''} に入力します。$reason\n> ${input.replaceAll('\n', '⏎')}$pressed';
+      return 'セッション ${call.arguments['session'] ?? ''} に入力します。$reason\n> ${input.replaceAll('\n', '⏎')}$pressed$more';
     }
     final b = StringBuffer('この道具を実行します：${label(call.name)}$reason');
     for (final entry in call.arguments.entries) {
