@@ -448,6 +448,7 @@ abstract final class AgentSettings {
     ),
     'httpRequestEnabled': SettingSpec(key: 'httpRequestEnabled', label: 'モデルが http_request（アプリが API を呼ぶ道具）を使えるようにする', kind: SettingKind.flag),
     'httpRequestMaxResponseChars': SettingSpec(key: 'httpRequestMaxResponseChars', label: 'http_request の応答を、モデルに渡す文字数の上限', kind: SettingKind.whole, min: 500, max: 1000000),
+    'httpRequestMaxRedirects': SettingSpec(key: 'httpRequestMaxRedirects', label: 'http_request が追うリダイレクトの回数の上限（0 で追わない）', kind: SettingKind.whole, min: 0, max: 10),
     'httpRequestTimeoutSeconds': SettingSpec(key: 'httpRequestTimeoutSeconds', label: 'http_request の待ち時間（秒）', kind: SettingKind.whole, min: 3, max: 600),
     'modelCheckAsksToo': SettingSpec(key: 'modelCheckAsksToo', label: 'モデルの確認で、一覧にあるモデルにも短い問い合わせを 1 回送る（無料枠の使える・使えないまで分かる。回数を使う）', kind: SettingKind.flag),
     'autoCheckSelectedModel': SettingSpec(key: 'autoCheckSelectedModel', label: 'モデルを選んだとき、そのモデルがこのキーで使えるかを 1 回だけ確かめる', kind: SettingKind.flag),

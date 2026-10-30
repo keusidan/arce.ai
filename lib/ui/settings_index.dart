@@ -247,5 +247,6 @@ final List<SettingsSearchEntry> settingsIndex = [
   _row(SettingsSection.shell, '呼び出しの前に確認する', keywords: ['http_request', '確認', '承認', 'confirm', 'approval', '毎回', '書き込み', '秘密', 'secret'], key: 'httpRequestConfirm'),
   _row(SettingsSection.shell, 'http（暗号化されない通信）でも、キーやトークンを送れるようにする', subtitle: '既定はオフ（https だけ）。オンにすると、通信の途中で、キーを見られるおそれがあります。', keywords: ['http_request', 'http', 'https', '暗号化', 'insecure', '秘密', 'secret', 'キー', 'トークン', '危険'], key: 'httpRequestAllowInsecure'),
   _row(SettingsSection.shell, '応答を、モデルに渡す文字数の上限', subtitle: '超えた分は省きます', keywords: ['http_request', '応答', 'レスポンス', 'response', '文字数', '上限', 'max', '省く'], key: 'httpRequestMaxResponseChars'),
+  _row(SettingsSection.shell, 'http_request が追うリダイレクトの回数', subtitle: '秘密を使うときは、同じホストの https にだけ追います。0 は追いません', keywords: ['http_request', 'リダイレクト', 'redirect', '転送', '回数'], key: 'httpRequestMaxRedirects'),
   _row(SettingsSection.shell, 'http_request の待ち時間', subtitle: 'この秒数で、通信をあきらめます', keywords: ['http_request', 'タイムアウト', 'timeout', '待ち時間', '秒'], key: 'httpRequestTimeoutSeconds'),
 ];

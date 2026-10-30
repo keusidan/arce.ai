@@ -17,6 +17,7 @@ class HttpRequestSettings {
     this.maxResponseChars = 20000,
     this.timeoutSeconds = 30,
     this.allowInsecure = false,
+    this.maxRedirects = 5,
   });
 
   final bool enabled;
@@ -26,6 +27,9 @@ class HttpRequestSettings {
   final int maxResponseChars;
   final int timeoutSeconds;
   final bool allowInsecure;
+
+  /// How many redirects are followed; a longer chain is a loop (a setting).
+  final int maxRedirects;
 }
 
 /// Looks a host name up: the addresses it points at. A test gives its own, so nothing needs the network.
@@ -51,8 +55,8 @@ class HttpRequestTool {
   final http.Client? client;
   final HostResolver _resolver;
 
-  /// How many redirects are followed. A fixed number: a longer chain is a loop.
-  static const maxRedirects = 5;
+  /// How many redirects are followed (the setting `httpRequestMaxRedirects`).
+  int get maxRedirects => settings.maxRedirects;
 
   /// Headers a model may not set: they decide where a request goes, or how it is framed.
   static const forbiddenHeaders = {'host', 'content-length', 'transfer-encoding', 'connection', 'upgrade', 'expect', 'te', 'trailer'};

@@ -519,6 +519,15 @@ class HttpRequestCard extends StatelessWidget {
                 label: (v) => '$v 秒',
                 onChanged: (v) => set((x) => x.copyWith(httpRequestTimeoutSeconds: v)),
               ),
+              _Choices(
+                title: 'http_request が追うリダイレクトの回数',
+                subtitle: '秘密を使うときは、同じホストの https にだけ追います。0 は追いません',
+                keyPrefix: 'http-redirects',
+                value: s.httpRequestMaxRedirects,
+                values: const [0, 2, 5, 10],
+                label: (v) => v == 0 ? '追わない' : '$v 回',
+                onChanged: (v) => set((x) => x.copyWith(httpRequestMaxRedirects: v)),
+              ),
             ],
           ),
         );

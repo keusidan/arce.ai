@@ -497,6 +497,7 @@ class AppController extends ChangeNotifier {
       maxResponseChars: settings.value.httpRequestMaxResponseChars,
       timeoutSeconds: settings.value.httpRequestTimeoutSeconds,
       allowInsecure: settings.value.httpRequestAllowInsecure,
+      maxRedirects: settings.value.httpRequestMaxRedirects,
     ),
     onDemand: settings.value.mcpOnDemand,
     onDemandTokens: settings.value.mcpOnDemandTokens,

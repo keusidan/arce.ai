@@ -223,8 +223,15 @@ void main() {
     test('a loop stops after the allowed number; a POST that is redirected with 303 becomes a GET without the body', () async {
       final loop = Fake((r) => http.Response('', 302, headers: {'location': '/again'}));
       final out = await tool(loop).run(get('https://a.example/x'));
-      expect(loop.seen, hasLength(HttpRequestTool.maxRedirects + 1));
+      expect(loop.seen, hasLength(5 + 1), reason: 'the default of the setting is 5');
       expect(out.response, contains('Too many redirects'));
+      // the number is the user's: 0 follows none, 2 follows two
+      final none = Fake((r) => http.Response('', 302, headers: {'location': '/again'}));
+      await tool(none, settings: const HttpRequestSettings(maxRedirects: 0)).run(get('https://a.example/x'));
+      expect(none.seen, hasLength(1));
+      final two = Fake((r) => http.Response('', 302, headers: {'location': '/again'}));
+      await tool(two, settings: const HttpRequestSettings(maxRedirects: 2)).run(get('https://a.example/x'));
+      expect(two.seen, hasLength(3));
       final post = Fake((r) => r.method == 'POST' ? http.Response('', 303, headers: {'location': '/result'}) : http.Response('done', 200));
       await tool(post).run(get('https://a.example/x', method: 'POST', body: 'payload'));
       expect(post.seen.map((r) => r.method), ['POST', 'GET']);

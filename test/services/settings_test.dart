@@ -183,6 +183,10 @@ void main() {
     expect(AppSettings.fromJson(const {'httpRequestMaxResponseChars': 1, 'httpRequestTimeoutSeconds': 99999}).httpRequestMaxResponseChars, 500);
     expect(AppSettings.fromJson(const {'httpRequestTimeoutSeconds': 99999}).httpRequestTimeoutSeconds, 600);
     expect(AppSettings.fromJson(const {'secretsOffForModel': 'x'}).secretsOffForModel, isEmpty);
+    expect(d.httpRequestMaxRedirects, 5);
+    expect(AppSettings.fromJson(const {'httpRequestMaxRedirects': 99}).httpRequestMaxRedirects, 10);
+    expect(AppSettings.fromJson(const {'httpRequestMaxRedirects': -3}).httpRequestMaxRedirects, 0);
+    expect(AgentSettings.isEditable('httpRequestMaxRedirects'), isTrue);
     for (final key in ['secretsOffForModel', 'httpRequestConfirm', 'httpRequestAllowInsecure']) {
       expect(AgentSettings.isEditable(key), isFalse, reason: '$key must not be reachable from a chat message');
       expect(AgentSettings.blocked, contains(key));

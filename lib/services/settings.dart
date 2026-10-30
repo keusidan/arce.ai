@@ -113,6 +113,7 @@ class AppSettings {
     this.httpRequestMaxResponseChars = 20000,
     this.httpRequestTimeoutSeconds = 30,
     this.httpRequestAllowInsecure = false,
+    this.httpRequestMaxRedirects = 5,
     this.modelProbeConcurrency = 3,
     this.modelProbeTimeoutSeconds = 30,
     this.modelAvailabilityTrustDays = 7,
@@ -367,6 +368,9 @@ class AppSettings {
 
   /// Allow `http://` (not encrypted) for a call that carries a secret. Blocked from the chat.
   final bool httpRequestAllowInsecure;
+
+  /// How many redirects `http_request` follows (0: none).
+  final int httpRequestMaxRedirects;
   final int modelProbeConcurrency;
   final int modelProbeTimeoutSeconds;
   final int modelAvailabilityTrustDays;
@@ -598,6 +602,7 @@ class AppSettings {
     int? httpRequestMaxResponseChars,
     int? httpRequestTimeoutSeconds,
     bool? httpRequestAllowInsecure,
+    int? httpRequestMaxRedirects,
     int? modelProbeConcurrency,
     int? modelProbeTimeoutSeconds,
     int? modelAvailabilityTrustDays,
@@ -729,6 +734,7 @@ class AppSettings {
     httpRequestMaxResponseChars: httpRequestMaxResponseChars ?? this.httpRequestMaxResponseChars,
     httpRequestTimeoutSeconds: httpRequestTimeoutSeconds ?? this.httpRequestTimeoutSeconds,
     httpRequestAllowInsecure: httpRequestAllowInsecure ?? this.httpRequestAllowInsecure,
+    httpRequestMaxRedirects: httpRequestMaxRedirects ?? this.httpRequestMaxRedirects,
     modelProbeConcurrency: modelProbeConcurrency ?? this.modelProbeConcurrency,
     modelProbeTimeoutSeconds: modelProbeTimeoutSeconds ?? this.modelProbeTimeoutSeconds,
     modelAvailabilityTrustDays: modelAvailabilityTrustDays ?? this.modelAvailabilityTrustDays,
@@ -862,6 +868,7 @@ class AppSettings {
     'httpRequestMaxResponseChars': httpRequestMaxResponseChars,
     'httpRequestTimeoutSeconds': httpRequestTimeoutSeconds,
     'httpRequestAllowInsecure': httpRequestAllowInsecure,
+    'httpRequestMaxRedirects': httpRequestMaxRedirects,
     'modelProbeConcurrency': modelProbeConcurrency,
     'modelProbeTimeoutSeconds': modelProbeTimeoutSeconds,
     'modelAvailabilityTrustDays': modelAvailabilityTrustDays,
@@ -1029,6 +1036,7 @@ class AppSettings {
       httpRequestMaxResponseChars: whole('httpRequestMaxResponseChars', d.httpRequestMaxResponseChars).clamp(500, 1000000),
       httpRequestTimeoutSeconds: whole('httpRequestTimeoutSeconds', d.httpRequestTimeoutSeconds).clamp(3, 600),
       httpRequestAllowInsecure: flag('httpRequestAllowInsecure', d.httpRequestAllowInsecure),
+      httpRequestMaxRedirects: whole('httpRequestMaxRedirects', d.httpRequestMaxRedirects).clamp(0, 10),
       modelProbeConcurrency: whole('modelProbeConcurrency', d.modelProbeConcurrency).clamp(1, 8),
       modelProbeTimeoutSeconds: whole('modelProbeTimeoutSeconds', d.modelProbeTimeoutSeconds).clamp(5, 120),
       modelAvailabilityTrustDays: whole('modelAvailabilityTrustDays', d.modelAvailabilityTrustDays).clamp(1, 90),
