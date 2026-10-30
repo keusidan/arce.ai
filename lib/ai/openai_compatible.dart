@@ -27,6 +27,9 @@ class OpenAiCompatibleProvider implements AiProvider {
     this.headers = const {},
     this.body = const {},
     this.supportsTools = true,
+    this.promptCache = false,
+    this.promptCacheField = ProviderConfig.defaultPromptCacheField,
+    this.onCacheRefused,
     http.Client? client,
     this.timeout = const Duration(seconds: 120),
   }) : _client = client ?? http.Client();
@@ -57,6 +60,18 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// cannot call one.
   final bool supportsTools;
 
+  /// Send [promptCacheField] with the conversation's key on every request (see [ProviderConfig.promptCache]).
+  /// Off sends nothing for the cache.
+  final bool promptCache;
+  final String promptCacheField;
+
+  /// Told once when the server refused the request because of the cache field and the request went
+  /// through again without it. The app turns the provider's switch off then, and says why.
+  final void Function(String reason)? onCacheRefused;
+
+  /// The server refused the cache field: it is left out from then on, for this provider object.
+  bool _cacheRefused = false;
+
   final http.Client _client;
 
   @override
@@ -80,24 +95,43 @@ class OpenAiCompatibleProvider implements AiProvider {
 
   @override
   Stream<Delta> stream(AiRequest request) async* {
-    // an abortable request: when the user stops, the connection is closed and the wait for the next
-    // word ends (cancelling a stream that is waiting cannot do that)
-    final message = http.AbortableRequest('POST', _uri('chat/completions'), abortTrigger: request.abort)
-      ..headers.addAll(_requestHeaders)
-      ..body = jsonEncode(_body(request));
-
-    final http.StreamedResponse response;
+    http.StreamedResponse response;
     try {
-      response = await _client.send(message).timeout(timeout);
+      response = await _send(request, withCache: true);
     } on http.RequestAbortedException {
       yield const StopDelta(FinishReason.cancelled);
       return;
     }
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw AiProviderException(
-        _failure(response.statusCode, await response.stream.bytesToString()),
-        statusCode: response.statusCode,
-      );
+      var failed = response;
+      var text = await response.stream.bytesToString();
+      // The server does not know the cache field and says so: the request goes again without it, once,
+      // and the app is told so that it can turn the switch off and say why.
+      final field = promptCacheField;
+      if ((response.statusCode == 400 || response.statusCode == 422) &&
+          _sendsCache(request) &&
+          text.toLowerCase().contains(field.toLowerCase())) {
+        _cacheRefused = true;
+        onCacheRefused?.call(
+          'このプロバイダは、キャッシュ用の項目「$field」を受け付けませんでした（HTTP ${response.statusCode}）。'
+          'キャッシュの送信をオフにして、もう一度送りました',
+        );
+        try {
+          failed = await _send(request, withCache: false);
+        } on http.RequestAbortedException {
+          yield const StopDelta(FinishReason.cancelled);
+          return;
+        }
+        if (failed.statusCode >= 200 && failed.statusCode <= 299) {
+          response = failed;
+          text = '';
+        } else {
+          text = await failed.stream.bytesToString();
+        }
+      }
+      if (failed.statusCode < 200 || failed.statusCode > 299) {
+        throw AiProviderException(_failure(failed.statusCode, text), statusCode: failed.statusCode);
+      }
     }
 
     final calls = <int, _PartialCall>{};
@@ -227,7 +261,27 @@ class OpenAiCompatibleProvider implements AiProvider {
     return _int(usage['prompt_cache_hit_tokens']);
   }
 
-  Map<String, Object?> _body(AiRequest request) => {
+  /// One request to the server. An abortable request: when the user stops, the connection is closed and
+  /// the wait for the next word ends (cancelling a stream that is waiting cannot do that).
+  Future<http.StreamedResponse> _send(AiRequest request, {required bool withCache}) {
+    final message = http.AbortableRequest('POST', _uri('chat/completions'), abortTrigger: request.abort)
+      ..headers.addAll(_requestHeaders)
+      ..body = jsonEncode(_body(request, withCache: withCache));
+    return _client.send(message).timeout(timeout);
+  }
+
+  /// Whether the body of [request] carries the cache hint: the switch is on, the request belongs to a
+  /// conversation, the server has not refused it, and the user's own body override does not set the field
+  /// (then it is theirs, and not what the app sent).
+  bool _sendsCache(AiRequest request) =>
+      promptCache &&
+      !_cacheRefused &&
+      (request.cacheKey ?? '').isNotEmpty &&
+      ProviderConfig.isValidCacheField(promptCacheField) &&
+      !body.containsKey(promptCacheField) &&
+      !request.extraBody.containsKey(promptCacheField);
+
+  Map<String, Object?> _body(AiRequest request, {bool withCache = true}) => {
     'model': request.model.trim().isEmpty ? model : request.model,
     'messages': [for (final message in request.messages) _message(message)],
     'stream': true,
@@ -247,6 +301,9 @@ class OpenAiCompatibleProvider implements AiProvider {
             },
           },
       ],
+    // the hint for the provider's prompt cache: only with the switch on, and never a thing for the cache
+    // when it is off
+    if (withCache && _sendsCache(request)) promptCacheField: request.cacheKey,
     // what the model needs (its thinking settings) goes before the provider's own override
     ...request.extraBody,
     // the user's overrides come last, so a provider that needs different field names wins

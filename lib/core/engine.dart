@@ -100,9 +100,15 @@ class GenerateRequest {
     this.user = const UserSampling(),
     this.assistantReasoning = const [],
     this.abort,
+    this.conversationKey,
   });
 
   final String prompt;
+
+  /// Names the conversation this request is part of (the same for all of its requests); an online
+  /// provider whose prompt-cache switch is on sends it as its cache hint. Null for the app's own
+  /// short requests.
+  final String? conversationKey;
 
   /// Completes when the user stops the reply. An online request that is waiting for the model's
   /// next word (a model that thinks sends nothing for a long time) is dropped at once, instead of
@@ -124,6 +130,7 @@ class GenerateRequest {
         user: user,
         assistantReasoning: assistantReasoning,
         abort: abort,
+        conversationKey: conversationKey,
       );
 
   /// What the model thought before each earlier reply, oldest first, one entry per assistant turn

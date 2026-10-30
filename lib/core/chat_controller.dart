@@ -452,6 +452,7 @@ class ChatController extends ChangeNotifier {
     this.delegateInstructions,
     this.rememberTool,
     this.confirmAfterExternal,
+    this.conversationKey,
     this.contextTokens,
     this.onFailure,
     StopSignal? stopSignal,
@@ -514,6 +515,11 @@ class ChatController extends ChangeNotifier {
   /// an MCP tool's answer): text a stranger may have written, which can say "now run ...". The
   /// setting is the user's (`shellConfirmAfterExternal`); without it nothing asks for that reason.
   final bool Function()? confirmAfterExternal;
+
+  /// Names this conversation for an online provider's prompt cache (sent only when that provider's switch is
+  /// on): the same text for every request of the conversation, a different one for another conversation.
+  /// Null sends none.
+  final String? Function()? conversationKey;
 
   /// The context window of the model that answers, in tokens; null when it is not known (then a long
   /// conversation is not made shorter, and the engine says when it does not fit).
@@ -1036,6 +1042,7 @@ class ChatController extends ChangeNotifier {
         tools: tools,
         images: _images,
         agentId: agent.id,
+        conversationKey: conversationKey?.call(),
         continuation: roundPrefill.isNotEmpty,
         assistantReasoning: [
           for (final turn in _history)

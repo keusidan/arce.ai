@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -97,6 +98,8 @@ class AppController extends ChangeNotifier {
     required this.linux,
     this.notifier = const ReplyNotifier(),
   }) {
+    // a provider that the server refused a cache field of turns the switch off: the user is told
+    providers.onNotice = showToast;
     _current = _newSession();
     chat = ChatHandle(_current.chat);
     chat.addListener(_syncForeground);
@@ -132,6 +135,7 @@ class AppController extends ChangeNotifier {
       mcpApproval: _mcpApprovalRequired,
       rememberTool: _rememberTool,
       confirmAfterExternal: () => settings.value.shellConfirmAfterExternal,
+      conversationKey: () => session.cacheKey,
       contextTokens: _contextTokens,
     )..setThinking(settings.value.thinking);
     session.chat.addListener(_syncForeground);
@@ -917,6 +921,7 @@ class AppController extends ChangeNotifier {
     // a chat that is still answering goes on in the background; an idle one is emptied and reused
     final session = _freeCurrent();
     session.id = null;
+    session.cacheKey = _Session.newCacheKey();
     session.titled = false;
     session.titleTries = 0;
     session.chat.clear();
@@ -952,6 +957,7 @@ class AppController extends ChangeNotifier {
     final session = _freeCurrent();
     session.chat.restore(snapshot);
     session.id = id;
+    session.cacheKey = 'arce-$id';
     session.titled = true; // it has its title already
     chat.show(session.chat);
     goTo(AppPage.chat);
@@ -989,6 +995,7 @@ class AppController extends ChangeNotifier {
     final session = _freeCurrent();
     session.chat.restore(snapshot);
     session.id = item.id;
+    session.cacheKey = 'arce-${item.id}';
     session.titled = true;
     chat.show(session.chat);
     goTo(AppPage.chat);
@@ -1219,6 +1226,16 @@ class _Session {
   late final ChatController chat;
   final watch = ReplyWatch();
   String? id;
+
+  /// Names this conversation for an online provider's prompt cache: the same for every request of it. It is
+  /// made when the conversation starts and does not change when the conversation is saved and gets its id
+  /// (that would start the cache over); a conversation that is opened again uses its id.
+  String cacheKey = newCacheKey();
+
+  static final _random = Random();
+
+  /// `arce-` and 16 random hexadecimal digits: nothing about the user or the text.
+  static String newCacheKey() => 'arce-${List.generate(16, (_) => _random.nextInt(16).toRadixString(16)).join()}';
 
   /// Whether this conversation has its title (written by a model, or one it already had when opened).
   bool titled = false;

@@ -222,4 +222,8 @@ final List<SettingsSearchEntry> settingsIndex = [
   _row(SettingsSection.reports, '同じ問題にコメントする間隔', subtitle: 'この間は、同じ問題は数えるだけで送りません', keywords: ['error', 'エラー', '間隔', 'コメント', '時間'], key: 'errorReportMinHours'),
   _row(SettingsSection.reports, '1 時間に送る件数の上限', subtitle: 'すべての報告の合計。多すぎるときは送りません', keywords: ['error', 'エラー', '件数', '上限', 'rate limit'], key: 'errorReportMaxPerHour'),
   _row(SettingsSection.reports, 'テスト送信', keywords: ['error', 'エラー', 'テスト', 'issue', '送信']),
+
+  // ---- agent C (prompt cache)
+  _row(SettingsSection.providers, 'プロンプトのキャッシュ用の印を送る', subtitle: 'オンにすると、同じ会話のリクエストに、同じ印（下の項目名）を付けて送ります。', keywords: ['cache', 'キャッシュ', 'prompt_cache_key', 'prompt cache', 'プロンプトキャッシュ', 'openai', 'deepseek', 'gemini', 'api', '印', 'キー']),
+  _row(SettingsSection.providers, 'キャッシュの項目名', keywords: ['cache', 'キャッシュ', 'prompt_cache_key', '項目', 'フィールド', 'field']),
 ];

@@ -112,9 +112,16 @@ class AiRequest {
     this.topP = 0.95,
     this.extraBody = const {},
     this.abort,
+    this.cacheKey,
   });
 
   final List<AiMessage> messages;
+
+  /// Names the conversation this request belongs to, the same for every request of it, so a provider
+  /// that takes a hint for its prompt cache (`prompt_cache_key`) can route them together. Null when
+  /// the request belongs to none (the app's own short requests). Only sent when the provider's switch
+  /// for it is on.
+  final String? cacheKey;
 
   /// Completes when the user stops the reply: the provider drops the request (the connection is
   /// closed) and ends the stream, whether or not the model has sent anything lately.

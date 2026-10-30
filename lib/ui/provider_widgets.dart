@@ -313,13 +313,17 @@ class _ProviderEditorState extends State<_ProviderEditor> {
   );
   late bool _tools = widget.existing?.supportsTools ?? true;
   late bool _autoFetch = widget.existing?.autoFetchModels ?? true;
+  late bool _promptCache = widget.existing?.promptCache ?? false;
+  late final TextEditingController _cacheField = TextEditingController(
+    text: widget.existing?.promptCacheField ?? ProviderConfig.defaultPromptCacheField,
+  );
 
   String? _result;
   bool _busy = false;
 
   @override
   void dispose() {
-    for (final controller in [_label, _baseUrl, _key, _headers, _body]) {
+    for (final controller in [_label, _baseUrl, _key, _headers, _body, _cacheField]) {
       controller.dispose();
     }
     super.dispose();
@@ -340,13 +344,20 @@ class _ProviderEditorState extends State<_ProviderEditor> {
       body: body,
       supportsTools: _tools,
       autoFetchModels: _autoFetch,
+      promptCache: _promptCache,
+      promptCacheField: _cacheField.text.trim().isEmpty ? ProviderConfig.defaultPromptCacheField : _cacheField.text.trim(),
     );
   }
 
   /// The config the fields describe, or null (with the reason shown) when a JSON field is wrong.
   ProviderConfig? _configOrExplain() {
     try {
-      return _config();
+      final config = _config();
+      if (!ProviderConfig.isValidCacheField(config.promptCacheField)) {
+        setState(() => _result = 'キャッシュの項目名は、英数字と _ - . だけで、先頭は数字以外にしてください');
+        return null;
+      }
+      return config;
     } on FormatException catch (e) {
       setState(() => _result = e.message);
       return null;
@@ -375,6 +386,8 @@ class _ProviderEditorState extends State<_ProviderEditor> {
       headers: config.headers,
       body: config.body,
       supportsTools: config.supportsTools,
+      promptCache: config.promptCache,
+      promptCacheField: config.promptCacheField,
     );
     try {
       await provider.verify();
@@ -455,6 +468,21 @@ class _ProviderEditorState extends State<_ProviderEditor> {
                 style: ts(context, 9.5, color: c.muted),
               ),
             ),
+            SwitchListTile(
+              key: const ValueKey('provider-prompt-cache'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: _promptCache,
+              onChanged: (value) => setState(() => _promptCache = value),
+              title: Text('プロンプトのキャッシュ用の印を送る', style: ts(context, 12)),
+              subtitle: Text(
+                'オンにすると、同じ会話のリクエストに、同じ印（下の項目名）を付けて送ります。OpenAI など、この印でキャッシュの当たりを良くできる提供元向けです。'
+                '提供元が自分で行うキャッシュ（OpenAI・DeepSeek・Gemini など）は、このスイッチを切っても止まりません（アプリが送るものだけを切り替えます）。'
+                '知らない項目を断るサーバーでは、断られたらアプリが自動でオフにします',
+                style: ts(context, 9.5, color: c.muted, height: 1.5),
+              ),
+            ),
+            if (_promptCache) _field('キャッシュの項目名', _cacheField, ProviderConfig.defaultPromptCacheField),
             _field('追加ヘッダー（JSON・任意）', _headers, '{"HTTP-Referer": "https://example.com"}', maxLines: 3),
             _field('追加のリクエスト項目（JSON・任意）', _body, '{"reasoning_effort": "low"}', maxLines: 3),
             Padding(

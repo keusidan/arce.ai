@@ -93,6 +93,7 @@ class CloudEngine implements InferenceEngine {
     final hint = ModelHints.of(target.modelId);
     return AiRequest(
       abort: request.abort,
+      cacheKey: request.conversationKey,
       messages: allMessages,
       model: target.modelId,
       maxTokens: ModelHints.resolveMaxTokens(

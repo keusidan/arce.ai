@@ -183,7 +183,12 @@ class ProviderConfig {
     this.catalog = const [],
     this.catalogAt,
     this.autoFetchModels = true,
+    this.promptCache = false,
+    this.promptCacheField = defaultPromptCacheField,
   });
+
+  /// The request field OpenAI documents for routing the requests of one conversation to the same cache.
+  static const defaultPromptCacheField = 'prompt_cache_key';
 
   /// Stable id, also stored in the database (`conversations.provider_id`).
   final String id;
@@ -215,6 +220,16 @@ class ProviderConfig {
   /// Read the model list by itself (when the provider is saved and now and then); a provider that
   /// has no list, or charges for asking, turns it off.
   final bool autoFetchModels;
+
+  /// Send a hint for the provider's own prompt cache with every request of a conversation: the field
+  /// [promptCacheField] with a key that is the same for the whole conversation. **Only what the app
+  /// sends**: a provider that caches by itself (OpenAI, DeepSeek, Gemini's implicit cache) goes on doing
+  /// so with this off, and the app cannot stop it. Off by default: a server that does not know the
+  /// field may refuse the request (the app then turns the switch off by itself).
+  final bool promptCache;
+
+  /// The name of the field the cache hint goes in (for a server that calls it something else).
+  final String promptCacheField;
 
   /// The ids the user can pick: the chosen models first, then what the catalog adds.
   List<String> get knownIds {
@@ -276,6 +291,8 @@ class ProviderConfig {
     List<ModelInfo>? catalog,
     int? catalogAt,
     bool? autoFetchModels,
+    bool? promptCache,
+    String? promptCacheField,
   }) => ProviderConfig(
     id: id,
     label: label ?? this.label,
@@ -287,6 +304,8 @@ class ProviderConfig {
     catalog: catalog ?? this.catalog,
     catalogAt: catalogAt ?? this.catalogAt,
     autoFetchModels: autoFetchModels ?? this.autoFetchModels,
+    promptCache: promptCache ?? this.promptCache,
+    promptCacheField: promptCacheField ?? this.promptCacheField,
   );
 
   Map<String, Object?> toJson() => {
@@ -300,7 +319,26 @@ class ProviderConfig {
     if (catalog.isNotEmpty) 'catalog': [for (final info in catalog) info.toJson()],
     if (catalogAt != null) 'catalogAt': catalogAt,
     if (!autoFetchModels) 'autoFetch': false,
+    if (promptCache) 'promptCache': true,
+    if (promptCacheField != defaultPromptCacheField) 'promptCacheField': promptCacheField,
   };
+
+  /// A field name that can go into a JSON body as it is; null for anything else (empty, spaces, odd characters).
+  static String? _fieldName(Object? value) {
+    if (value is! String) return null;
+    final name = value.trim();
+    if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_.-]{0,63}$').hasMatch(name)) return null;
+    // a field the request already has: the key must never replace the model, the messages or the tools
+    return _reservedFields.contains(name.toLowerCase()) ? null : name;
+  }
+
+  static const _reservedFields = {
+    'model', 'messages', 'stream', 'stream_options', 'max_tokens', 'max_completion_tokens', 'temperature', 'top_p',
+    'tools', 'tool_choice', 'n', 'stop',
+  };
+
+  /// Whether [name] is usable as the cache field (the editor checks it before it saves).
+  static bool isValidCacheField(String name) => _fieldName(name) != null;
 
   /// Anything missing or wrongly typed falls back to a usable default, so an older or a damaged
   /// save still loads. [ProviderList.decode] drops what cannot be used at all.
@@ -340,6 +378,8 @@ class ProviderConfig {
       ],
       catalogAt: json['catalogAt'] is int ? json['catalogAt']! as int : null,
       autoFetchModels: json['autoFetch'] is bool ? json['autoFetch']! as bool : true,
+      promptCache: json['promptCache'] is bool ? json['promptCache']! as bool : false,
+      promptCacheField: _fieldName(json['promptCacheField']) ?? defaultPromptCacheField,
     );
   }
 }

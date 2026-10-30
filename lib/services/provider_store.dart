@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -296,6 +297,20 @@ class ProviderStore extends ChangeNotifier {
   /// Makes the HTTP client of a provider that is built without one (tests give a scripted one).
   http.Client Function()? clientFactory;
 
+  /// Told something the user should read that happened outside any screen (the app turned a provider's
+  /// cache switch off because the server refused it). The app shows it as a toast.
+  void Function(String message)? onNotice;
+
+  /// Sets the prompt-cache switch of provider [id] without moving it in the list (a [save] puts the
+  /// provider last). A provider that is not there is left alone.
+  Future<void> setPromptCache(String id, bool on) async {
+    final at = _providers.indexWhere((p) => p.id == id);
+    if (at < 0 || _providers[at].promptCache == on) return;
+    _providers = [..._providers]..[at] = _providers[at].copyWith(promptCache: on);
+    notifyListeners();
+    await _persistList();
+  }
+
   AiProvider? buildActive({http.Client? client}) {
     final config = active;
     if (config == null || !config.isComplete) return null;
@@ -319,6 +334,13 @@ class ProviderStore extends ChangeNotifier {
       headers: config.headers,
       body: config.body,
       supportsTools: config.supportsTools,
+      promptCache: config.promptCache,
+      promptCacheField: config.promptCacheField,
+      // the server refused the cache field: the switch goes off, and the user is told why
+      onCacheRefused: (reason) {
+        unawaited(setPromptCache(config.id, false));
+        onNotice?.call('${config.label}: $reason');
+      },
       client: client ?? clientFactory?.call(),
       timeout: requestTimeout,
     );
