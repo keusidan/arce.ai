@@ -786,6 +786,7 @@ class AppController extends ChangeNotifier {
   }
 
   void _applyProvider() {
+    _autoCheckActive();
     unawaited(_autoFillModelInfo());
     providers.requestTimeout = Duration(seconds: settings.value.providerTimeoutSeconds.clamp(10, 1800));
     final provider = providers.buildActive();
@@ -851,25 +852,10 @@ class AppController extends ChangeNotifier {
   /// A removed provider takes what was found out about its models with it.
   void _syncAvailability() => unawaited(availability.keepOnly({for (final p in providers.providers) p.id}));
 
-  /// Progress text of the probe of each provider that is being asked now (provider id -> "3 / 20").
-  final _probing = <String, String>{};
-  final _probeStop = <String>{};
+  /// Providers whose models are being asked now (a second question at the same time is refused).
+  final _probing = <String>{};
 
-  bool isProbing(String providerId) => _probing.containsKey(providerId);
-
-  String? probeProgress(String providerId) => _probing[providerId];
-
-  /// Stops a probe from starting more questions (those on their way finish).
-  void cancelProbe(String providerId) {
-    if (_probing.containsKey(providerId)) _probeStop.add(providerId);
-  }
-
-  /// [ids] without the models that do not look like chat models (embedding, speech, image ...), which fail
-  /// a chat question for a reason that says nothing about the key.
-  List<String> probeCandidates(Iterable<String> ids) => [
-        for (final id in ids)
-          if (AvailabilityClassifier.looksLikeChatModel(id)) id,
-      ];
+  bool isProbing(String providerId) => _probing.contains(providerId);
 
   /// Asks [ids] of provider [providerId] one word each (a real request each: it counts against the key's
   /// limits), keeps which can be used and which cannot, and returns what to tell the user.
@@ -878,26 +864,20 @@ class AppController extends ChangeNotifier {
     if (config == null) return 'プロバイダが見つかりません';
     if (!config.isComplete && config.baseUrl.trim().isEmpty) return 'Base URL を入れてください';
     if (ids.isEmpty) return '確かめるモデルがありません';
-    if (_probing.containsKey(providerId)) return 'いま確認しています';
+    if (_probing.contains(providerId)) return 'いま確認しています';
     final s = settings.value;
     final timeout = Duration(seconds: s.modelProbeTimeoutSeconds);
-    _probeStop.remove(providerId);
-    _probing[providerId] = '0 / ${ids.length}';
+    _probing.add(providerId);
     notifyListeners();
     try {
       final report = await ModelProbe.run(
         modelIds: ids,
         concurrency: s.modelProbeConcurrency,
         timeout: timeout + const Duration(seconds: 5),
-        cancelled: () => _probeStop.contains(providerId),
         ask: (id) => ModelProbe.askOnce(
           providers.build(config, model: config.resolveModel(id) ?? ModelConfig(id: id, name: id)),
           abortAfter: timeout,
         ),
-        onOutcome: (outcome, done, total) {
-          _probing[providerId] = '$done / $total';
-          notifyListeners();
-        },
       );
       await availability.recordAll(
         providerId,
@@ -909,9 +889,90 @@ class AppController extends ChangeNotifier {
       return '確認できませんでした（$e）';
     } finally {
       _probing.remove(providerId);
-      _probeStop.remove(providerId);
       notifyListeners();
     }
+  }
+
+  /// The online models the app is set to use now, once each: the one that answers, the planner and the
+  /// developers of the coding mode, and the model that writes titles. (provider id, model id). The device
+  /// model has nothing to ask.
+  List<(String, String)> configuredModels() {
+    final out = <(String, String)>[];
+    void add(String? providerId, String? modelId) {
+      if (providerId == null || modelId == null || providerId.isEmpty || modelId.isEmpty) return;
+      if (providerId == CodingSettings.localProvider || providers.byId(providerId) == null) return;
+      if (!out.contains((providerId, modelId))) out.add((providerId, modelId));
+    }
+
+    void addRef(String ref) {
+      final parsed = CodingSettings.parseRef(ref);
+      if (parsed != null) add(parsed.$1, parsed.$2);
+    }
+
+    add(providers.isCloud ? providers.active?.id : null, providers.isCloud ? providers.activeModel?.id : null);
+    final coding = settings.value.coding;
+    if (coding.enabled) {
+      if (!coding.plannerFollowsModel) addRef(coding.planner);
+      coding.developers.forEach(addRef);
+    }
+    addRef(settings.value.titleModel);
+    return out;
+  }
+
+  /// Asks each model the app is set to use (not the whole list of the provider: only these few) the
+  /// shortest question, keeps which can be used, and says it model by model.
+  Future<String> checkConfiguredModels() async {
+    final models = configuredModels();
+    if (models.isEmpty) return '確かめるモデルがありません（オンラインのモデルを選んでください）';
+    final byProvider = <String, List<String>>{};
+    for (final (providerId, modelId) in models) {
+      byProvider.putIfAbsent(providerId, () => []).add(modelId);
+    }
+    final problems = <String>[];
+    for (final entry in byProvider.entries) {
+      final message = await probeModels(entry.key, entry.value);
+      if (message.startsWith('APIキーが受け付けられなかった') || message.startsWith('確認できません') || message.startsWith('Base URL')) {
+        problems.add('${providers.byId(entry.key)?.label ?? entry.key}: $message');
+      }
+    }
+    final lines = <String>[
+      for (final (providerId, modelId) in models)
+        '${providers.byId(providerId)?.label ?? providerId} · $modelId：${_verdictLine(availability.recordOf(providerId, modelId, trustDays: _trustDays))}',
+      ...problems,
+    ];
+    return lines.join('\n');
+  }
+
+  static String _verdictLine(AvailabilityRecord? record) {
+    if (record == null) return '判断できませんでした（一時的な失敗かもしれません。あとでもう一度）';
+    return record.isBlocked ? '使えません（${record.reason}）' : '使えます';
+  }
+
+  String? _activeRef;
+  bool _activeKnown = false;
+
+  /// The model that answers was changed: ask that one model once, unless a result is still fresh, and say
+  /// so when this key cannot use it. Not at start-up, and not when the setting is off.
+  void _autoCheckActive() {
+    final config = providers.isCloud ? providers.active : null;
+    final model = providers.isCloud ? providers.activeModel : null;
+    final ref = config == null || model == null ? null : '${config.id}|${model.id}';
+    if (!_activeKnown) {
+      _activeKnown = true;
+      _activeRef = ref;
+      return;
+    }
+    if (ref == _activeRef) return;
+    _activeRef = ref;
+    if (config == null || model == null || !settings.value.autoCheckSelectedModel) return;
+    if (availability.recordOf(config.id, model.id, trustDays: _trustDays) != null) return;
+    unawaited(() async {
+      await probeModels(config.id, [model.id]);
+      final record = availability.recordOf(config.id, model.id, trustDays: _trustDays);
+      if (record != null && record.isBlocked) {
+        showToast('${config.label} · ${model.id} は、このキーでは使えない可能性があります（${record.reason}）。別のモデルを選んでください');
+      }
+    }());
   }
 
   final _listBusy = <String>{};

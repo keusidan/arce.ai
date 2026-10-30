@@ -446,6 +446,7 @@ abstract final class AgentSettings {
       label: '使えないと分かったモデルを、選択肢から隠す（オフなら、灰色にして最後に並べる）',
       kind: SettingKind.flag,
     ),
+    'autoCheckSelectedModel': SettingSpec(key: 'autoCheckSelectedModel', label: 'モデルを選んだとき、そのモデルがこのキーで使えるかを 1 回だけ確かめる', kind: SettingKind.flag),
     'markBlockedModels': SettingSpec(
       key: 'markBlockedModels',
       label: '送信が「このキーでは使えない」で失敗したとき、そのモデルに印を付ける',

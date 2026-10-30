@@ -60,6 +60,8 @@ const _notFound = '[{"error":{"code":404,"message":"models/gemini-1.0-pro is not
 
 Future<AppController> appWith(WidgetTester tester, Scripted script) async {
   final app = await makeApp(tester);
+  // choosing the model would ask it by itself; the tests that are not about that count the requests they send
+  await app.settings.update((s) => s.copyWith(autoCheckSelectedModel: false));
   app.providers.clientFactory = script.client;
   await app.providers.save(gemini);
   await tester.runAsync(() => app.providers.setKey('gem', 'sk-free-tier'));
@@ -182,18 +184,15 @@ void main() {
   });
 
   group('the probe', () {
-    testWidgets('asks one word of each chat model, marks what it learns, and skips what is not a chat model', (tester) async {
+    testWidgets('asks one word of each model it is given, marks what it learns', (tester) async {
       final script = Scripted({'gemini-2.5-pro': (429, _limit0), 'gemini-1.0-pro': (404, _notFound), 'gemini-2.0-flash': (503, '{"error":{"message":"overloaded"}}')});
       final app = await appWith(tester, script);
-      final ids = app.probeCandidates(gemini.knownIds);
-      expect(ids, isNot(contains('text-embedding-004')));
-      expect(ids, hasLength(4));
+      final ids = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.0-pro', 'gemini-2.0-flash'];
 
       late String summary;
       await tester.runAsync(() async => summary = await app.probeModels('gem', ids));
       expect(summary, '4 個を確かめました：使える 1・使えない 2・一時的な失敗 1（あとでもう一度）');
-      expect(script.requests.map((r) => r['model']).toSet(), ids.toSet(), reason: 'every chat model was asked, once');
-      expect(script.requests.every((r) => r['model'] != 'text-embedding-004'), isTrue);
+      expect(script.requests.map((r) => r['model']).toSet(), ids.toSet(), reason: 'every model it was given was asked, once');
       for (final r in script.requests) {
         expect(r['max_tokens'], 1);
         expect(r.containsKey('tools'), isFalse);
@@ -212,7 +211,7 @@ void main() {
       final app = await appWith(tester, script);
       await app.settings.update((s) => s.copyWith(modelProbeConcurrency: 1));
       late String summary;
-      await tester.runAsync(() async => summary = await app.probeModels('gem', app.probeCandidates(gemini.knownIds)));
+      await tester.runAsync(() async => summary = await app.probeModels('gem', ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.0-pro', 'gemini-2.0-flash']));
       expect(summary, contains('APIキーが受け付けられなかった'));
       expect(script.requests, hasLength(1), reason: 'one at a time: the first refusal ends it');
       expect(app.availability.length, 0);
@@ -244,10 +243,11 @@ void main() {
   });
 
   group('on the screen', () {
-    testWidgets('the models sheet: the button asks first and says how many; after it the marks are on the list', (tester) async {
+    testWidgets('the models sheet: one button checks only the models that are set up, with no question first; the result is said model by model and the marks are on the list', (tester) async {
       setSize(tester, const Size(411, 1000));
       final script = Scripted({'gemini-2.5-pro': (429, _limit0)});
       final app = await appWith(tester, script);
+      await app.providers.selectModel('gem', 'gemini-2.5-pro');
       await tester.pumpWidget(ArceApp(app: app));
       await tester.pump();
       app.openSettings(SettingsSection.providers);
@@ -255,51 +255,80 @@ void main() {
       await tester.tap(find.text('モデル').first);
       await tester.pumpAndSettle();
 
-      expect(find.text('使えるか確かめる'), findsOneWidget);
-      await tester.tap(find.text('使えるか確かめる'));
-      await tester.pumpAndSettle();
-      // asked first: how many, what it costs, what is kept
-      expect(find.textContaining('4 個のモデルに'), findsOneWidget);
-      expect(find.textContaining('回数制限'), findsWidgets);
-      expect(find.textContaining('埋め込み・音声・画像などのモデル 1 個は除きます'), findsOneWidget);
-      expect(script.requests, isEmpty, reason: 'nothing is sent before the user says so');
-
-      // not now
-      await tester.tap(find.text('やめる'));
-      await tester.pumpAndSettle();
-      expect(script.requests, isEmpty);
-
-      await tester.tap(find.text('使えるか確かめる'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('確かめる'));
+      expect(find.text('使えるか確かめる'), findsNothing, reason: 'the button that asked the whole list is gone');
+      expect(find.text('設定中のモデルを確かめる'), findsOneWidget);
+      await tester.tap(find.text('設定中のモデルを確かめる'));
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
       await tester.pumpAndSettle();
-      expect(script.requests, hasLength(4));
-      expect(find.textContaining('使える 3・使えない 1'), findsOneWidget);
+      expect(script.requests, hasLength(1), reason: 'the model in use only, not the four of the list');
+      expect(script.requests.single['model'], 'gemini-2.5-pro');
+      expect(find.textContaining('Gemini · gemini-2.5-pro：使えません'), findsOneWidget);
 
-      // with a search, every folder is open: the marks are in sight
+      // with a search, every folder is open: the mark is in sight
       await tester.enterText(find.byType(TextField).first, 'gemini');
       await tester.pumpAndSettle();
       expect(find.textContaining('使えません：'), findsOneWidget);
-      expect(find.text('使えると確認済み'), findsWidgets);
     });
 
-    testWidgets('the search narrows what the button asks', (tester) async {
-      setSize(tester, const Size(411, 1000));
-      final script = Scripted({});
+    testWidgets('the models that are set up: the one that answers, the coding mode\'s, the title model; once each; the device model is not one', (tester) async {
+      final app = await appWith(tester, Scripted({}));
+      await app.settings.update((s) => s.copyWith(
+            codingPlanEnabled: true,
+            codingPlannerFollows: false,
+            plannerModel: 'gem|gemini-2.5-pro',
+            developerModel: 'gem|gemini-2.5-flash',
+            developerModelsMore: 'gem|gemini-2.0-flash\nlocal|\ngem|gemini-2.5-flash',
+            titleModel: 'gem|gemini-1.0-pro',
+          ));
+      final models = app.configuredModels();
+      expect(models.map((m) => m.$2).toList()..sort(), ['gemini-1.0-pro', 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'], reason: 'each once');
+      expect(models.every((m) => m.$1 == 'gem'), isTrue, reason: 'local| is not one');
+      await app.settings.update((s) => s.copyWith(codingPlanEnabled: false, titleModel: ''));
+      expect(app.configuredModels().length, 1, reason: 'only the one that answers');
+    });
+
+    testWidgets('with nothing set up to ask, it says so; a refused key is said once, not as a verdict on the model', (tester) async {
+      final app = await makeApp(tester);
+      expect(await app.checkConfiguredModels(), contains('確かめるモデルがありません'));
+      final script = Scripted({'gemini-2.5-flash': (401, '{"error":{"message":"Incorrect API key provided"}}')});
+      final keyed = await appWith(tester, script);
+      late String text;
+      await tester.runAsync(() async => text = await keyed.checkConfiguredModels());
+      expect(text, contains('APIキーが受け付けられなかった'));
+      expect(text, contains('判断できませんでした'));
+      expect(keyed.availability.length, 0);
+    });
+
+    testWidgets('choosing a model asks that one model once, and says when this key cannot use it; not at start, not when the setting is off, not when a result is fresh', (tester) async {
+      final script = Scripted({'gemini-2.5-pro': (429, _limit0)});
       final app = await appWith(tester, script);
-      await tester.pumpWidget(ArceApp(app: app));
-      await tester.pump();
-      app.openSettings(SettingsSection.providers);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('モデル').first);
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'pro');
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('使えるか確かめる'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('2 個のモデルに'), findsOneWidget);
-      expect(find.textContaining('検索で絞った分だけです'), findsOneWidget);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      expect(script.requests, isEmpty, reason: 'nothing is asked when the provider is set up, with the setting off');
+      await app.settings.update((s) => s.copyWith(autoCheckSelectedModel: true));
+
+      await app.providers.selectModel('gem', 'gemini-2.5-pro');
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      expect(script.requests.map((r) => r['model']), ['gemini-2.5-pro'], reason: 'that one model, once');
+      expect(app.toast.value, allOf(contains('gemini-2.5-pro'), contains('使えない可能性があります'), contains('別のモデル')));
+      expect(app.modelMarks.of('gem', 'gemini-2.5-pro')!.isBlocked, isTrue);
+
+      // back and forth: the results are fresh, so nothing more is sent
+      script.requests.clear();
+      await app.providers.selectModel('gem', 'gemini-2.5-flash');
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      expect(script.requests.map((r) => r['model']), ['gemini-2.5-flash'], reason: 'flash had no result yet: asked; usable, so no toast about it');
+      script.requests.clear();
+      await app.providers.selectModel('gem', 'gemini-2.5-pro');
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      expect(script.requests, isEmpty, reason: 'a fresh result is not asked for again');
+
+      // the setting off
+      await app.settings.update((s) => s.copyWith(autoCheckSelectedModel: false));
+      await app.availability.clear();
+      await app.providers.selectModel('gem', 'gemini-2.5-flash');
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      expect(script.requests, isEmpty);
+      await tester.pump(const Duration(seconds: 30)); // the toast's timer
     });
 
     testWidgets('the settings: the switches and the numbers are there, and change the settings; the marks can be cleared', (tester) async {

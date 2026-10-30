@@ -105,6 +105,7 @@ class AppSettings {
     this.recentModelCount = 8,
     this.hideUnusableModels = false,
     this.markBlockedModels = true,
+    this.autoCheckSelectedModel = true,
     this.modelProbeConcurrency = 3,
     this.modelProbeTimeoutSeconds = 30,
     this.modelAvailabilityTrustDays = 7,
@@ -334,6 +335,10 @@ class AppSettings {
   /// is believed for [modelAvailabilityTrustDays] days.
   final bool hideUnusableModels;
   final bool markBlockedModels;
+
+  /// When the model that answers is changed, ask that one model once (the shortest question) whether this
+  /// key can use it, unless a result is still fresh, and say so when it cannot.
+  final bool autoCheckSelectedModel;
   final int modelProbeConcurrency;
   final int modelProbeTimeoutSeconds;
   final int modelAvailabilityTrustDays;
@@ -557,6 +562,7 @@ class AppSettings {
     int? recentModelCount,
     bool? hideUnusableModels,
     bool? markBlockedModels,
+    bool? autoCheckSelectedModel,
     int? modelProbeConcurrency,
     int? modelProbeTimeoutSeconds,
     int? modelAvailabilityTrustDays,
@@ -680,6 +686,7 @@ class AppSettings {
     recentModelCount: recentModelCount ?? this.recentModelCount,
     hideUnusableModels: hideUnusableModels ?? this.hideUnusableModels,
     markBlockedModels: markBlockedModels ?? this.markBlockedModels,
+    autoCheckSelectedModel: autoCheckSelectedModel ?? this.autoCheckSelectedModel,
     modelProbeConcurrency: modelProbeConcurrency ?? this.modelProbeConcurrency,
     modelProbeTimeoutSeconds: modelProbeTimeoutSeconds ?? this.modelProbeTimeoutSeconds,
     modelAvailabilityTrustDays: modelAvailabilityTrustDays ?? this.modelAvailabilityTrustDays,
@@ -805,6 +812,7 @@ class AppSettings {
     'recentModelCount': recentModelCount,
     'hideUnusableModels': hideUnusableModels,
     'markBlockedModels': markBlockedModels,
+    'autoCheckSelectedModel': autoCheckSelectedModel,
     'modelProbeConcurrency': modelProbeConcurrency,
     'modelProbeTimeoutSeconds': modelProbeTimeoutSeconds,
     'modelAvailabilityTrustDays': modelAvailabilityTrustDays,
@@ -960,6 +968,7 @@ class AppSettings {
       recentModelCount: whole('recentModelCount', d.recentModelCount).clamp(0, 30),
       hideUnusableModels: flag('hideUnusableModels', d.hideUnusableModels),
       markBlockedModels: flag('markBlockedModels', d.markBlockedModels),
+      autoCheckSelectedModel: flag('autoCheckSelectedModel', d.autoCheckSelectedModel),
       modelProbeConcurrency: whole('modelProbeConcurrency', d.modelProbeConcurrency).clamp(1, 8),
       modelProbeTimeoutSeconds: whole('modelProbeTimeoutSeconds', d.modelProbeTimeoutSeconds).clamp(5, 120),
       modelAvailabilityTrustDays: whole('modelAvailabilityTrustDays', d.modelAvailabilityTrustDays).clamp(1, 90),

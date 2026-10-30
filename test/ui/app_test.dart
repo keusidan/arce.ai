@@ -25,7 +25,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 Future<AppController> makeApp(WidgetTester tester, {http.Client? reportClient, ReplyNotifier? notifier}) async {
   SharedPreferences.setMockInitialValues({
     // no network in tests: skip the automatic update check
-    'settings.v1': '{"autoUpdateCheck":false}',
+    'settings.v1': '{"autoUpdateCheck":false,"autoCheckSelectedModel":false}',
   });
   late AppController app;
   late Directory dir;

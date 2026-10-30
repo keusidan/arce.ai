@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../ai/model_catalog.dart';
 import '../ai/model_hints.dart';
 import '../ai/model_tree.dart';
 import '../ai/openai_compatible.dart';
@@ -660,40 +659,11 @@ class _ModelsSheetState extends State<_ModelsSheet> {
     if (mounted) setState(() {});
   }
 
-  /// Asks the models shown (the ones the search leaves) one word each, to find out which this key can use.
-  /// Each is a real request that counts against the key's limits, so the user is asked first and told how many.
-  Future<void> _probe(ProviderConfig config, String query) async {
-    final app = widget.app;
-    final shown = [
-      for (final id in config.knownIds)
-        if (ModelCatalog.matches(id, query)) id,
-    ];
-    final ids = app.probeCandidates(shown);
-    if (ids.isEmpty) {
-      setState(() => _result = '確かめるモデルがありません（検索で絞っているときは、その中だけを確かめます）');
-      return;
-    }
-    final left = shown.length - ids.length;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('使えるか確かめる'),
-        content: Text(
-          '${ids.length} 個のモデルに、「hi」という 1 語の短い問い合わせを 1 回ずつ送ります。'
-          '提供元の回数制限（無料枠なら、その日の分）に数えられます。'
-          '${query.isEmpty ? '' : '検索で絞った分だけです。'}'
-          '${left > 0 ? '埋め込み・音声・画像などのモデル $left 個は除きます。' : ''}'
-          '\nキーは、この提供元（${config.label}）にだけ送られます。答えの内容は保存せず、「使える・使えない」とその理由だけを覚えます。',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('やめる')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('確かめる')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    setState(() => _result = '確かめています…');
-    final message = await app.probeModels(config.id, ids);
+  /// Asks the models the app is set to use now (the one that answers, the coding mode's models, the title
+  /// model: a handful, not the provider's whole list) the shortest question, and shows which this key can use.
+  Future<void> _checkConfigured() async {
+    setState(() => _result = '設定中のモデルを確かめています…');
+    final message = await widget.app.checkConfiguredModels();
     if (mounted) setState(() => _result = message);
   }
 
@@ -734,7 +704,7 @@ class _ModelsSheetState extends State<_ModelsSheet> {
                   child: Text(
                     '選んだモデルがチャットで使われます。一覧は提供元から自動で読み込みます。'
                     '選んだモデルは「設定済み」になり、パラメータとプロンプトをモデルごとに保存できます。'
-                    '一覧には、このキー（プラン）で使えないモデルも並びます。「使えるか確かめる」で調べると、使えないものに印が付きます。',
+                    '一覧には、このキー（プラン）で使えないモデルも並びます。「設定中のモデルを確かめる」で調べるか、モデルを選ぶと、使えないものに印が付きます。',
                     style: ts(context, 9.5, color: c.muted, height: 1.5),
                   ),
                 ),
@@ -781,18 +751,11 @@ class _ModelsSheetState extends State<_ModelsSheet> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(children: [
-                        if (widget.app.isProbing(config.id))
-                          SoftButton(
-                            label: '確かめています ${widget.app.probeProgress(config.id) ?? ''}（やめる）',
-                            svg: ArceSvg.close,
-                            onTap: () => widget.app.cancelProbe(config.id),
-                          )
-                        else
-                          SoftButton(
-                            label: '使えるか確かめる',
-                            svg: ArceSvg.shield,
-                            onTap: config.knownIds.isEmpty ? null : () => _probe(config, query),
-                          ),
+                        SoftButton(
+                          label: widget.app.isProbing(config.id) ? '確かめています…' : '設定中のモデルを確かめる',
+                          svg: ArceSvg.shield,
+                          onTap: widget.app.isProbing(config.id) ? null : _checkConfigured,
+                        ),
                       ]),
                     ),
                     Row(children: [
