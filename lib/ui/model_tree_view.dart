@@ -91,25 +91,49 @@ class _ModelTreeViewState extends State<ModelTreeView> {
     final c = context.c;
     final selected = leaf.key == widget.selectedKey;
     final trailing = widget.leafTrailing?.call(leaf);
+    final blocked = leaf.isBlocked;
+    final usable = leaf.mark?.isUsable ?? false;
+    // what the app found out about this key and model: shown in words as well as with a mark
+    final note = blocked
+        ? '使えません：${leaf.mark!.reason}'
+        : usable
+            ? '使えると確認済み'
+            : null;
+    final info = [if (leaf.badge != null) leaf.badge!, if (leaf.subtitle.isNotEmpty) leaf.subtitle].join(' · ');
     return InkWell(
       onTap: () => widget.onPick(leaf.key),
-      child: Padding(
-        padding: EdgeInsets.only(left: 4.0 + depth * 16, top: 7, bottom: 7, right: 4),
-        child: Row(children: [
-          Icon(selected ? Icons.radio_button_checked : Icons.radio_button_unchecked, size: 16, color: selected ? c.accent : c.muted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(leaf.title, style: ts(context, 11.5, weight: selected ? FontWeight.w700 : FontWeight.w600)),
-              if (leaf.subtitle.isNotEmpty || leaf.badge != null)
-                Text(
-                  [if (leaf.badge != null) leaf.badge!, if (leaf.subtitle.isNotEmpty) leaf.subtitle].join(' · '),
-                  style: ts(context, 9, color: c.muted),
-                ),
-            ]),
-          ),
-          ?trailing,
-        ]),
+      child: Opacity(
+        // greyed, not disabled: the user may know better (a plan changed), and can still pick it
+        opacity: blocked ? .55 : 1,
+        child: Padding(
+          padding: EdgeInsets.only(left: 4.0 + depth * 16, top: 7, bottom: 7, right: 4),
+          child: Row(children: [
+            Icon(selected ? Icons.radio_button_checked : Icons.radio_button_unchecked, size: 16, color: selected ? c.accent : c.muted),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Flexible(
+                    child: Text(
+                      leaf.title,
+                      style: ts(context, 11.5, weight: selected ? FontWeight.w700 : FontWeight.w600, color: blocked ? c.muted : null),
+                    ),
+                  ),
+                  if (blocked) ...[
+                    const SizedBox(width: 6),
+                    Icon(Icons.block, key: const ValueKey('model-blocked'), size: 13, color: c.amber),
+                  ] else if (usable) ...[
+                    const SizedBox(width: 6),
+                    Icon(Icons.check_circle_outline, key: const ValueKey('model-usable'), size: 13, color: c.green),
+                  ],
+                ]),
+                if (info.isNotEmpty) Text(info, style: ts(context, 9, color: c.muted)),
+                if (note != null) Text(note, style: ts(context, 9, color: blocked ? c.amber : c.green, height: 1.4)),
+              ]),
+            ),
+            ?trailing,
+          ]),
+        ),
       ),
     );
   }

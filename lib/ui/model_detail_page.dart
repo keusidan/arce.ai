@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../ai/fallback.dart';
+import '../ai/model_availability.dart' show ModelMarks;
 import '../ai/model_tree.dart';
 import '../ai/provider_config.dart';
 import '../services/app_controller.dart';
@@ -122,7 +123,7 @@ class _ModelDetailPageState extends State<ModelDetailPage> {
       ),
       body: SafeArea(
         child: ListenableBuilder(
-          listenable: Listenable.merge([app, app.settings, app.providers]),
+          listenable: Listenable.merge([app, app.settings, app.providers, app.availability]),
           builder: (context, _) {
             final s = app.settings.value;
             void set(AppSettings Function(AppSettings) edit) => unawaited(app.settings.update(edit));
@@ -134,6 +135,7 @@ class _ModelDetailPageState extends State<ModelDetailPage> {
                   children: [
                     ..._lists(context, s, set),
                     ..._recent(context, s, set),
+                    ..._availability(context, s, set),
                     ..._fallback(context, s, set),
                     ..._tokens(context, s, set),
                   ],
@@ -253,6 +255,74 @@ class _ModelDetailPageState extends State<ModelDetailPage> {
               child: SoftButton(label: '履歴を消す', height: 28, onTap: () => unawaited(app.providers.clearRecent())),
             ),
           ],
+        ]),
+      ),
+    ];
+  }
+
+  // ---- which models this key can use ----
+
+  List<Widget> _availability(BuildContext context, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
+    final c = context.c;
+
+    ValuePill pill(String text, List<int> values, int current, AppSettings Function(AppSettings, int) change) => ValuePill(
+          text,
+          onTap: () {
+            final i = values.indexOf(current);
+            set((x) => change(x, values[(i + 1) % values.length]));
+          },
+        );
+
+    return [
+      const SectionTitle('使えるモデルの確認'),
+      ArceCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+            '提供元のモデル一覧は、そのサービスが持っているモデルです。いまのキー（たとえば Gemini の無料枠）で使えるとは限りません。'
+            '使えないモデルは、モデルの一覧の「使えるか確かめる」（1 語の短い問い合わせを 1 回ずつ送ります）で調べるか、'
+            '実際に送って「このキーでは使えない」と返ったときに、印が付きます。印は灰色の表示と理由で出て、最後に並びます。'
+            '覚えているのは、使える・使えないとその理由、調べた時刻だけです（キーも、やり取りの内容も保存しません）。'
+            '印は、下の日数が過ぎると外れます（プランは変わるため）。',
+            style: ts(context, 10, color: c.muted, height: 1.6),
+          ),
+          const SizedBox(height: 6),
+          SettingRow(
+            icon: ArceSvg.eye,
+            title: '使えないと分かったモデルを、選択肢から隠す',
+            subtitle: 'オフ（既定）では、灰色にして最後に並べます。使っているモデルは、隠れません',
+            trailing: ArceSwitch(value: s.hideUnusableModels, onChanged: (v) => set((x) => x.copyWith(hideUnusableModels: v))),
+          ),
+          SettingRow(
+            icon: ArceSvg.alert,
+            title: '送信で使えないと分かったら、印を付ける',
+            subtitle: '「このキー（プラン）では使えない」という答えが返ったモデルに、印を付けます',
+            trailing: ArceSwitch(value: s.markBlockedModels, onChanged: (v) => set((x) => x.copyWith(markBlockedModels: v))),
+          ),
+          SettingRow(
+            icon: ArceSvg.clock,
+            title: '印を信じる日数',
+            subtitle: 'この日数が過ぎた印は外します',
+            trailing: pill('${s.modelAvailabilityTrustDays} 日', const [1, 3, 7, 14, 30, 90], s.modelAvailabilityTrustDays, (x, v) => x.copyWith(modelAvailabilityTrustDays: v)),
+          ),
+          SettingRow(
+            icon: ArceSvg.bolt,
+            title: '確かめるときの同時の数',
+            subtitle: '「使えるか確かめる」が、同時に問い合わせるモデルの数',
+            trailing: pill('${s.modelProbeConcurrency}', const [1, 2, 3, 5, 8], s.modelProbeConcurrency, (x, v) => x.copyWith(modelProbeConcurrency: v)),
+          ),
+          SettingRow(
+            icon: ArceSvg.clockCircle,
+            title: '確かめるときの待ち時間',
+            subtitle: '1 つのモデルの返事を待つ時間。過ぎたら一時的な失敗として扱い、印は付けません',
+            trailing: pill('${s.modelProbeTimeoutSeconds} 秒', const [10, 20, 30, 60, 120], s.modelProbeTimeoutSeconds, (x, v) => x.copyWith(modelProbeTimeoutSeconds: v)),
+          ),
+          SettingRow(
+            icon: ArceSvg.close,
+            title: '印をすべて消す',
+            subtitle: '覚えている「使える・使えない」を、すべて忘れます（${app.availability.length} 件）',
+            last: true,
+            trailing: SoftButton(label: '消す', height: 28, onTap: app.availability.length == 0 ? null : () => unawaited(app.availability.clear())),
+          ),
         ]),
       ),
     ];
@@ -395,7 +465,8 @@ class _RuleEditorState extends State<_RuleEditor> {
       title: 'どのモデルが使えないとき',
       selectedKey: _from,
       note: '特定のモデル、ある提供元のすべてのモデル、またはすべてのモデルを選べます。より細かく指定したルールが先に使われます',
-      build: (query) => ModelTrees.forPicker(_providers, query: query, recent: widget.app.providers.recentRefs, rootLeaves: _fromRoots),
+      // a model this key cannot use is greyed but never hidden here: it is just the one a rule may be for
+      build: (query) => ModelTrees.forPicker(_providers, query: query, recent: widget.app.providers.recentRefs, rootLeaves: _fromRoots, marks: ModelMarks(lookup: widget.app.modelMarks.lookup)),
     );
     if (picked != null) setState(() => _from = picked);
   }
@@ -405,7 +476,7 @@ class _RuleEditorState extends State<_RuleEditor> {
       context,
       title: '代わりに使うモデル',
       selectedKey: null,
-      build: (query) => ModelTrees.forPicker(_providers, query: query, recent: widget.app.providers.recentRefs),
+      build: (query) => ModelTrees.forPicker(_providers, query: query, recent: widget.app.providers.recentRefs, marks: widget.app.modelMarks),
     );
     if (picked != null && !_targets.contains(picked)) setState(() => _targets.add(picked));
   }

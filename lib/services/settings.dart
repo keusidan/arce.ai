@@ -103,6 +103,11 @@ class AppSettings {
     this.titleMaxChars = 30,
     this.tokenOverheadPercent = 80,
     this.recentModelCount = 8,
+    this.hideUnusableModels = false,
+    this.markBlockedModels = true,
+    this.modelProbeConcurrency = 3,
+    this.modelProbeTimeoutSeconds = 30,
+    this.modelAvailabilityTrustDays = 7,
     this.localDryMultiplier = -1,
     this.kvSnapshotEnabled = false,
     this.kvSnapshotMaxMb = 1024,
@@ -322,6 +327,17 @@ class AppSettings {
   /// How many of the models used last are offered first in the model lists (0 turns it off).
   final int recentModelCount;
 
+  /// Models this key cannot use (a free tier that has no quota for a model, a plan that lacks it): the
+  /// lists grey them and put them last, or hide them when [hideUnusableModels] is on. They are found by
+  /// a request that failed ([markBlockedModels]) or by the probe (a button on the model list, which asks
+  /// [modelProbeConcurrency] models at a time and gives each [modelProbeTimeoutSeconds]). What was found
+  /// is believed for [modelAvailabilityTrustDays] days.
+  final bool hideUnusableModels;
+  final bool markBlockedModels;
+  final int modelProbeConcurrency;
+  final int modelProbeTimeoutSeconds;
+  final int modelAvailabilityTrustDays;
+
   /// DRY, the repetition penalty of the device model; -1 keeps the app's own value.
   final double localDryMultiplier;
 
@@ -539,6 +555,11 @@ class AppSettings {
     int? titleMaxChars,
     int? tokenOverheadPercent,
     int? recentModelCount,
+    bool? hideUnusableModels,
+    bool? markBlockedModels,
+    int? modelProbeConcurrency,
+    int? modelProbeTimeoutSeconds,
+    int? modelAvailabilityTrustDays,
     double? localDryMultiplier,
     bool? kvSnapshotEnabled,
     int? kvSnapshotMaxMb,
@@ -657,6 +678,11 @@ class AppSettings {
     titleMaxChars: titleMaxChars ?? this.titleMaxChars,
     tokenOverheadPercent: tokenOverheadPercent ?? this.tokenOverheadPercent,
     recentModelCount: recentModelCount ?? this.recentModelCount,
+    hideUnusableModels: hideUnusableModels ?? this.hideUnusableModels,
+    markBlockedModels: markBlockedModels ?? this.markBlockedModels,
+    modelProbeConcurrency: modelProbeConcurrency ?? this.modelProbeConcurrency,
+    modelProbeTimeoutSeconds: modelProbeTimeoutSeconds ?? this.modelProbeTimeoutSeconds,
+    modelAvailabilityTrustDays: modelAvailabilityTrustDays ?? this.modelAvailabilityTrustDays,
     localDryMultiplier: localDryMultiplier ?? this.localDryMultiplier,
     kvSnapshotEnabled: kvSnapshotEnabled ?? this.kvSnapshotEnabled,
     kvSnapshotMaxMb: kvSnapshotMaxMb ?? this.kvSnapshotMaxMb,
@@ -777,6 +803,11 @@ class AppSettings {
     'titleMaxChars': titleMaxChars,
     'tokenOverheadPercent': tokenOverheadPercent,
     'recentModelCount': recentModelCount,
+    'hideUnusableModels': hideUnusableModels,
+    'markBlockedModels': markBlockedModels,
+    'modelProbeConcurrency': modelProbeConcurrency,
+    'modelProbeTimeoutSeconds': modelProbeTimeoutSeconds,
+    'modelAvailabilityTrustDays': modelAvailabilityTrustDays,
     'localDryMultiplier': localDryMultiplier,
     'kvSnapshotEnabled': kvSnapshotEnabled,
     'kvSnapshotMaxMb': kvSnapshotMaxMb,
@@ -927,6 +958,11 @@ class AppSettings {
       titleMaxChars: whole('titleMaxChars', d.titleMaxChars).clamp(8, 80),
       tokenOverheadPercent: whole('tokenOverheadPercent', d.tokenOverheadPercent).clamp(10, 100),
       recentModelCount: whole('recentModelCount', d.recentModelCount).clamp(0, 30),
+      hideUnusableModels: flag('hideUnusableModels', d.hideUnusableModels),
+      markBlockedModels: flag('markBlockedModels', d.markBlockedModels),
+      modelProbeConcurrency: whole('modelProbeConcurrency', d.modelProbeConcurrency).clamp(1, 8),
+      modelProbeTimeoutSeconds: whole('modelProbeTimeoutSeconds', d.modelProbeTimeoutSeconds).clamp(5, 120),
+      modelAvailabilityTrustDays: whole('modelAvailabilityTrustDays', d.modelAvailabilityTrustDays).clamp(1, 90),
       localDryMultiplier: decimal('localDryMultiplier', d.localDryMultiplier),
       kvSnapshotEnabled: flag('kvSnapshotEnabled', d.kvSnapshotEnabled),
       kvSnapshotMaxMb: whole('kvSnapshotMaxMb', d.kvSnapshotMaxMb),

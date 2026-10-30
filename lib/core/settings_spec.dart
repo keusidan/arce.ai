@@ -441,6 +441,37 @@ abstract final class AgentSettings {
       min: 0,
       max: 30,
     ),
+    'hideUnusableModels': SettingSpec(
+      key: 'hideUnusableModels',
+      label: '使えないと分かったモデルを、選択肢から隠す（オフなら、灰色にして最後に並べる）',
+      kind: SettingKind.flag,
+    ),
+    'markBlockedModels': SettingSpec(
+      key: 'markBlockedModels',
+      label: '送信が「このキーでは使えない」で失敗したとき、そのモデルに印を付ける',
+      kind: SettingKind.flag,
+    ),
+    'modelProbeConcurrency': SettingSpec(
+      key: 'modelProbeConcurrency',
+      label: 'モデルの確認で、同時に問い合わせる数',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 8,
+    ),
+    'modelProbeTimeoutSeconds': SettingSpec(
+      key: 'modelProbeTimeoutSeconds',
+      label: 'モデルの確認で、1 モデルの返事を待つ時間（秒）',
+      kind: SettingKind.whole,
+      min: 5,
+      max: 120,
+    ),
+    'modelAvailabilityTrustDays': SettingSpec(
+      key: 'modelAvailabilityTrustDays',
+      label: 'モデルの「使える・使えない」の印を信じる日数（プランは変わるので、過ぎたら印を外す）',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 90,
+    ),
     'resumeDownloadsOnStart': SettingSpec(
       key: 'resumeDownloadsOnStart',
       label: '閉じたときに止まったモデルのダウンロードを、次の起動で続ける',

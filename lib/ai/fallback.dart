@@ -126,11 +126,16 @@ class FallbackPlan {
 ///
 /// [build] makes the request for one provider (each model has its own limits and thinking
 /// settings). [onSwitch] is told which model took over, and why.
+///
+/// [onFailure] is told of every model that failed, and returns the error to go on with (the same one, or
+/// one that says more: which model this key cannot use). [onSuccess] is told of the model that answered.
 Stream<Delta> streamWithFallback({
   required AiProvider primary,
   required FallbackPlan? plan,
   required AiRequest Function(AiProvider provider) build,
   void Function(AiProvider from, AiProvider to, String reason)? onSwitch,
+  Object Function(AiProvider provider, Object error)? onFailure,
+  void Function(AiProvider provider)? onSuccess,
 }) async* {
   final chain = [primary, ...?plan?.targets];
   for (var i = 0; i < chain.length; i++) {
@@ -141,10 +146,12 @@ Stream<Delta> streamWithFallback({
         sent = true;
         yield delta;
       }
+      onSuccess?.call(provider);
       return;
-    } catch (error) {
+    } catch (error, stack) {
+      final noted = onFailure?.call(provider, error) ?? error;
       final hasNext = i < chain.length - 1;
-      if (sent || !hasNext || plan == null || !plan.accepts(error)) rethrow;
+      if (sent || !hasNext || plan == null || !plan.accepts(error)) Error.throwWithStackTrace(noted, stack);
       onSwitch?.call(provider, chain[i + 1], FallbackPolicy.reason(error));
     }
   }

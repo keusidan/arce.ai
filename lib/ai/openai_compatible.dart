@@ -130,7 +130,7 @@ class OpenAiCompatibleProvider implements AiProvider {
         }
       }
       if (failed.statusCode < 200 || failed.statusCode > 299) {
-        throw AiProviderException(_failure(failed.statusCode, text), statusCode: failed.statusCode);
+        throw AiProviderException(_failure(failed.statusCode, text), statusCode: failed.statusCode, body: text);
       }
     }
 
@@ -371,7 +371,7 @@ class OpenAiCompatibleProvider implements AiProvider {
         )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode);
+      throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode, body: response.body);
     }
     try {
       return ModelInfoParser.parseList(jsonDecode(response.body))..sort((a, b) => a.id.compareTo(b.id));
@@ -389,7 +389,7 @@ class OpenAiCompatibleProvider implements AiProvider {
         )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode);
+      throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode, body: response.body);
     }
   }
 

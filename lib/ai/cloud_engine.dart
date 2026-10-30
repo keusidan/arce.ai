@@ -56,6 +56,13 @@ class CloudEngine implements InferenceEngine {
   /// (see [FallbackPolicy]); the app sets it from the user's rules. Null: no fallback.
   FallbackPlan? Function(AiProvider primary)? fallbackFor;
 
+  /// Told of each model whose request failed; returns the error to go on with (see [streamWithFallback]).
+  /// The app uses it to note the models this key cannot use.
+  Object Function(AiProvider provider, Object error)? onProviderFailure;
+
+  /// Told of the model that answered.
+  void Function(AiProvider provider)? onProviderSuccess;
+
   /// Whether to count the request before sending it and refuse one that cannot fit the model's
   /// context window (see [TokenBudget]), and how much of the window the instructions and tool
   /// definitions may take. The app sets both from the settings.
@@ -147,6 +154,8 @@ class CloudEngine implements InferenceEngine {
         plan: fallbackFor?.call(provider),
         build: (target) => _requestFor(target, request),
         onSwitch: onFallback,
+        onFailure: onProviderFailure,
+        onSuccess: onProviderSuccess,
       );
       await for (final delta in deltas.takeWhile((_) => !_cancelled)) {
         for (final event in adapter.convert(delta)) {
