@@ -1393,21 +1393,29 @@ class _LandingState extends State<_Landing> {
         if (text.trim().isNotEmpty)
           _results(context, hits)
         else
-          LayoutBuilder(
-            builder: (context, box) {
-              final width = (box.maxWidth - _gap) / 2;
-              return Wrap(
-                spacing: _gap,
-                runSpacing: _gap,
-                children: [
-                  for (final group in _groups)
-                    SizedBox(
-                      width: width,
-                      child: _GroupButton(group: group, onTap: () => widget.onOpen(group.section)),
+          // Two to a row, and the two buttons of a row are as tall as the taller one (a Wrap let each one
+          // be as tall as its own text, so the lower edges did not line up).
+          Column(
+            children: [
+              for (var i = 0; i < _groups.length; i += 2)
+                Padding(
+                  padding: EdgeInsets.only(bottom: i + 2 < _groups.length ? _gap : 0),
+                  child: IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(child: _GroupButton(group: _groups[i], onTap: () => widget.onOpen(_groups[i].section))),
+                        const SizedBox(width: _gap),
+                        Expanded(
+                          child: i + 1 < _groups.length
+                              ? _GroupButton(group: _groups[i + 1], onTap: () => widget.onOpen(_groups[i + 1].section))
+                              : const SizedBox.shrink(),
+                        ),
+                      ],
                     ),
-                ],
-              );
-            },
+                  ),
+                ),
+            ],
           ),
       ],
     );
@@ -1474,7 +1482,7 @@ class _GroupButton extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           key: ValueKey('settings-group-${group.section.name}'),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           onTap: onTap,
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 128),

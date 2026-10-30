@@ -131,6 +131,28 @@ void main() {
     expect(find.descendant(of: buttons.first, matching: find.text('オンライン接続（プロバイダ）')), findsOneWidget);
   });
 
+  testWidgets('settings page: the two buttons of a row are equally tall and their lower edges line up, however long the text (narrow phone, larger text)', (tester) async {
+    for (final (size, scale) in [(const Size(360, 800), 1.0), (const Size(360, 800), 1.3), (const Size(411, 860), 1.3), (const Size(1280, 800), 1.0)]) {
+      setSize(tester, size);
+      final app = await makeApp(tester);
+      await app.settings.update((s) => s.copyWith(fontScale: scale));
+      await tester.pumpWidget(ArceApp(app: app));
+      await tester.pump();
+      app.goTo(AppPage.settings);
+      await tester.pumpAndSettle();
+      final buttons = [for (final section in SettingsSection.values) find.byKey(ValueKey('settings-group-${section.name}'))];
+      for (var i = 0; i < buttons.length; i += 2) {
+        final left = tester.getRect(buttons[i]);
+        final right = tester.getRect(buttons[i + 1]);
+        expect(left.top, right.top, reason: 'row ${i ~/ 2} at $size x$scale');
+        expect(left.bottom, right.bottom, reason: 'row ${i ~/ 2} at $size x$scale: the lower edges line up');
+        expect(left.height, greaterThanOrEqualTo(128));
+      }
+      // the right-hand buttons end where the page's column ends: nothing sticks out
+      expect(tester.getRect(buttons.last).right, lessThanOrEqualTo(size.width));
+    }
+  });
+
   testWidgets('settings page: a button moves to the group\'s own screen, which shows only its settings; back returns to the buttons', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);
