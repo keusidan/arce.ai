@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../core/generation.dart';
 import 'model_info.dart';
+import 'model_list_check.dart';
 import 'provider.dart';
 import 'provider_config.dart';
 
@@ -378,6 +379,36 @@ class OpenAiCompatibleProvider implements AiProvider {
     } catch (_) {
       throw const AiProviderException('モデル一覧を読み取れませんでした');
     }
+  }
+
+  /// The models this key can see, to judge a model without asking it (see `ModelListCheck`). For Gemini's
+  /// endpoint it is Gemini's own list (`models.list`, which says which methods each model supports, with the
+  /// key in the `x-goog-api-key` header), read page by page; for any other it is the OpenAI-style list.
+  Future<List<ModelInfo>> fetchKeyModels() async {
+    if (!GeminiModels.isGemini(baseUrl)) return fetchModelInfos();
+    final all = <ModelInfo>[];
+    String? token;
+    // pageSize is 1000: a second page is rare, and a loop that never ends is worse than a short list
+    for (var page = 0; page < 10; page++) {
+      final uri = GeminiModels.listUri(baseUrl, pageToken: token)!;
+      final response = await _client
+          .get(uri, headers: {'Accept': 'application/json', if (apiKey.isNotEmpty) 'x-goog-api-key': apiKey, ...headers})
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode < 200 || response.statusCode > 299) {
+        throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode, body: response.body);
+      }
+      final Object? decoded;
+      try {
+        decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      } catch (_) {
+        throw const AiProviderException('モデル一覧を読み取れませんでした');
+      }
+      all.addAll(ModelInfoParser.parseList(decoded));
+      final next = decoded is Map ? decoded['nextPageToken'] : null;
+      if (next is! String || next.isEmpty) break;
+      token = next;
+    }
+    return all..sort((a, b) => a.id.compareTo(b.id));
   }
 
   @override

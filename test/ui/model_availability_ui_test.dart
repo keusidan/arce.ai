@@ -295,7 +295,7 @@ void main() {
       late String text;
       await tester.runAsync(() async => text = await keyed.checkConfiguredModels());
       expect(text, contains('APIキーが受け付けられなかった'));
-      expect(text, contains('判断できませんでした'));
+      expect(text, contains('キーが拒否されたので'));
       expect(keyed.availability.length, 0);
     });
 

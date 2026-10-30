@@ -106,6 +106,7 @@ class AppSettings {
     this.hideUnusableModels = false,
     this.markBlockedModels = true,
     this.autoCheckSelectedModel = true,
+    this.modelCheckAsksToo = false,
     this.modelProbeConcurrency = 3,
     this.modelProbeTimeoutSeconds = 30,
     this.modelAvailabilityTrustDays = 7,
@@ -339,6 +340,10 @@ class AppSettings {
   /// When the model that answers is changed, ask that one model once (the shortest question) whether this
   /// key can use it, unless a result is still fresh, and say so when it cannot.
   final bool autoCheckSelectedModel;
+
+  /// A model that the key's model list has is also asked the shortest question (which shows what a list
+  /// cannot: that a free tier has no quota for it). Off: the list alone judges, and uses no quota.
+  final bool modelCheckAsksToo;
   final int modelProbeConcurrency;
   final int modelProbeTimeoutSeconds;
   final int modelAvailabilityTrustDays;
@@ -563,6 +568,7 @@ class AppSettings {
     bool? hideUnusableModels,
     bool? markBlockedModels,
     bool? autoCheckSelectedModel,
+    bool? modelCheckAsksToo,
     int? modelProbeConcurrency,
     int? modelProbeTimeoutSeconds,
     int? modelAvailabilityTrustDays,
@@ -687,6 +693,7 @@ class AppSettings {
     hideUnusableModels: hideUnusableModels ?? this.hideUnusableModels,
     markBlockedModels: markBlockedModels ?? this.markBlockedModels,
     autoCheckSelectedModel: autoCheckSelectedModel ?? this.autoCheckSelectedModel,
+    modelCheckAsksToo: modelCheckAsksToo ?? this.modelCheckAsksToo,
     modelProbeConcurrency: modelProbeConcurrency ?? this.modelProbeConcurrency,
     modelProbeTimeoutSeconds: modelProbeTimeoutSeconds ?? this.modelProbeTimeoutSeconds,
     modelAvailabilityTrustDays: modelAvailabilityTrustDays ?? this.modelAvailabilityTrustDays,
@@ -813,6 +820,7 @@ class AppSettings {
     'hideUnusableModels': hideUnusableModels,
     'markBlockedModels': markBlockedModels,
     'autoCheckSelectedModel': autoCheckSelectedModel,
+    'modelCheckAsksToo': modelCheckAsksToo,
     'modelProbeConcurrency': modelProbeConcurrency,
     'modelProbeTimeoutSeconds': modelProbeTimeoutSeconds,
     'modelAvailabilityTrustDays': modelAvailabilityTrustDays,
@@ -969,6 +977,7 @@ class AppSettings {
       hideUnusableModels: flag('hideUnusableModels', d.hideUnusableModels),
       markBlockedModels: flag('markBlockedModels', d.markBlockedModels),
       autoCheckSelectedModel: flag('autoCheckSelectedModel', d.autoCheckSelectedModel),
+      modelCheckAsksToo: flag('modelCheckAsksToo', d.modelCheckAsksToo),
       modelProbeConcurrency: whole('modelProbeConcurrency', d.modelProbeConcurrency).clamp(1, 8),
       modelProbeTimeoutSeconds: whole('modelProbeTimeoutSeconds', d.modelProbeTimeoutSeconds).clamp(5, 120),
       modelAvailabilityTrustDays: whole('modelAvailabilityTrustDays', d.modelAvailabilityTrustDays).clamp(1, 90),

@@ -446,6 +446,7 @@ abstract final class AgentSettings {
       label: '使えないと分かったモデルを、選択肢から隠す（オフなら、灰色にして最後に並べる）',
       kind: SettingKind.flag,
     ),
+    'modelCheckAsksToo': SettingSpec(key: 'modelCheckAsksToo', label: 'モデルの確認で、一覧にあるモデルにも短い問い合わせを 1 回送る（無料枠の使える・使えないまで分かる。回数を使う）', kind: SettingKind.flag),
     'autoCheckSelectedModel': SettingSpec(key: 'autoCheckSelectedModel', label: 'モデルを選んだとき、そのモデルがこのキーで使えるかを 1 回だけ確かめる', kind: SettingKind.flag),
     'markBlockedModels': SettingSpec(
       key: 'markBlockedModels',

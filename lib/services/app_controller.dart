@@ -11,6 +11,7 @@ import 'package:flutter/widgets.dart' show AppLifecycleListener, WidgetsFlutterB
 import '../ai/cloud_engine.dart';
 import '../ai/model_availability.dart';
 import '../ai/model_info.dart';
+import '../ai/model_list_check.dart';
 import '../ai/model_probe.dart';
 import '../ai/openai_compatible.dart';
 import '../ai/delegation.dart';
@@ -850,7 +851,11 @@ class AppController extends ChangeNotifier {
   }
 
   /// A removed provider takes what was found out about its models with it.
-  void _syncAvailability() => unawaited(availability.keepOnly({for (final p in providers.providers) p.id}));
+  void _syncAvailability() {
+    // a provider was saved, changed or removed: what its key could see may have changed too
+    _keyModels.clear();
+    unawaited(availability.keepOnly({for (final p in providers.providers) p.id}));
+  }
 
   /// Providers whose models are being asked now (a second question at the same time is refused).
   final _probing = <String>{};
@@ -919,8 +924,81 @@ class AppController extends ChangeNotifier {
     return out;
   }
 
-  /// Asks each model the app is set to use (not the whole list of the provider: only these few) the
-  /// shortest question, keeps which can be used, and says it model by model.
+  /// The models each key can see (`models.list`), kept for this run so that choosing a model again does not
+  /// read the list again. Dropped when a provider is saved or removed, and by the check button.
+  final _keyModels = <String, List<ModelInfo>>{};
+
+  Future<List<ModelInfo>?> _readKeyModels(ProviderConfig config, {bool refresh = false}) async {
+    if (!refresh) {
+      final cached = _keyModels[config.id];
+      if (cached != null) return cached;
+    }
+    final provider = providers.build(config);
+    if (provider is! OpenAiCompatibleProvider) return null;
+    final list = await provider.fetchKeyModels();
+    _keyModels[config.id] = list;
+    return list;
+  }
+
+  /// Finds out whether this key can use each of [ids] of provider [providerId], and says it model by model
+  /// (model id -> a line; the entry '' is a problem with the key or the address, said once).
+  ///
+  /// First the model list the key can read (`models.list`): one request, no use of the quota. A model that
+  /// the list does not have, or that does not do chat, is out (and marked). One that is listed may still
+  /// have no quota (a free tier lists models it cannot answer with): only a real request shows that, so
+  /// listed models are asked too only when the setting says so; a request that fails later marks them.
+  /// When the list cannot be read or is empty, the models are asked instead.
+  Future<Map<String, String>> checkModels(String providerId, List<String> ids, {bool refreshList = false}) async {
+    final config = providers.byId(providerId);
+    if (config == null) return {'': 'プロバイダが見つかりません'};
+    if (!(Uri.tryParse(config.baseUrl.trim())?.hasScheme ?? false)) return {'': 'Base URL（https://…）を入れてください'};
+    if (ids.isEmpty) return {'': '確かめるモデルがありません'};
+    List<ModelInfo>? list;
+    try {
+      list = await _readKeyModels(config, refresh: refreshList);
+    } on AiProviderException catch (e) {
+      final code = e.statusCode;
+      if (code == 401 || code == 403) {
+        return {'': 'APIキーが受け付けられなかったので、確認をやめました（モデルのことは分かっていません）。キーを確かめてください'};
+      }
+      list = null; // the list could not be read: the models are asked instead
+    } catch (_) {
+      list = null;
+    }
+    final lines = <String, String>{};
+    final toAsk = <String>[];
+    final blocked = <String, AvailabilityVerdict>{};
+    for (final id in ids) {
+      final verdict = ModelListCheck.judge(id, list);
+      if (verdict == null) {
+        toAsk.add(id);
+      } else if (verdict.isBlocked) {
+        blocked[id] = AvailabilityVerdict(ModelAvailability.blocked, verdict.reason);
+        lines[id] = '使えません（${verdict.reason}）';
+      } else if (settings.value.modelCheckAsksToo) {
+        toAsk.add(id);
+      } else {
+        lines[id] = '一覧にあります（無料枠などの回数の制限までは、一覧では分かりません。送って「使えない」と返れば、印が付きます）';
+      }
+    }
+    if (blocked.isNotEmpty) await availability.recordAll(providerId, blocked, trustDays: _trustDays);
+    if (toAsk.isNotEmpty) {
+      final message = await probeModels(providerId, toAsk);
+      for (final id in toAsk) {
+        final record = availability.recordOf(providerId, id, trustDays: _trustDays);
+        lines[id] = record == null
+            ? (message.startsWith('APIキーが受け付けられなかった') ? 'キーが拒否されたので、分かりません' : '判断できませんでした（一時的な失敗かもしれません。あとでもう一度）')
+            : record.isBlocked
+                ? '使えません（${record.reason}）'
+                : '使えます（問い合わせで確認しました）';
+      }
+      if (message.startsWith('APIキーが受け付けられなかった')) lines[''] = message;
+    }
+    return lines;
+  }
+
+  /// Checks each model the app is set to use (not the provider's whole list: only these few) and says it
+  /// model by model. The button on the model list: it reads the key's list afresh.
   Future<String> checkConfiguredModels() async {
     final models = configuredModels();
     if (models.isEmpty) return '確かめるモデルがありません（オンラインのモデルを選んでください）';
@@ -928,24 +1006,17 @@ class AppController extends ChangeNotifier {
     for (final (providerId, modelId) in models) {
       byProvider.putIfAbsent(providerId, () => []).add(modelId);
     }
-    final problems = <String>[];
+    final out = <String>[];
     for (final entry in byProvider.entries) {
-      final message = await probeModels(entry.key, entry.value);
-      if (message.startsWith('APIキーが受け付けられなかった') || message.startsWith('確認できません') || message.startsWith('Base URL')) {
-        problems.add('${providers.byId(entry.key)?.label ?? entry.key}: $message');
+      final label = providers.byId(entry.key)?.label ?? entry.key;
+      final lines = await checkModels(entry.key, entry.value, refreshList: true);
+      for (final id in entry.value) {
+        out.add('$label · $id：${lines[id] ?? lines[''] ?? '判断できませんでした'}');
       }
+      final problem = lines[''];
+      if (problem != null && !out.last.endsWith(problem)) out.add('$label: $problem');
     }
-    final lines = <String>[
-      for (final (providerId, modelId) in models)
-        '${providers.byId(providerId)?.label ?? providerId} · $modelId：${_verdictLine(availability.recordOf(providerId, modelId, trustDays: _trustDays))}',
-      ...problems,
-    ];
-    return lines.join('\n');
-  }
-
-  static String _verdictLine(AvailabilityRecord? record) {
-    if (record == null) return '判断できませんでした（一時的な失敗かもしれません。あとでもう一度）';
-    return record.isBlocked ? '使えません（${record.reason}）' : '使えます';
+    return out.join('\n');
   }
 
   String? _activeRef;
@@ -967,7 +1038,7 @@ class AppController extends ChangeNotifier {
     if (config == null || model == null || !settings.value.autoCheckSelectedModel) return;
     if (availability.recordOf(config.id, model.id, trustDays: _trustDays) != null) return;
     unawaited(() async {
-      await probeModels(config.id, [model.id]);
+      await checkModels(config.id, [model.id]);
       final record = availability.recordOf(config.id, model.id, trustDays: _trustDays);
       if (record != null && record.isBlocked) {
         showToast('${config.label} · ${model.id} は、このキーでは使えない可能性があります（${record.reason}）。別のモデルを選んでください');

@@ -234,6 +234,7 @@ final List<SettingsSearchEntry> settingsIndex = [
   _row(SettingsSection.providers, '確かめるときの同時の数', subtitle: '「設定中のモデルを確かめる」が、同時に問い合わせるモデルの数', keywords: ['設定中のモデルを確かめる', 'probe', '同時', '並列', 'concurrency'], key: 'modelProbeConcurrency'),
   _row(SettingsSection.providers, '確かめるときの待ち時間', subtitle: '1 つのモデルの返事を待つ時間。過ぎたら一時的な失敗として扱い、印は付けません', keywords: ['設定中のモデルを確かめる', 'probe', 'タイムアウト', 'timeout', '待ち時間'], key: 'modelProbeTimeoutSeconds'),
   _row(SettingsSection.providers, '印をすべて消す', subtitle: '覚えている「使える・使えない」を、すべて忘れます', keywords: ['使えない', '印', '消す', 'リセット', 'clear']),
-  _row(SettingsSection.providers, '設定中のモデルを確かめる', subtitle: 'モデルの一覧のボタン。答えるモデル・コーディングモードのモデル・タイトル用のモデルだけに、1 語の短い問い合わせを 1 回ずつ送って、このキーで使えるかを調べます', keywords: ['gemini', '無料枠', 'free tier', 'probe', '確認', '使えない', 'モデル', 'キー', 'プラン', '429', '403', '設定中', '確かめる']),
-  _row(SettingsSection.providers, 'モデルを選んだとき、そのモデルを 1 回だけ確かめる', subtitle: '答えるモデルを変えたとき、そのモデル 1 つに短い問い合わせを 1 回送ります（印が新しければ送りません）。使えないときは、そう知らせます', keywords: ['gemini', '無料枠', 'free tier', '自動', '確認', '使えない', 'モデル', '選ぶ', 'auto', 'probe'], key: 'autoCheckSelectedModel'),
+  _row(SettingsSection.providers, '設定中のモデルを確かめる', subtitle: 'モデルの一覧のボタン。答えるモデル・コーディングモードのモデル・タイトル用のモデルだけを、そのキーで読めるモデル一覧で調べます（一覧にないモデルや、チャットに対応していないモデルに印が付きます）', keywords: ['gemini', '無料枠', 'free tier', 'probe', '確認', '使えない', 'モデル', 'キー', 'プラン', '429', '403', '設定中', '確かめる']),
+  _row(SettingsSection.providers, '一覧にあるモデルにも、短い問い合わせを 1 回送る', subtitle: 'オフ（既定）では、モデル一覧だけで判断します（回数を使いません）。オンにすると、無料枠で使えないモデルまで分かります（確かめるたびに、回数を 1 回ずつ使います）', keywords: ['gemini', '無料枠', 'free tier', '問い合わせ', '回数', 'models.list', 'probe', '確認', '使えない'], key: 'modelCheckAsksToo'),
+  _row(SettingsSection.providers, 'モデルを選んだとき、そのモデルを 1 回だけ確かめる', subtitle: '答えるモデルを変えたとき、そのモデル 1 つを確かめます（モデル一覧で判断します。印が新しければ確かめません）。使えないときは、そう知らせます', keywords: ['gemini', '無料枠', 'free tier', '自動', '確認', '使えない', 'モデル', '選ぶ', 'auto', 'probe'], key: 'autoCheckSelectedModel'),
 ];

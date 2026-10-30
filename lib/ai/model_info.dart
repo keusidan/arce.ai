@@ -1,7 +1,7 @@
 /// What a provider says about one of its models. Everything but [id] is optional: providers
 /// differ a lot in what their model list carries, and a missing value is simply not known.
 class ModelInfo {
-  const ModelInfo(this.id, {this.contextTokens, this.maxOutputTokens, this.vision, this.tools, this.reasoning});
+  const ModelInfo(this.id, {this.contextTokens, this.maxOutputTokens, this.vision, this.tools, this.reasoning, this.chat});
 
   final String id;
 
@@ -14,6 +14,10 @@ class ModelInfo {
   final bool? tools;
   final bool? reasoning;
 
+  /// Whether the model does chat (text generation): Gemini's list says which methods each model supports
+  /// (`generateContent`...); an embedding or an image model has none of them. Null: the list does not say.
+  final bool? chat;
+
   bool get hasLimits => contextTokens != null || maxOutputTokens != null;
 
   /// Short keys: a provider can list hundreds of models and the list is kept in the settings.
@@ -24,6 +28,7 @@ class ModelInfo {
         if (vision != null) 'vision': vision,
         if (tools != null) 'tools': tools,
         if (reasoning != null) 'reasoning': reasoning,
+        if (chat != null) 'chat': chat,
       };
 
   /// Null for an entry without an id (a damaged save).
@@ -38,6 +43,7 @@ class ModelInfo {
       vision: flag(json['vision']),
       tools: flag(json['tools']),
       reasoning: flag(json['reasoning']),
+      chat: flag(json['chat']),
     );
   }
 }
@@ -87,6 +93,8 @@ abstract final class ModelInfoParser {
 
     final capabilities = _map(m['capabilities']);
     final parameters = _strings(m['supported_parameters']);
+    // Gemini: `supportedGenerationMethods` (the Gemini API reference of models.list)
+    final methods = _strings(m['supportedGenerationMethods'] ?? m['supported_generation_methods']);
     final inputs = _strings(_map(m['architecture'])?['input_modalities'] ?? m['input_modalities'] ?? m['modalities']);
     return ModelInfo(
       id,
@@ -98,6 +106,7 @@ abstract final class ModelInfoParser {
           (parameters.isEmpty ? null : parameters.contains('tools')),
       reasoning: _flag(capabilities?['reasoning']) ??
           (parameters.isEmpty ? null : parameters.contains('reasoning') || parameters.contains('include_reasoning')),
+      chat: methods.isEmpty ? null : methods.any((method) => method == 'generatecontent' || method == 'streamgeneratecontent'),
     );
   }
 

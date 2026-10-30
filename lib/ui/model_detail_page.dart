@@ -279,9 +279,10 @@ class _ModelDetailPageState extends State<ModelDetailPage> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(
             '提供元のモデル一覧は、そのサービスが持っているモデルです。いまのキー（たとえば Gemini の無料枠）で使えるとは限りません。'
-            '使えないモデルは、いま設定しているモデルだけを調べます（モデルの一覧の「設定中のモデルを確かめる」。答えるモデル・コーディングモードのモデル・タイトル用のモデルに、'
-            '1 語の短い問い合わせを 1 回ずつ送ります）。モデルを選んだときの自動の確認と、実際に送って「このキーでは使えない」と返ったときにも、印が付きます。'
-            '印は灰色の表示と理由で出て、最後に並びます。'
+            '使えないモデルは、いま設定しているモデルだけを調べます（モデルの一覧の「設定中のモデルを確かめる」。答えるモデル・コーディングモードのモデル・タイトル用のモデル）。'
+            'まず、そのキーで読めるモデル一覧（Gemini なら models.list）を取り、一覧にないモデルや、チャットに対応していないモデルに印を付けます（問い合わせも回数も使いません）。'
+            '一覧にあっても、無料枠などで使えないことがあります。それは、下のスイッチで短い問い合わせも送るか、実際に送って「このキーでは使えない」と返ったときに、印が付きます。'
+            'モデルを選んだときにも、自動で確かめます。印は灰色の表示と理由で出て、最後に並びます。'
             '覚えているのは、使える・使えないとその理由、調べた時刻だけです（キーも、やり取りの内容も保存しません）。'
             '印は、下の日数が過ぎると外れます（プランは変わるため）。',
             style: ts(context, 10, color: c.muted, height: 1.6),
@@ -296,8 +297,14 @@ class _ModelDetailPageState extends State<ModelDetailPage> {
           SettingRow(
             icon: ArceSvg.shield,
             title: 'モデルを選んだとき、そのモデルを 1 回だけ確かめる',
-            subtitle: '答えるモデルを変えたとき、そのモデル 1 つに短い問い合わせを 1 回送ります（印が新しければ送りません）。使えないときは、そう知らせます',
+            subtitle: '答えるモデルを変えたとき、そのモデル 1 つを確かめます（モデル一覧で判断します。印が新しければ確かめません）。使えないときは、そう知らせます',
             trailing: ArceSwitch(value: s.autoCheckSelectedModel, onChanged: (v) => set((x) => x.copyWith(autoCheckSelectedModel: v))),
+          ),
+          SettingRow(
+            icon: ArceSvg.bolt,
+            title: '一覧にあるモデルにも、短い問い合わせを 1 回送る',
+            subtitle: 'オフ（既定）では、モデル一覧だけで判断します（回数を使いません）。オンにすると、無料枠で使えないモデルまで分かります（確かめるたびに、回数を 1 回ずつ使います）',
+            trailing: ArceSwitch(value: s.modelCheckAsksToo, onChanged: (v) => set((x) => x.copyWith(modelCheckAsksToo: v))),
           ),
           SettingRow(
             icon: ArceSvg.alert,
