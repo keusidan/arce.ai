@@ -175,11 +175,16 @@ abstract interface class AiProvider {
 
 /// A failed request, with a message that can be shown as it is.
 class AiProviderException implements Exception {
-  const AiProviderException(this.message, {this.statusCode});
+  const AiProviderException(this.message, {this.statusCode, this.body = ''});
   final String message;
 
   /// The HTTP status the provider answered with, when it answered; the fallback mode reads it.
   final int? statusCode;
+
+  /// What the provider answered with (an error body, not anything of the user's chat): read by
+  /// [AvailabilityClassifier] to tell a model this key cannot use from a failure that will pass. It is
+  /// never shown or stored as it is.
+  final String body;
 
   @override
   String toString() => message;

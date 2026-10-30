@@ -8,7 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener, WidgetsFlutterBinding;
 
 import '../ai/cloud_engine.dart';
+import '../ai/model_availability.dart';
 import '../ai/model_info.dart';
+import '../ai/model_probe.dart';
 import '../ai/openai_compatible.dart';
 import '../ai/delegation.dart';
 import '../ai/provider.dart';
@@ -40,6 +42,7 @@ import 'conversation_search.dart';
 import 'device_info.dart';
 import 'error_reporter.dart';
 import 'linux_env.dart';
+import 'model_availability_store.dart';
 import 'model_info_fetcher.dart';
 import 'foreground_service.dart';
 import 'reply_notifier.dart';
@@ -95,6 +98,7 @@ class AppController extends ChangeNotifier {
     required this.preview,
     required this.errors,
     required this.linux,
+    required this.availability,
     this.notifier = const ReplyNotifier(),
   }) {
     _current = _newSession();
@@ -249,6 +253,7 @@ class AppController extends ChangeNotifier {
     http.Client? reportClient,
     LinuxEnvironment? linux,
     ReplyNotifier? notifier,
+    ModelAvailabilityStore? availability,
   }) async {
     final settings = await SettingsStore.load();
     final providers = await ProviderStore.load();
@@ -295,6 +300,7 @@ class AppController extends ChangeNotifier {
       ),
       // the same environment the tool runs in, so the settings screen shows its real state
       linux: linux ?? McpTools.shellEnvironment,
+      availability: availability ?? await ModelAvailabilityStore.load(),
       notifier: notifier ?? const ReplyNotifier(),
     );
     final local = app.engine.local;
@@ -306,6 +312,11 @@ class AppController extends ChangeNotifier {
       );
     }
     app.engine.planner = app._plannerEngine;
+    // a model this key cannot use is noted when a real request finds out, and a note is taken back when it answers
+    cloud.onProviderFailure = app._noteProviderFailure;
+    cloud.onProviderSuccess = app._noteProviderSuccess;
+    providers.addListener(app._syncAvailability);
+    app._syncAvailability();
     unawaited(app._start());
     return app;
   }
@@ -793,6 +804,110 @@ class AppController extends ChangeNotifier {
 
   void _announceFallback(AiProvider from, AiProvider to, String reason) {
     showToast('${from.label} · ${from.modelId} が使えないため（$reason）、${to.label} · ${to.modelId} で答えます');
+  }
+
+  // ---------------------------------------------------------------- which models this key can use
+
+  /// What was found out about each provider's models: usable, or not usable with this key and plan.
+  final ModelAvailabilityStore availability;
+
+  int get _trustDays => settings.value.modelAvailabilityTrustDays;
+
+  /// What the model lists need to mark models (and hide the unusable ones, when the setting says so).
+  ModelMarks get modelMarks => ModelMarks(
+        lookup: (providerId, modelId) => availability.recordOf(providerId, modelId, trustDays: _trustDays),
+        hideBlocked: settings.value.hideUnusableModels,
+      );
+
+  /// A request of a model failed: when the answer says this key cannot use the model, it is noted (the
+  /// lists mark it), and the error says which model and what to do. Anything else is left as it is.
+  Object _noteProviderFailure(AiProvider provider, Object error) {
+    final verdict = AvailabilityClassifier.classifyError(error);
+    if (!verdict.isBlocked || error is! AiProviderException) return error;
+    final mark = settings.value.markBlockedModels;
+    if (mark) unawaited(availability.record(provider.id, provider.modelId, verdict, trustDays: _trustDays));
+    return AiProviderException(
+      AvailabilityClassifier.blockedMessage(
+        providerLabel: provider.label,
+        modelId: provider.modelId,
+        verdict: verdict,
+        original: AvailabilityClassifier.providerMessage(error.body) ?? error.message,
+        marked: mark,
+      ),
+      statusCode: error.statusCode,
+      body: error.body,
+    );
+  }
+
+  /// A model answered: a note that it cannot be used is no longer true.
+  void _noteProviderSuccess(AiProvider provider) {
+    if (settings.value.markBlockedModels) unawaited(availability.noteAnswered(provider.id, provider.modelId));
+  }
+
+  /// A removed provider takes what was found out about its models with it.
+  void _syncAvailability() => unawaited(availability.keepOnly({for (final p in providers.providers) p.id}));
+
+  /// Progress text of the probe of each provider that is being asked now (provider id -> "3 / 20").
+  final _probing = <String, String>{};
+  final _probeStop = <String>{};
+
+  bool isProbing(String providerId) => _probing.containsKey(providerId);
+
+  String? probeProgress(String providerId) => _probing[providerId];
+
+  /// Stops a probe from starting more questions (those on their way finish).
+  void cancelProbe(String providerId) {
+    if (_probing.containsKey(providerId)) _probeStop.add(providerId);
+  }
+
+  /// [ids] without the models that do not look like chat models (embedding, speech, image ...), which fail
+  /// a chat question for a reason that says nothing about the key.
+  List<String> probeCandidates(Iterable<String> ids) => [
+        for (final id in ids)
+          if (AvailabilityClassifier.looksLikeChatModel(id)) id,
+      ];
+
+  /// Asks [ids] of provider [providerId] one word each (a real request each: it counts against the key's
+  /// limits), keeps which can be used and which cannot, and returns what to tell the user.
+  Future<String> probeModels(String providerId, List<String> ids) async {
+    final config = providers.byId(providerId);
+    if (config == null) return 'プロバイダが見つかりません';
+    if (!config.isComplete && config.baseUrl.trim().isEmpty) return 'Base URL を入れてください';
+    if (ids.isEmpty) return '確かめるモデルがありません';
+    if (_probing.containsKey(providerId)) return 'いま確認しています';
+    final s = settings.value;
+    final timeout = Duration(seconds: s.modelProbeTimeoutSeconds);
+    _probeStop.remove(providerId);
+    _probing[providerId] = '0 / ${ids.length}';
+    notifyListeners();
+    try {
+      final report = await ModelProbe.run(
+        modelIds: ids,
+        concurrency: s.modelProbeConcurrency,
+        timeout: timeout + const Duration(seconds: 5),
+        cancelled: () => _probeStop.contains(providerId),
+        ask: (id) => ModelProbe.askOnce(
+          providers.build(config, model: config.resolveModel(id) ?? ModelConfig(id: id, name: id)),
+          abortAfter: timeout,
+        ),
+        onOutcome: (outcome, done, total) {
+          _probing[providerId] = '$done / $total';
+          notifyListeners();
+        },
+      );
+      await availability.recordAll(
+        providerId,
+        {for (final o in report.outcomes) o.modelId: o.verdict},
+        trustDays: _trustDays,
+      );
+      return report.summary();
+    } catch (e) {
+      return '確認できませんでした（$e）';
+    } finally {
+      _probing.remove(providerId);
+      _probeStop.remove(providerId);
+      notifyListeners();
+    }
   }
 
   final _listBusy = <String>{};

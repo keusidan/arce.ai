@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../ai/model_catalog.dart';
 import '../ai/model_hints.dart';
 import '../ai/model_tree.dart';
 import '../ai/openai_compatible.dart';
@@ -630,6 +631,43 @@ class _ModelsSheetState extends State<_ModelsSheet> {
     if (mounted) setState(() {});
   }
 
+  /// Asks the models shown (the ones the search leaves) one word each, to find out which this key can use.
+  /// Each is a real request that counts against the key's limits, so the user is asked first and told how many.
+  Future<void> _probe(ProviderConfig config, String query) async {
+    final app = widget.app;
+    final shown = [
+      for (final id in config.knownIds)
+        if (ModelCatalog.matches(id, query)) id,
+    ];
+    final ids = app.probeCandidates(shown);
+    if (ids.isEmpty) {
+      setState(() => _result = '確かめるモデルがありません（検索で絞っているときは、その中だけを確かめます）');
+      return;
+    }
+    final left = shown.length - ids.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('使えるか確かめる'),
+        content: Text(
+          '${ids.length} 個のモデルに、「hi」という 1 語の短い問い合わせを 1 回ずつ送ります。'
+          '提供元の回数制限（無料枠なら、その日の分）に数えられます。'
+          '${query.isEmpty ? '' : '検索で絞った分だけです。'}'
+          '${left > 0 ? '埋め込み・音声・画像などのモデル $left 個は除きます。' : ''}'
+          '\nキーは、この提供元（${config.label}）にだけ送られます。答えの内容は保存せず、「使える・使えない」とその理由だけを覚えます。',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('やめる')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('確かめる')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _result = '確かめています…');
+    final message = await app.probeModels(config.id, ids);
+    if (mounted) setState(() => _result = message);
+  }
+
   Future<void> _openDetail() async {
     final navigator = Navigator.of(context);
     navigator.pop();
@@ -649,7 +687,7 @@ class _ModelsSheetState extends State<_ModelsSheet> {
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.9,
         child: ListenableBuilder(
-          listenable: Listenable.merge([store, widget.app]),
+          listenable: Listenable.merge([store, widget.app, widget.app.availability]),
           builder: (context, _) {
             final config = _config;
             return Column(
@@ -666,7 +704,8 @@ class _ModelsSheetState extends State<_ModelsSheet> {
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
                   child: Text(
                     '選んだモデルがチャットで使われます。一覧は提供元から自動で読み込みます。'
-                    '選んだモデルは「設定済み」になり、パラメータとプロンプトをモデルごとに保存できます。',
+                    '選んだモデルは「設定済み」になり、パラメータとプロンプトをモデルごとに保存できます。'
+                    '一覧には、このキー（プラン）で使えないモデルも並びます。「使えるか確かめる」で調べると、使えないものに印が付きます。',
                     style: ts(context, 9.5, color: c.muted, height: 1.5),
                   ),
                 ),
@@ -686,7 +725,7 @@ class _ModelsSheetState extends State<_ModelsSheet> {
                             ),
                           )
                         : ModelTreeView(
-                            model: ModelTrees.forProvider(config, query: query, recent: store.recentRefs),
+                            model: ModelTrees.forProvider(config, query: query, recent: store.recentRefs, marks: widget.app.modelMarks, keepKey: selected),
                             selectedKey: selected,
                             searching: query.isNotEmpty,
                             onPick: _pick,
@@ -710,6 +749,23 @@ class _ModelsSheetState extends State<_ModelsSheet> {
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Text(_result!, style: ts(context, 10, color: c.muted, height: 1.5)),
                       ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(children: [
+                        if (widget.app.isProbing(config.id))
+                          SoftButton(
+                            label: '確かめています ${widget.app.probeProgress(config.id) ?? ''}（やめる）',
+                            svg: ArceSvg.close,
+                            onTap: () => widget.app.cancelProbe(config.id),
+                          )
+                        else
+                          SoftButton(
+                            label: '使えるか確かめる',
+                            svg: ArceSvg.shield,
+                            onTap: config.knownIds.isEmpty ? null : () => _probe(config, query),
+                          ),
+                      ]),
+                    ),
                     Row(children: [
                       SoftButton(label: reading ? '読み込み中…' : '更新', svg: ArceSvg.retry, onTap: reading ? null : _read),
                       const SizedBox(width: 8),

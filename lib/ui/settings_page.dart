@@ -1743,6 +1743,8 @@ class _ModelRefField extends StatelessWidget {
         query: query,
         recent: app.providers.recentRefs,
         rootLeaves: _roots,
+        marks: app.modelMarks,
+        keepKey: value,
       ),
     );
     if (picked != null) onChanged(picked);

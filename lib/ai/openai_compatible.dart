@@ -94,9 +94,11 @@ class OpenAiCompatibleProvider implements AiProvider {
       return;
     }
     if (response.statusCode < 200 || response.statusCode > 299) {
+      final errorBody = await response.stream.bytesToString();
       throw AiProviderException(
-        _failure(response.statusCode, await response.stream.bytesToString()),
+        _failure(response.statusCode, errorBody),
         statusCode: response.statusCode,
+        body: errorBody,
       );
     }
 
@@ -314,7 +316,7 @@ class OpenAiCompatibleProvider implements AiProvider {
         )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode);
+      throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode, body: response.body);
     }
     try {
       return ModelInfoParser.parseList(jsonDecode(response.body))..sort((a, b) => a.id.compareTo(b.id));
@@ -332,7 +334,7 @@ class OpenAiCompatibleProvider implements AiProvider {
         )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode);
+      throw AiProviderException(_failure(response.statusCode, response.body), statusCode: response.statusCode, body: response.body);
     }
   }
 

@@ -1,9 +1,10 @@
+import 'model_availability.dart';
 import 'model_catalog.dart';
 import 'provider_config.dart';
 
 /// One model in a list: [key] is what the list reports when it is picked.
 class TreeLeaf {
-  const TreeLeaf(this.key, this.title, {this.subtitle = '', this.badge});
+  const TreeLeaf(this.key, this.title, {this.subtitle = '', this.badge, this.mark});
 
   final String key;
   final String title;
@@ -13,6 +14,12 @@ class TreeLeaf {
 
   /// A short mark such as 設定済み; null for none.
   final String? badge;
+
+  /// What is known about whether this key can use the model (a result of the probe or of a request that
+  /// failed); null when nothing is known, or the result is too old to believe.
+  final AvailabilityRecord? mark;
+
+  bool get isBlocked => mark?.isBlocked ?? false;
 }
 
 /// A folder of the list: a maker, a provider, or "recently used".
@@ -73,7 +80,7 @@ abstract final class ModelTrees {
     return slash > 0 && slash < id.length - 1 ? id.substring(slash + 1) : id;
   }
 
-  static TreeLeaf _leaf(ProviderConfig config, String id, {String Function(String)? key, String? title}) {
+  static TreeLeaf _leaf(ProviderConfig config, String id, {String Function(String)? key, String? title, ModelMarks marks = ModelMarks.none}) {
     final saved = config.modelById(id);
     final info = config.catalogInfo(id);
     return TreeLeaf(
@@ -86,8 +93,34 @@ abstract final class ModelTrees {
         reasoning: info?.reasoning,
       ),
       badge: saved != null ? '設定済み' : null,
+      mark: marks.of(config.id, id),
     );
   }
+
+  /// [leaves] with the models this key cannot use after the others, or left out when [marks] hides them
+  /// (the model in use, [keepKey], is never left out: the user must see what answers). The order inside each
+  /// group is kept.
+  static List<TreeLeaf> arrange(List<TreeLeaf> leaves, ModelMarks marks, {String? keepKey}) {
+    if (!leaves.any((l) => l.isBlocked)) return leaves;
+    final fine = [for (final l in leaves) if (!l.isBlocked) l];
+    final blocked = [for (final l in leaves) if (l.isBlocked && (!marks.hideBlocked || l.key == keepKey)) l];
+    return [...fine, ...blocked];
+  }
+
+  /// [node] with its models arranged by [arrange]; null when nothing is left in it (a folder whose models
+  /// are all hidden is not shown).
+  static TreeNode? _arranged(TreeNode node, ModelMarks marks, String? keepKey) {
+    final leaves = arrange(node.leaves, marks, keepKey: keepKey);
+    final children = [
+      for (final child in node.children) ...[?_arranged(child, marks, keepKey)],
+    ];
+    if (leaves.isEmpty && children.isEmpty) return null;
+    return TreeNode(node.key, node.label, leaves: leaves, children: children);
+  }
+
+  static List<TreeNode> _arrangedAll(List<TreeNode> nodes, ModelMarks marks, String? keepKey) => [
+        for (final node in nodes) ...[?_arranged(node, marks, keepKey)],
+      ];
 
   /// The vendor folders of [ids], with each model built by [leaf].
   static List<TreeNode> _byMaker(String prefix, Iterable<String> ids, String query, TreeLeaf Function(String) leaf) => [
@@ -97,18 +130,24 @@ abstract final class ModelTrees {
 
   /// The models of one provider: "recently used" first, then a folder per maker. Leaves are keyed
   /// by the model id.
-  static TreeModel forProvider(ProviderConfig config, {String query = '', List<String> recent = const []}) {
+  static TreeModel forProvider(
+    ProviderConfig config, {
+    String query = '',
+    List<String> recent = const [],
+    ModelMarks marks = ModelMarks.none,
+    String? keepKey,
+  }) {
     final known = config.knownIds.toSet();
     final recentIds = [
       for (final ref in recent)
         if (ref.startsWith('${config.id}|') && known.contains(ref.substring(config.id.length + 1)) && ModelCatalog.matches(ref.substring(config.id.length + 1), query))
           ref.substring(config.id.length + 1),
     ];
-    return TreeModel(const [], [
+    return TreeModel(const [], _arrangedAll([
       if (recentIds.isNotEmpty)
-        TreeNode('recent', '最近使った', leaves: [for (final id in recentIds) _leaf(config, id, title: id)]),
-      ..._byMaker('maker:', config.knownIds, query, (id) => _leaf(config, id)),
-    ]);
+        TreeNode('recent', '最近使った', leaves: [for (final id in recentIds) _leaf(config, id, title: id, marks: marks)]),
+      ..._byMaker('maker:', config.knownIds, query, (id) => _leaf(config, id, marks: marks)),
+    ], marks, keepKey));
   }
 
   /// A provider with this many models or fewer is shown as one flat list in the picker.
@@ -122,6 +161,8 @@ abstract final class ModelTrees {
     String query = '',
     List<String> recent = const [],
     List<TreeLeaf> rootLeaves = const [],
+    ModelMarks marks = ModelMarks.none,
+    String? keepKey,
   }) {
     final byId = {for (final p in providers) p.id: p};
     final recentLeaves = <TreeLeaf>[];
@@ -132,7 +173,7 @@ abstract final class ModelTrees {
       final model = ref.substring(bar + 1);
       if (provider == null || !provider.knownIds.contains(model)) continue;
       if (!ModelCatalog.matches('${provider.label} $model', query)) continue;
-      recentLeaves.add(_leaf(provider, model, key: (id) => '${provider.id}|$id', title: '${provider.label} · $model'));
+      recentLeaves.add(_leaf(provider, model, key: (id) => '${provider.id}|$id', title: '${provider.label} · $model', marks: marks));
     }
 
     final nodes = <TreeNode>[
@@ -146,10 +187,10 @@ abstract final class ModelTrees {
           if (ModelCatalog.matches('$label $id', query)) id,
       ];
       if (ids.isEmpty) continue;
-      TreeLeaf leaf(String id) => _leaf(provider, id, key: (m) => '${provider.id}|$m');
+      TreeLeaf leaf(String id) => _leaf(provider, id, key: (m) => '${provider.id}|$m', marks: marks);
       if (ids.length <= flatLimit) {
         // no maker folders here, so the whole id is the title
-        nodes.add(TreeNode('p:${provider.id}', label, leaves: [for (final id in ids) _leaf(provider, id, key: (m) => '${provider.id}|$m', title: id)]));
+        nodes.add(TreeNode('p:${provider.id}', label, leaves: [for (final id in ids) _leaf(provider, id, key: (m) => '${provider.id}|$m', title: id, marks: marks)]));
       } else {
         nodes.add(TreeNode('p:${provider.id}', label, children: _byMaker('p:${provider.id}:maker:', ids, '', leaf)));
       }
@@ -158,6 +199,6 @@ abstract final class ModelTrees {
       for (final leaf in rootLeaves)
         if (ModelCatalog.matches(leaf.title, query)) leaf,
     ];
-    return TreeModel(roots, nodes);
+    return TreeModel(roots, _arrangedAll(nodes, marks, keepKey));
   }
 }
