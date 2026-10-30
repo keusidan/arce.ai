@@ -7,6 +7,7 @@ import '../ai/model_tree.dart';
 import '../core/agents.dart';
 import '../core/coding_plan.dart';
 import '../core/engine.dart';
+import '../core/settings_search.dart';
 import '../services/app_controller.dart';
 import '../services/linux_env.dart';
 import '../services/settings.dart';
@@ -15,6 +16,7 @@ import 'arce_text_field.dart';
 import 'mcp_widgets.dart';
 import 'model_tree_view.dart';
 import 'search_widgets.dart';
+import 'settings_index.dart';
 import 'proot_check_card.dart';
 import 'provider_widgets.dart';
 import 'secrets_widgets.dart';
@@ -1330,40 +1332,127 @@ class _SettingsPageState extends State<SettingsPage> {
   );
 }
 
-/// The first screen of the settings: the heading, a place for the search field, and the groups as buttons,
-/// two to a row.
-class _Landing extends StatelessWidget {
+/// The first screen of the settings: the heading, the search field, and the groups as buttons, two to a
+/// row. While something is typed, the results (the rows of every group that match) take the place of the
+/// buttons; a result opens the screen of its group, and nothing scrolls to follow it.
+class _Landing extends StatefulWidget {
   const _Landing({required this.onOpen});
 
   final ValueChanged<SettingsSection> onOpen;
 
+  @override
+  State<_Landing> createState() => _LandingState();
+}
+
+class _LandingState extends State<_Landing> {
   /// The space between two buttons, across and down.
   static const _gap = 10.0;
 
+  final _query = TextEditingController();
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
+    final text = _query.text;
+    final hits = text.trim().isEmpty ? const <SettingsHit>[] : SettingsSearch.search(settingsIndex, text, limit: 40);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const PageHeading('設定', '項目を押すと、その設定の画面に移ります。'),
-        // SEARCH SLOT: the search field of the settings goes here, above the buttons
-        LayoutBuilder(
-          builder: (context, box) {
-            final width = (box.maxWidth - _gap) / 2;
-            return Wrap(
-              spacing: _gap,
-              runSpacing: _gap,
-              children: [
-                for (final group in _groups)
-                  SizedBox(
-                    width: width,
-                    child: _GroupButton(group: group, onTap: () => onOpen(group.section)),
-                  ),
-              ],
-            );
-          },
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: ArceTextField(
+            key: const ValueKey('settings-search'),
+            controller: _query,
+            textInputAction: TextInputAction.search,
+            onChanged: (_) => setState(() {}),
+            style: ts(context, 13),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: '設定を検索（例：トークン、通知、タイムアウト）',
+              hintStyle: ts(context, 12, color: c.faint),
+              prefixIcon: Padding(padding: const EdgeInsets.all(11), child: ArceIcon(ArceSvg.search, size: 16, color: c.muted)),
+              prefixIconConstraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+              suffixIcon: text.isEmpty
+                  ? null
+                  : IconTap(
+                      svg: ArceSvg.close,
+                      tooltip: '検索をやめる',
+                      onTap: () => setState(_query.clear),
+                    ),
+              border: const OutlineInputBorder(),
+            ),
+          ),
         ),
+        if (text.trim().isNotEmpty)
+          _results(context, hits)
+        else
+          LayoutBuilder(
+            builder: (context, box) {
+              final width = (box.maxWidth - _gap) / 2;
+              return Wrap(
+                spacing: _gap,
+                runSpacing: _gap,
+                children: [
+                  for (final group in _groups)
+                    SizedBox(
+                      width: width,
+                      child: _GroupButton(group: group, onTap: () => widget.onOpen(group.section)),
+                    ),
+                ],
+              );
+            },
+          ),
       ],
+    );
+  }
+
+  Widget _results(BuildContext context, List<SettingsHit> hits) {
+    final c = context.c;
+    if (hits.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        child: Text('見つかりませんでした。別のことばで試してください（「トークン」「通知」「上限」など）。', style: ts(context, 11, color: c.muted, height: 1.6)),
+      );
+    }
+    return ArceCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          for (var i = 0; i < hits.length; i++)
+            InkWell(
+              key: ValueKey('settings-hit-$i'),
+              onTap: () => widget.onOpen(SettingsSection.values.byName(hits[i].entry.sectionId)),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                decoration: BoxDecoration(border: i == hits.length - 1 ? null : Border(bottom: BorderSide(color: c.line))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      settingsSectionTitle(SettingsSection.values.byName(hits[i].entry.sectionId)),
+                      style: ts(context, 9, color: c.accent, weight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(hits[i].entry.title, style: ts(context, 12, weight: FontWeight.w600, height: 1.4)),
+                    if (hits[i].entry.subtitle.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(hits[i].entry.subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(context, 9.5, color: c.muted, height: 1.45)),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

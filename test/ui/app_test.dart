@@ -167,6 +167,52 @@ void main() {
     expect(app.settings.value.hyperLoad, isTrue);
   });
 
+  testWidgets('settings page: the search field lists the matching rows of every group; a result opens its group; clearing brings the buttons back; nothing scrolls', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.goTo(AppPage.settings);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-search')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-group-local')), findsOneWidget);
+
+    await tester.enterText(find.byKey(const ValueKey('settings-search')), 'トークン');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('settings-group-local')), findsNothing, reason: 'the results take the place of the buttons');
+    expect(find.byKey(const ValueKey('settings-hit-0')), findsOneWidget);
+
+    // a word that matches nothing
+    await tester.enterText(find.byKey(const ValueKey('settings-search')), 'zzzzqqqq');
+    await tester.pump();
+    expect(find.textContaining('見つかりませんでした'), findsOneWidget);
+
+    // full-width letters and hiragana for katakana still find it; a result opens the screen of its group
+    await tester.enterText(find.byKey(const ValueKey('settings-search')), 'ｔｉｍｅｏｕｔ');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('settings-hit-0')), findsOneWidget);
+    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first).position.pixels;
+    await tester.tap(find.byKey(const ValueKey('settings-hit-0')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget, reason: 'a group\'s screen is open');
+    expect(find.byKey(const ValueKey('settings-search')), findsNothing);
+    expect(tester.state<ScrollableState>(find.byType(Scrollable).first).position.pixels, scroll, reason: 'opening a result scrolls nothing');
+
+    // back: the field is empty again and the buttons are there
+    await tester.tap(find.byKey(const ValueKey('settings-back')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-group-local')), findsOneWidget);
+
+    // the clear button
+    await tester.enterText(find.byKey(const ValueKey('settings-search')), '通知');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('settings-group-local')), findsNothing);
+    await tester.tap(find.byTooltip('検索をやめる'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('settings-group-local')), findsOneWidget);
+  });
+
   testWidgets('settings page: the system\'s back returns from a group to the buttons, and the page keeps its place in the app', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);
