@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../core/secret_placeholders.dart';
 import '../core/shell_secrets.dart';
 import '../core/terminal_screen.dart';
 import 'linux_env.dart';
@@ -149,8 +150,14 @@ class ShellSessionManager {
     required int workspaceLimitBytes,
     required bool noSeccomp,
     Map<String, String> secrets = const {},
+    Map<String, String> idValues = const {},
+    String? label,
     int? waitMs,
   }) async {
+    // [idValues] (id -> value) are the secrets used by placeholder: their values are taken out of every screen
+    // for the life of the session, and the session remembers which ids it has (a line typed into it may
+    // name only those: its process has no others). [label] is what the model and the card see of the
+    // command (the text as the model wrote it, placeholders and all): [command] is what runs.
     final answer = await _bridge.sessionStart(
       command: command,
       cwd: cwd,
@@ -167,14 +174,19 @@ class ShellSessionManager {
     if (id.isEmpty) throw StateError('セッションを始められませんでした');
     final live = _Live(
       id: id,
-      command: command,
+      command: label ?? command,
       secrets: secrets,
+      idValues: idValues,
       settings: settings,
       screen: TerminalScreen(cols: settings.cols, rows: settings.rows, maxScrollback: settings.scrollback),
     );
     _live[id] = live;
     return _view(live, await _pull(live, waitMs ?? settings.waitMs));
   }
+
+  /// The ids of the secrets session [id] was started with (by placeholder); empty for one that has none or
+  /// does not exist.
+  Set<String> idsOf(String id) => _live[id.trim()]?.idValues.keys.toSet() ?? const {};
 
   /// Types [text] and presses [keys] (in that order), then reads what the program does.
   Future<SessionView> send(String id, {String text = '', List<String> keys = const [], int? waitMs}) async {
@@ -236,13 +248,18 @@ class ShellSessionManager {
     return answer;
   }
 
+  /// [text] without the values of the secrets of a session: the ones passed under their own name (`[NAME]`)
+  /// and the ones used by placeholder (`[secret:id]`, in the forms `SecretRedaction` knows).
+  static String _redact(String text, Map<String, String> secrets, Map<String, String> idValues) =>
+      SecretRedaction.redact(ShellSecrets.redact(text, secrets), idValues);
+
   /// What the model gets: the screen and the lines that scrolled off, with the values of the secrets this
   /// session was given taken out (a program may print its environment at any time, not only at the start).
   SessionView _view(_Live live, Map<Object?, Object?> answer) => SessionView(
         id: live.id,
         command: live.command,
-        screen: ShellSecrets.redact(live.screen.text(), live.secrets),
-        scrolled: [for (final line in live.screen.takeScrolled()) ShellSecrets.redact(line, live.secrets)],
+        screen: _redact(live.screen.text(), live.secrets, live.idValues),
+        scrolled: [for (final line in live.screen.takeScrolled()) _redact(line, live.secrets, live.idValues)],
         alive: answer['alive'] == true,
         exit: answer['exit'] is num ? (answer['exit']! as num).toInt() : null,
         stoppedBy: answer['stoppedBy'] is String ? answer['stoppedBy']! as String : null,
@@ -253,13 +270,16 @@ class ShellSessionManager {
 }
 
 class _Live {
-  _Live({required this.id, required this.command, required this.secrets, required this.settings, required this.screen});
+  _Live({required this.id, required this.command, required this.secrets, this.idValues = const {}, required this.settings, required this.screen});
 
   final String id;
   final String command;
 
   /// name -> value of the secrets this session was started with.
   final Map<String, String> secrets;
+
+  /// id -> value of the secrets it was given by placeholder.
+  final Map<String, String> idValues;
   final ShellSessionSettings settings;
   final TerminalScreen screen;
   int offset = 0;

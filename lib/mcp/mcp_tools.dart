@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../ai/token_budget.dart';
 import '../core/protocol.dart';
 import '../core/secret_book.dart';
+import '../core/secret_placeholders.dart';
 import '../core/shell_secrets.dart';
 import '../core/tool_runtime.dart';
 import '../services/ci_client.dart';
@@ -13,6 +14,7 @@ import '../services/shell_sessions.dart';
 import 'http_request_tool.dart';
 import 'mcp_client.dart';
 import 'mcp_server.dart';
+import 'placeholder_commands.dart';
 
 /// One configured server together with the client that talks to it.
 class McpServerClient {
@@ -202,6 +204,8 @@ class McpTools {
       if (!shell.enabled || !_shellSupported) return false;
       // a command that is given a secret is approved every time, whatever it does: it can send it anywhere
       if ((ShellSecrets.names(arguments['secrets']) ?? const ['?']).isNotEmpty) return true;
+      // so is one that writes a placeholder (docs 15.13, path B): the card then says where each secret may go
+      if (PlaceholderCommands.idsIn('${arguments['command'] ?? ''}').isNotEmpty) return true;
       if (shell.confirm) return true;
       return !SandboxPolicy.isInsideSandbox(McpCall(name, arguments));
     }
@@ -223,12 +227,93 @@ class McpTools {
     final action = '${arguments['action'] ?? ''}';
     if (action != 'start' && action != 'send') return false;
     if ((ShellSecrets.names(arguments['secrets']) ?? const ['?']).isNotEmpty) return true;
-    if (shell.confirm) return true;
     final text = action == 'start' ? '${arguments['command'] ?? ''}' : '${arguments['input'] ?? ''}';
+    // a placeholder is approved every time, in the command that starts a session and in a line typed into it
+    if (PlaceholderCommands.idsIn(text).isNotEmpty) return true;
+    if (shell.confirm) return true;
     // only keys were pressed (Ctrl-C, an arrow): there is no text to judge
     if (action == 'send' && text.trim().isEmpty) return false;
     final cwd = action == 'start' ? '${arguments['cwd'] ?? '/workspace'}' : '/workspace';
     return !SandboxPolicy.isInsideSandbox(McpCall(Protocol.runCommandName, {'command': text, 'cwd': cwd}));
+  }
+
+  /// What the approval card shows under a command that uses secrets by placeholder (docs 15.13, path B): which
+  /// secrets, where each may be sent, the addresses written in the command, and a warning when there is none.
+  /// Empty for anything else, and for a command that will be refused (the card is then for the rest of the call).
+  String approvalDetails(String name, Map<String, Object?> arguments) {
+    String text;
+    Set<String>? only;
+    if (name == Protocol.runCommandName) {
+      text = '${arguments['command'] ?? ''}';
+    } else if (name == Protocol.shellSessionName) {
+      final action = '${arguments['action'] ?? ''}';
+      if (action == 'start') {
+        text = '${arguments['command'] ?? ''}';
+      } else if (action == 'send') {
+        text = '${arguments['input'] ?? ''}';
+        only = _sessions.idsOf('${arguments['session'] ?? ''}');
+      } else {
+        return '';
+      }
+    } else {
+      return '';
+    }
+    final plan = _plan(text, arguments['secrets'], onlyIds: only);
+    if (plan.problem != null) return '';
+    return PlaceholderCommands.cardDetails(plan.prepared) ?? '';
+  }
+
+  /// A command (or a line typed into a session) with the secrets it uses dealt with: the ones named in
+  /// [asked] (`secrets`: the names of stored values, passed as variables of that name; or ids, passed as
+  /// `ARCE_SECRET_<ID>`) and the ones written in [text] as `{{secret:ID}}`. With [onlyIds] only those may be
+  /// used (a session's process has the ones it was started with).
+  _SecretPlan _plan(String text, Object? asked, {Set<String>? onlyIds}) {
+    final plain = PreparedCommand(command: text);
+    final names = ShellSecrets.names(asked);
+    if (names == null) return _SecretPlan(plain, problem: '"secrets" must be a list of names.');
+    final legacy = <String, String>{};
+    final ids = <String>[];
+    final unknown = <String>[];
+    for (final name in names) {
+      final value = secrets[name];
+      if (value != null) {
+        legacy[name] = value;
+      } else if (secretBook.byId(name) != null) {
+        ids.add(name);
+      } else {
+        unknown.add(name);
+      }
+    }
+    if (unknown.isNotEmpty) {
+      final available = {...secrets.keys, for (final e in secretBook.entries) if (e.modelMayUse) e.id};
+      return _SecretPlan(
+        plain,
+        problem: 'No secret is available under the name ${unknown.join(', ')}. '
+            '${available.isEmpty ? 'The user has made none available.' : 'Available: ${available.join(', ')}.'} '
+            'Nothing was run.',
+        unknown: unknown,
+      );
+    }
+    final prepared = PlaceholderCommands.prepare(
+      text,
+      secretBook,
+      extraIds: ids,
+      onlyIds: onlyIds,
+      allowInsecure: httpRequest.allowInsecure,
+    );
+    if (prepared.problem != null) return _SecretPlan(prepared, legacy: legacy, problem: prepared.problem);
+    // a variable the user named and one the app makes from an id must not be the same name with two values
+    for (final entry in prepared.env.entries) {
+      final other = legacy[entry.key];
+      if (other != null && other != entry.value) {
+        return _SecretPlan(
+          prepared,
+          legacy: legacy,
+          problem: 'The variable ${entry.key} would be given two different values. Nothing was run.',
+        );
+      }
+    }
+    return _SecretPlan(prepared, legacy: legacy);
   }
 
   McpServerClient? _serverById(String id) {
@@ -257,8 +342,8 @@ class McpTools {
   /// time (see [onDemand]), the three tools that look them up and call them stand in for them.
   Future<List<ToolDefinition>> definitions() async {
     final out = <ToolDefinition>[
-      if (shell.enabled && _shellSupported) _runCommandFor(shell, secrets.keys.toList()),
-      if (shell.enabled && _shellSupported) _shellSessionFor(shell),
+      if (shell.enabled && _shellSupported) _runCommandFor(shell, secrets.keys.toList(), _usableSecrets),
+      if (shell.enabled && _shellSupported) _shellSessionFor(shell, _usableSecrets),
       ...[?_http.definition()],
       Protocol.ciStatus,
     ];
@@ -510,7 +595,7 @@ class McpTools {
 
   /// The tool, with what the settings allow written into its description: the model cannot look
   /// the limits up, so they are said here (docs 19.5, item 4).
-  static ToolDefinition _runCommandFor(ShellSettings s, List<String> secretNames) => ToolDefinition(
+  static ToolDefinition _runCommandFor(ShellSettings s, List<String> secretNames, [List<SecretInfo> usable = const []]) => ToolDefinition(
     name: Protocol.runCommandName,
     description:
         'Run one shell command in the Linux environment (Ubuntu 24.04, arm64) that lives inside this '
@@ -523,20 +608,33 @@ class McpTools {
         'than timeout_seconds (at most ${s.maxTimeoutSeconds}), or when it fills the workspace. '
         'The first command installs the environment (about 30 MB, a few minutes) if the user has not '
         'done it yet.${s.confirm ? ' The user approves every command first.' : ''}'
-        '${secretNames.isEmpty ? '' : ' Stored secrets you may ask for, by name, in secrets (the command then gets each as an environment variable of that name, the user approves that command every time, and you never see the value): ${secretNames.join(', ')}.'}',
+        '${secretNames.isEmpty ? '' : ' Stored secrets you may ask for, by name, in secrets (the command then gets each as an environment variable of that name, the user approves that command every time, and you never see the value): ${secretNames.join(', ')}.'}'
+        '${_placeholderHint(usable)}',
     parameters: Protocol.runCommand.parameters,
   );
 
+  /// The secrets a model may name in `{{secret:ID}}`, each with the hosts it may go to (ids and hosts, never values).
+  List<SecretInfo> get _usableSecrets => [for (final e in secretBook.entries) if (e.unusableReason == null) e];
+
+  /// What the tool descriptions add about the placeholders that can be used now; nothing when there are none.
+  static String _placeholderHint(List<SecretInfo> usable) => usable.isEmpty
+      ? ''
+      : ' Secrets you may write as {{secret:ID}} in the command (id → the hosts it may be sent to): '
+          '${[for (final e in usable) '${e.id} → ${e.hosts.join(', ')}'].join('; ')}. '
+          'The app rejects a command that writes another address with one of them, and says "nothing was run".';
+
   /// The session tool, with what the settings allow written into its description.
-  static ToolDefinition _shellSessionFor(ShellSettings s) => ToolDefinition(
+  static ToolDefinition _shellSessionFor(ShellSettings s, [List<SecretInfo> usable = const []]) => ToolDefinition(
     name: Protocol.shellSessionName,
     description: '${Protocol.shellSession.description} '
         'At most ${s.sessions.maxSessions} sessions run at once; one that nobody uses for '
         '${s.sessions.idleMinutes == 0 ? 'ever' : '${s.sessions.idleMinutes} minutes'} '
         '${s.sessions.idleMinutes == 0 ? 'is kept' : 'is stopped'}. The terminal is ${s.sessions.cols} columns wide and '
         '${s.sessions.rows} rows high. The user approves a session that reaches outside the sandbox, one given a '
-        'secret, and what is typed into a session in the same cases.'
-        '${s.confirm ? ' The user approves every start and every input first.' : ''}',
+        'secret, and what is typed into a session in the same cases. In input, {{secret:ID}} becomes a reference '
+        'to the environment variable (right for a shell); a program that is not a shell reads ARCE_SECRET_<ID> itself.'
+        '${s.confirm ? ' The user approves every start and every input first.' : ''}'
+        '${_placeholderHint(usable)}',
     parameters: Protocol.shellSession.parameters,
   );
 
@@ -554,42 +652,46 @@ class McpTools {
         case 'start':
           final command = '${arguments['command'] ?? ''}'.trim();
           if (command.isEmpty) return failed('start needs a command.');
-          final asked = ShellSecrets.names(arguments['secrets']);
-          if (asked == null) return failed('"secrets" must be a list of names.');
-          final unknown = [for (final name in asked) if (!secrets.containsKey(name)) name];
-          if (unknown.isNotEmpty) {
-            return failed(
-              'No secret is available under the name ${unknown.join(', ')}. '
-              '${secrets.isEmpty ? 'The user has made none available.' : 'Available: ${secrets.keys.join(', ')}.'} Nothing was run.',
-            );
-          }
-          final given = {for (final name in asked) name: secrets[name]!};
+          final plan = _plan(command, arguments['secrets']);
+          if (plan.problem != null) return failed(plan.problem!);
+          // what runs has a reference to a variable where the model wrote a placeholder; the model, the card and
+          // the log keep what it wrote
+          final given = plan.env;
           final config = shell.config;
           if (!_environment.ready) {
             await _environment.refresh(config);
             if (!_environment.ready) await _environment.install(config);
           }
           final view = await _sessions.start(
-            command: command,
+            command: plan.command,
             cwd: '${arguments['cwd'] ?? '/workspace'}'.trim(),
             settings: settings,
             workspaceLimitBytes: config.workspaceLimitBytes,
             noSeccomp: config.compatMode,
             secrets: given,
+            idValues: plan.prepared.idValues,
+            label: command,
             waitMs: waitMs,
           );
           // the manager takes the values out of every screen it hands back, from this one on
           return ToolOutcome(
             view.describe(),
-            ToolActivity('Shell', 'セッション ${view.id}: \$ $command${given.isEmpty ? '' : '  （秘密: ${given.keys.join(', ')}）'}'),
+            ToolActivity('Shell', 'セッション ${view.id}: \$ $command${plan.secretNote}'),
           );
         case 'send':
           final input = '${arguments['input'] ?? ''}';
           final keys = arguments['keys'];
           if (id.isEmpty) return failed('send needs "session".');
           if (input.isEmpty && (keys is! List || keys.isEmpty)) return failed('send needs input or keys.');
-          final view = await _sessions.send(id, text: input, keys: [if (keys is List) for (final k in keys) '$k'], waitMs: waitMs);
-          return ToolOutcome(view.describe(), ToolActivity('Shell', 'セッション $id に入力: ${_shorten(input.isEmpty ? '(キー)' : input)}'));
+          // a placeholder in what is typed is allowed for the secrets this session was started with: its process
+          // has them, and no others
+          final plan = _plan(input, null, onlyIds: _sessions.idsOf(id));
+          if (plan.problem != null) return failed(plan.problem!);
+          final view = await _sessions.send(id, text: plan.command, keys: [if (keys is List) for (final k in keys) '$k'], waitMs: waitMs);
+          return ToolOutcome(
+            view.describe(),
+            ToolActivity('Shell', 'セッション $id に入力: ${_shorten(input.isEmpty ? '(キー)' : input)}${plan.secretNote}'),
+          );
         case 'read':
           if (id.isEmpty) return failed('read needs "session".');
           final view = await _sessions.read(id, waitMs: waitMs);
@@ -634,24 +736,21 @@ class McpTools {
     final asked = wanted is num ? wanted.toInt() : shell.timeoutSeconds;
     final seconds = asked.clamp(1, shell.maxTimeoutSeconds).toInt();
     final config = shell.config;
-    // the secrets this command asked for: only names the user made available, and each must have a value
-    final askedSecrets = ShellSecrets.names(arguments['secrets']);
-    if (askedSecrets == null) {
-      return const ToolOutcome(
-        '"secrets" must be a list of names.',
-        ToolActivity('Shell', 'secrets の形が違います', failed: true),
-      );
-    }
-    final unknown = [for (final name in askedSecrets) if (!secrets.containsKey(name)) name];
-    if (unknown.isNotEmpty) {
+    // the secrets this command uses: names the user made available (given as variables of that name), and ids
+    // (in `secrets`, or written in the command as {{secret:ID}}): each must exist and have a value, and an
+    // address written in the command must be one that secret may go to
+    final plan = _plan(command, arguments['secrets']);
+    if (plan.problem != null) {
       return ToolOutcome(
-        'No secret is available under the name ${unknown.join(', ')}. '
-        '${secrets.isEmpty ? 'The user has made none available.' : 'Available: ${secrets.keys.join(', ')}.'} '
-        'Nothing was run.',
-        ToolActivity('Shell', '使えない秘密: ${unknown.join(', ')}', failed: true),
+        plan.problem!,
+        ToolActivity(
+          'Shell',
+          plan.unknown.isNotEmpty ? '使えない秘密: ${plan.unknown.join(', ')}' : '秘密を使えません: ${_shorten(plan.problem!)}',
+          failed: true,
+        ),
       );
     }
-    final given = {for (final name in askedSecrets) name: secrets[name]!};
+    final given = plan.env;
     try {
       // the first command installs the environment; the user approved this call already
       if (!_environment.ready) {
@@ -660,22 +759,55 @@ class McpTools {
       }
       final outcome = await _environment.run(
         config: config,
-        command: command,
+        command: plan.command,
         cwd: cwd,
         timeoutSeconds: seconds,
         maxOutputChars: shell.maxOutputChars,
         secrets: given,
       );
-      // a command that printed its environment must not hand the value to the model
+      // a command that printed its environment must not hand the value to the model: the values passed by
+      // name, and the ones used by placeholder (in every form a program may print them in)
       return ToolOutcome(
-        ShellSecrets.redact(outcome.describe(), given),
-        ToolActivity('Shell', '\$ $command${given.isEmpty ? '' : '  （秘密: ${given.keys.join(', ')}）'}', failed: !outcome.ok),
+        plan.redact(outcome.describe()),
+        ToolActivity('Shell', '\$ $command${plan.secretNote}', failed: !outcome.ok),
       );
     } catch (e) {
+      final reason = plan.redact('$e');
       return ToolOutcome(
-        'The command could not be run: $e',
-        ToolActivity('Shell', '実行できませんでした: $e', failed: true),
+        'The command could not be run: $reason',
+        ToolActivity('Shell', '実行できませんでした: $reason', failed: true),
       );
     }
   }
+}
+
+/// The secrets one command (or one typed line) uses, as [McpTools._plan] worked them out: what runs, the
+/// variables it gets, and a reason it may not run.
+class _SecretPlan {
+  const _SecretPlan(this.prepared, {this.legacy = const {}, this.problem, this.unknown = const []});
+
+  /// The text that runs (a placeholder is a reference to a variable), and what was found in it.
+  final PreparedCommand prepared;
+
+  /// Secrets named in `secrets` as stored values: variable name -> value.
+  final Map<String, String> legacy;
+
+  /// Why nothing may run, or null.
+  final String? problem;
+
+  /// Names in `secrets` that are neither a stored value nor an id.
+  final List<String> unknown;
+
+  String get command => prepared.command;
+
+  /// Every variable the process gets: name -> value.
+  Map<String, String> get env => {...legacy, ...prepared.env};
+
+  bool get usesSecrets => legacy.isNotEmpty || prepared.usesSecrets;
+
+  /// For the log line: the names and ids, never values.
+  String get secretNote => usesSecrets ? '  （秘密: ${[...legacy.keys, ...prepared.ids].join(', ')}）' : '';
+
+  /// [text] with every value of this plan taken out.
+  String redact(String text) => SecretRedaction.redact(ShellSecrets.redact(text, legacy), prepared.idValues);
 }

@@ -124,7 +124,20 @@ abstract final class PlaceholderCommands {
     if (problems.isNotEmpty) return PreparedCommand(command: command, ids: ids, problem: '${problems.join(' ')} Nothing was run.');
 
     final infos = {for (final id in ids) id: book.byId(id)!};
-    final env = {for (final id in ids) infos[id]!.envName!: book.valueOf(id)!};
+    // two ids can make one variable name (`a-b` and `a.b`): one would take the other's place
+    final owner = <String, String>{};
+    for (final id in ids) {
+      final taken = owner[infos[id]!.envName];
+      if (taken != null) {
+        return PreparedCommand(
+          command: command,
+          ids: ids,
+          problem: 'The secrets "$taken" and "$id" would be passed under the same variable name ${infos[id]!.envName}; use them in separate commands. Nothing was run.',
+        );
+      }
+      owner[infos[id]!.envName!] = id;
+    }
+    final env ={for (final id in ids) infos[id]!.envName!: book.valueOf(id)!};
     final idValues = {for (final id in ids) id: book.valueOf(id)!};
     final hostsById = {for (final id in ids) id: infos[id]!.hosts};
 

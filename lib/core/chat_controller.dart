@@ -447,6 +447,7 @@ class ChatController extends ChangeNotifier {
     this._extraTools,
     this._applySettings,
     this._mcpApproval,
+    this._approvalDetails,
     this._addProvider,
     this.delegateEnabled,
     this.delegateInstructions,
@@ -566,6 +567,10 @@ class ChatController extends ChangeNotifier {
   /// Whether a tool call coming from an MCP server waits for the user. Null keeps the default
   /// (tools that write outside the device ask every time).
   final bool Function(String name, [Map<String, Object?> arguments])? _mcpApproval;
+
+  /// Lines the app adds under a command on the approval card (which secrets it uses and where they may
+  /// go, docs 15.13); empty for a call that has nothing to add. Null adds nothing.
+  final String Function(String name, Map<String, Object?> arguments)? _approvalDetails;
 
   /// Tools from outside the app (an MCP server). Read for every generation, so adding or removing
   /// one applies to the next reply.
@@ -1181,6 +1186,7 @@ class ChatController extends ChangeNotifier {
                 mcp,
                 rememberable: true,
                 note: _askBecauseExternal(mcp) ? '検索や外部ツールの結果を読んだあとなので、確認します' : '',
+                details: _approvalDetails?.call(mcp.name, mcp.arguments) ?? '',
               ),
               tool: mcp,
               finish: result.reason,
