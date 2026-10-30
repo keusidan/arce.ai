@@ -103,7 +103,7 @@ void main() {
     expect(Theme.of(context).brightness, Brightness.dark);
   });
 
-  testWidgets('settings page: a group opens under its row and shows only its own settings', (tester) async {
+  testWidgets('settings page: the groups are buttons, two to a row, and nothing else is on the first screen', (tester) async {
     setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);
     await tester.pumpWidget(ArceApp(app: app));
@@ -111,9 +111,35 @@ void main() {
 
     app.goTo(AppPage.settings);
     await tester.pumpAndSettle();
-    expect(find.text('Thinking 表示'), findsNothing, reason: 'every group starts closed');
+    expect(find.text('Thinking 表示'), findsNothing, reason: 'no group is open on the first screen');
+    expect(find.byKey(const ValueKey('settings-back')), findsNothing);
 
-    await tester.tap(find.text('モデル全般設定').first);
+    final buttons = [for (final section in SettingsSection.values) find.byKey(ValueKey('settings-group-${section.name}'))];
+    expect(SettingsSection.values, hasLength(12));
+    for (final button in buttons) {
+      expect(button, findsOneWidget);
+    }
+    // two columns: the buttons share only two left edges, and as many rows as needed
+    final lefts = {for (final button in buttons) tester.getTopLeft(button).dx.round()};
+    final tops = {for (final button in buttons) tester.getTopLeft(button).dy.round()};
+    expect(lefts, hasLength(2));
+    expect(tops, hasLength(6));
+    final width = tester.getSize(buttons.first).width;
+    expect(lefts.reduce((a, b) => a > b ? a : b) - lefts.reduce((a, b) => a < b ? a : b), greaterThan(width), reason: 'side by side, not overlapping');
+    // each button has its icon and its name
+    expect(find.descendant(of: buttons.first, matching: find.byType(ArceIcon)), findsOneWidget);
+    expect(find.descendant(of: buttons.first, matching: find.text('オンライン接続（プロバイダ）')), findsOneWidget);
+  });
+
+  testWidgets('settings page: a button moves to the group\'s own screen, which shows only its settings; back returns to the buttons', (tester) async {
+    setSize(tester, const Size(411, 860));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.goTo(AppPage.settings);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-group-basic')));
     await tester.pumpAndSettle();
     expect(find.text('Thinking 表示'), findsOneWidget);
     expect(find.text('HyperLoad'), findsNothing, reason: 'the local model group is not mixed in');
@@ -121,43 +147,110 @@ void main() {
     expect(find.text('口調'), findsOneWidget, reason: 'the answer settings are common to both kinds of model, so they are here');
     expect(find.text('最大トークン数（共通）'), findsOneWidget);
     expect(find.text('SearXNG のアドレス'), findsNothing, reason: 'search has a group of its own');
-    expect(find.text('ローカルモデルの設定'), findsOneWidget, reason: 'the other rows are still listed');
+    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-group-local')), findsNothing, reason: 'the buttons are not on a group\'s screen');
 
-    // opening another group folds the first
-    // (the opened group scrolled to the top, so the row above it may be under the bar: bring it into view)
-    await tester.ensureVisible(find.text('ローカルモデルの設定'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('ローカルモデルの設定'));
+    await tester.tap(find.byKey(const ValueKey('settings-back')));
     await tester.pumpAndSettle();
     expect(find.text('Thinking 表示'), findsNothing);
+    expect(find.byKey(const ValueKey('settings-group-local')), findsOneWidget);
+
+    // another group, and a switch inside it changes the settings
+    await tester.tap(find.byKey(const ValueKey('settings-group-local')));
+    await tester.pumpAndSettle();
     expect(find.text('HyperLoad'), findsOneWidget);
     expect(find.text('Context Length'), findsOneWidget);
-
-    // and tapping the open row closes it
-    await tester.tap(find.text('ローカルモデルの設定'));
-    await tester.pumpAndSettle();
-    expect(find.text('HyperLoad'), findsNothing);
-
-    // a switch inside a group changes the settings
-    await tester.tap(find.text('ローカルモデルの設定'));
-    await tester.pumpAndSettle();
+    expect(find.text('Thinking 表示'), findsNothing);
     expect(app.settings.value.hyperLoad, isFalse);
     await app.settings.update((s) => s.copyWith(hyperLoad: true));
     await tester.pump();
     expect(app.settings.value.hyperLoad, isTrue);
   });
 
-  testWidgets('settings page: the sidebar can open a group directly', (tester) async {
-    setSize(tester, const Size(1280, 800));
+  testWidgets('settings page: the system\'s back returns from a group to the buttons, and the page keeps its place in the app', (tester) async {
+    setSize(tester, const Size(411, 860));
     final app = await makeApp(tester);
     await tester.pumpWidget(ArceApp(app: app));
     await tester.pump();
 
+    app.goTo(AppPage.settings);
+    await tester.pumpAndSettle();
+    // a button below the fold is brought into view by hand, then pressed
+    await tester.ensureVisible(find.byKey(const ValueKey('settings-group-reports')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-group-reports')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-back')), findsNothing, reason: 'back went to the buttons');
+    expect(find.byKey(const ValueKey('settings-group-reports')), findsOneWidget);
+    expect(app.page, AppPage.settings, reason: 'it did not leave the settings');
+
+    // going to another page and back shows the buttons again, not the group that was last open
+    await tester.ensureVisible(find.byKey(const ValueKey('settings-group-reports')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-group-reports')));
+    await tester.pumpAndSettle();
+    app.goTo(AppPage.chat);
+    await tester.pumpAndSettle();
+    app.goTo(AppPage.settings);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-group-reports')), findsOneWidget);
+  });
+
+  testWidgets('settings page: opening a group does not scroll anything, and the group starts at its top', (tester) async {
+    // a short window, so that the buttons below the fold are far down
+    setSize(tester, const Size(411, 520));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+
+    app.goTo(AppPage.settings);
+    await tester.pumpAndSettle();
+    final scrollable = find.byType(Scrollable).first;
+    ScrollPosition position() => tester.state<ScrollableState>(scrollable).position;
+    expect(position().pixels, 0);
+
+    // scroll the buttons down by hand, then press one that is on the screen
+    await tester.drag(scrollable, const Offset(0, -200));
+    await tester.pumpAndSettle();
+    expect(position().pixels, greaterThan(0));
+    final reports = find.byKey(const ValueKey('settings-group-reports'));
+    await tester.ensureVisible(reports);
+    await tester.pumpAndSettle();
+    await tester.tap(reports);
+    await tester.pumpAndSettle();
+    // the group's screen is a new one: it starts at the top, and nothing moved to follow the press
+    expect(position().pixels, 0);
+    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(const ValueKey('settings-back'))).dy, lessThan(120), reason: 'the header is at the top of the screen');
+  });
+
+  testWidgets('settings page: openSettings (the sidebar, the banner, the 分担 button) opens that group\'s screen directly, also from another page', (tester) async {
+    setSize(tester, const Size(1280, 800));
+    final app = await makeApp(tester);
+    await tester.pumpWidget(ArceApp(app: app));
+    await tester.pump();
+    expect(app.page, AppPage.chat);
+
     app.openSettings(SettingsSection.online);
     await tester.pumpAndSettle();
+    expect(app.page, AppPage.settings);
     expect(find.text('追加プロンプト'), findsOneWidget);
     expect(find.text('top_k'), findsNothing, reason: 'top_k is a device model setting');
     expect(find.text('Context Length'), findsNothing);
+    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-group-local')), findsNothing);
+
+    // asked for again while the page is open: it moves to that group
+    app.openSettings(SettingsSection.local);
+    await tester.pumpAndSettle();
+    expect(find.text('HyperLoad'), findsOneWidget);
+    expect(find.text('Context Length'), findsOneWidget);
+    expect(find.text('モデルの上限を自動で調べる'), findsNothing, reason: 'the online group is gone');
+    expect(app.settingsSection.value, isNull, reason: 'the request was taken');
   });
 
   testWidgets('settings page: the KV cache file settings appear once the switch is on', (tester) async {

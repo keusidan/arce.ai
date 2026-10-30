@@ -48,8 +48,9 @@ const _groups = [
   _Group(SettingsSection.reports, ArceSvg.alert, 'エラーの報告', 'エラーを GitHub の issue に自動で送る（トークンを入れたときだけ）'),
 ];
 
-/// The settings, as a list of groups. A group opens downward under its own row, like a curtain,
-/// and shows only its own settings; opening another one closes the first.
+/// The settings: a landing page with one button for each group (two to a row), and a screen of its own
+/// for the group that was pressed. Nothing scrolls by itself when a group is opened: the screen is replaced,
+/// and it starts at its top. Back (the button in its header, or the system's back) returns to the buttons.
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -58,8 +59,8 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final _keys = {for (final g in _groups) g.section: GlobalKey()};
-  SettingsSection? _open;
+  /// The group on the screen; null for the landing page.
+  SettingsSection? _section;
   AppController? _app;
 
   @override
@@ -80,61 +81,55 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
-  /// Opens the group another part of the app asked for.
+  /// Shows the group another part of the app asked for.
   void _consume() {
     final app = _app;
     final section = app?.settingsSection.value;
     if (app == null || section == null || !mounted) return;
     app.settingsSection.value = null;
-    setState(() => _open = section);
-    _reveal(section);
+    setState(() => _section = section);
   }
 
-  void _toggle(SettingsSection section) {
-    final opening = _open != section;
-    setState(() => _open = opening ? section : null);
-    if (opening) _reveal(section);
-  }
+  void _open(SettingsSection section) => setState(() => _section = section);
 
-  /// Scrolls so the row that was opened is at the top, once the group above it has folded.
-  void _reveal(SettingsSection section) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final context = _keys[section]?.currentContext;
-      if (context == null || !context.mounted) return;
-      Scrollable.ensureVisible(context, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
-    });
-  }
+  void _back() => setState(() => _section = null);
 
   @override
   Widget build(BuildContext context) {
     final app = ArceScope.of(context);
-    return ListenableBuilder(
-      listenable: app.settings,
-      builder: (context, _) {
-        final s = app.settings.value;
-        void set(AppSettings Function(AppSettings) f) => app.settings.update(f);
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(14, 16, 14, 24),
-          child: PageColumn(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const PageHeading('設定', '押した項目の設定が、その下に開きます。'),
-                for (final group in _groups)
-                  _Curtain(
-                    key: _keys[group.section],
-                    group: group,
-                    open: _open == group.section,
-                    onTap: () => _toggle(group.section),
-                    // built only while open, so a closed group costs nothing
-                    body: () => _content(context, group.section, app, s, set),
-                  ),
-                _Footer(app: app),
-              ],
-            ),
-          ),
-        );
+    return PopScope(
+      // inside a group, back goes to the buttons; on the landing page it is the app's own
+      canPop: _section == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _back();
       },
+      child: ListenableBuilder(
+        listenable: app.settings,
+        builder: (context, _) {
+          final s = app.settings.value;
+          void set(AppSettings Function(AppSettings) f) => app.settings.update(f);
+          final section = _section;
+          return SingleChildScrollView(
+            // a new scroll position for each screen: a group starts at its top, the buttons at theirs
+            key: ValueKey(section),
+            padding: const EdgeInsets.fromLTRB(14, 16, 14, 24),
+            child: PageColumn(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (section == null)
+                    _Landing(onOpen: _open)
+                  else ...[
+                    _SectionHeader(group: _groups.firstWhere((g) => g.section == section), onBack: _back),
+                    _content(context, section, app, s, set),
+                  ],
+                  _Footer(app: app),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1335,69 +1330,118 @@ class _SettingsPageState extends State<SettingsPage> {
   );
 }
 
-/// One row of the settings list with its group hanging below it while it is open.
-class _Curtain extends StatelessWidget {
-  const _Curtain({super.key, required this.group, required this.open, required this.onTap, required this.body});
+/// The first screen of the settings: the heading, a place for the search field, and the groups as buttons,
+/// two to a row.
+class _Landing extends StatelessWidget {
+  const _Landing({required this.onOpen});
+
+  final ValueChanged<SettingsSection> onOpen;
+
+  /// The space between two buttons, across and down.
+  static const _gap = 10.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PageHeading('設定', '項目を押すと、その設定の画面に移ります。'),
+        // SEARCH SLOT: the search field of the settings goes here, above the buttons
+        LayoutBuilder(
+          builder: (context, box) {
+            final width = (box.maxWidth - _gap) / 2;
+            return Wrap(
+              spacing: _gap,
+              runSpacing: _gap,
+              children: [
+                for (final group in _groups)
+                  SizedBox(
+                    width: width,
+                    child: _GroupButton(group: group, onTap: () => onOpen(group.section)),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// One group as a button: its icon above its name and a line about what is in it.
+class _GroupButton extends StatelessWidget {
+  const _GroupButton({required this.group, required this.onTap});
 
   final _Group group;
-  final bool open;
   final VoidCallback onTap;
-  final Widget Function() body;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ArceCard(
-          padding: EdgeInsets.zero,
-          margin: EdgeInsets.only(bottom: open ? 8 : 11),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 31,
-                      height: 31,
-                      decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(10)),
-                      alignment: Alignment.center,
-                      child: ArceIcon(group.icon, size: 16, color: c.accent),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(group.title, style: ts(context, 13, weight: FontWeight.w700)),
-                          const SizedBox(height: 2),
-                          Text(group.subtitle, style: ts(context, 10.5, color: c.muted, height: 1.4)),
-                        ],
-                      ),
-                    ),
-                    AnimatedRotation(
-                      turns: open ? .5 : 0,
-                      duration: const Duration(milliseconds: 220),
-                      child: ArceIcon(ArceSvg.chevronDown, size: 15, color: open ? c.accent : c.faint),
-                    ),
-                  ],
-                ),
+    return ArceCard(
+      padding: EdgeInsets.zero,
+      margin: EdgeInsets.zero,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: ValueKey('settings-group-${group.section.name}'),
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 128),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 13, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(12)),
+                    alignment: Alignment.center,
+                    child: ArceIcon(group.icon, size: 20, color: c.accent),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(group.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(context, 12.5, weight: FontWeight.w700, height: 1.35)),
+                  const SizedBox(height: 4),
+                  Text(group.subtitle, maxLines: 3, overflow: TextOverflow.ellipsis, style: ts(context, 9.5, color: c.muted, height: 1.45)),
+                ],
               ),
             ),
           ),
         ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: open ? body() : const SizedBox(width: double.infinity),
-        ),
-      ],
+      ),
+    );
+  }
+}
+
+/// The top of a group's own screen: the way back, and which group it is.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.group, required this.onBack});
+
+  final _Group group;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          IconTap(key: const ValueKey('settings-back'), svg: ArceSvg.chevronLeft, tooltip: '設定の一覧へ戻る', onTap: onBack),
+          const SizedBox(width: 6),
+          Container(
+            width: 31,
+            height: 31,
+            decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(10)),
+            alignment: Alignment.center,
+            child: ArceIcon(group.icon, size: 16, color: c.accent),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Text(group.title, style: ts(context, 15, weight: FontWeight.w700))),
+        ],
+      ),
     );
   }
 }
