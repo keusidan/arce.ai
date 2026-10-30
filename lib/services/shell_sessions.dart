@@ -251,7 +251,7 @@ class ShellSessionManager {
   /// [text] without the values of the secrets of a session: the ones passed under their own name (`[NAME]`)
   /// and the ones used by placeholder (`[secret:id]`, in the forms `SecretRedaction` knows).
   static String _redact(String text, Map<String, String> secrets, Map<String, String> idValues) =>
-      SecretRedaction.redact(ShellSecrets.redact(text, secrets), idValues);
+      ShellSecrets.redact(SecretRedaction.redact(text, idValues), secrets);
 
   /// What the model gets: the screen and the lines that scrolled off, with the values of the secrets this
   /// session was given taken out (a program may print its environment at any time, not only at the start).

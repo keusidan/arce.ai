@@ -342,7 +342,7 @@ class McpTools {
   /// time (see [onDemand]), the three tools that look them up and call them stand in for them.
   Future<List<ToolDefinition>> definitions() async {
     final out = <ToolDefinition>[
-      if (shell.enabled && _shellSupported) _runCommandFor(shell, secrets.keys.toList(), _usableSecrets),
+      if (shell.enabled && _shellSupported) _runCommandFor(shell, secrets.keys.toList(), _usableSecrets, httpRequest.enabled),
       if (shell.enabled && _shellSupported) _shellSessionFor(shell, _usableSecrets),
       ...[?_http.definition()],
       Protocol.ciStatus,
@@ -595,7 +595,12 @@ class McpTools {
 
   /// The tool, with what the settings allow written into its description: the model cannot look
   /// the limits up, so they are said here (docs 19.5, item 4).
-  static ToolDefinition _runCommandFor(ShellSettings s, List<String> secretNames, [List<SecretInfo> usable = const []]) => ToolDefinition(
+  static ToolDefinition _runCommandFor(
+    ShellSettings s,
+    List<String> secretNames, [
+    List<SecretInfo> usable = const [],
+    bool http = false,
+  ]) => ToolDefinition(
     name: Protocol.runCommandName,
     description:
         'Run one shell command in the Linux environment (Ubuntu 24.04, arm64) that lives inside this '
@@ -609,7 +614,7 @@ class McpTools {
         'The first command installs the environment (about 30 MB, a few minutes) if the user has not '
         'done it yet.${s.confirm ? ' The user approves every command first.' : ''}'
         '${secretNames.isEmpty ? '' : ' Stored secrets you may ask for, by name, in secrets (the command then gets each as an environment variable of that name, the user approves that command every time, and you never see the value): ${secretNames.join(', ')}.'}'
-        '${_placeholderHint(usable)}',
+        '${_placeholderHint(usable, http: http)}',
     parameters: Protocol.runCommand.parameters,
   );
 
@@ -617,11 +622,16 @@ class McpTools {
   List<SecretInfo> get _usableSecrets => [for (final e in secretBook.entries) if (e.unusableReason == null) e];
 
   /// What the tool descriptions add about the placeholders that can be used now; nothing when there are none.
-  static String _placeholderHint(List<SecretInfo> usable) => usable.isEmpty
+  static String _placeholderHint(List<SecretInfo> usable, {bool http = false}) => usable.isEmpty
       ? ''
       : ' Secrets you may write as {{secret:ID}} in the command (id → the hosts it may be sent to): '
           '${[for (final e in usable) '${e.id} → ${e.hosts.join(', ')}'].join('; ')}. '
-          'The app rejects a command that writes another address with one of them, and says "nothing was run".';
+          'The app puts the value in only at the moment of use, rejects a command that writes another address '
+          'with one of them (and says "nothing was run"), and the user approves such a command every time; '
+          'write the whole https:// address in the command so that it can be checked. '
+          '${http ? 'For a plain call to an API use http_request instead: the app sends it and the key can only go to its own host. ' : ''}'
+          'A script written with a here-document reads the key from the variable ARCE_SECRET_<ID in capitals, - as _> '
+          '({{secret:ID}} is not replaced inside the here-document, so that the key is never written to a file).';
 
   /// The session tool, with what the settings allow written into its description.
   static ToolDefinition _shellSessionFor(ShellSettings s, [List<SecretInfo> usable = const []]) => ToolDefinition(
