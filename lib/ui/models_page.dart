@@ -127,8 +127,8 @@ class _ModelsPageState extends State<ModelsPage> {
                 padding: const EdgeInsets.fromLTRB(2, 18, 2, 9),
                 child: Row(children: [
                   Text('対応モデル', style: ts(context, 12, weight: FontWeight.w700)),
-                  const Spacer(),
-                  Text('Qwen3 · GGUF / LiteRT-LM', style: ts(context, 10, color: c.muted)),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text('Qwen3 · GGUF / LiteRT-LM', textAlign: TextAlign.end, style: ts(context, 10, color: c.muted))),
                 ]),
               ),
               for (final spec in models.catalog)

@@ -71,14 +71,15 @@ class ProvidersSection extends StatelessWidget {
                 ),
               Padding(
                 padding: const EdgeInsets.only(top: 10),
-                child: Row(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     SoftButton(
                       label: 'プロバイダを追加',
                       svg: ArceSvg.plus,
                       onTap: () => _openEditor(context, app, null),
                     ),
-                    const SizedBox(width: 8),
                     SoftButton(
                       label: '詳細',
                       svg: ArceSvg.sliders,

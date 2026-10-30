@@ -133,6 +133,23 @@ class _ChatPageState extends State<ChatPage> {
     unawaited(app.chat.send(shown, attachments: files));
   }
 
+  /// The row under the input: the tools on the left and the send (or 割り込む / 停止) buttons on the right.
+  /// At the normal text size it is one row. When the text is larger the tools wrap onto more lines, and the
+  /// send buttons go on a line of their own, at the right: neither pushes the other out of the screen.
+  Widget _toolsAndSend({required List<Widget> tools, required List<Widget> send}) {
+    final large = MediaQuery.textScalerOf(context).scale(10) / 10 > 1.25;
+    final toolsWrap = Wrap(crossAxisAlignment: WrapCrossAlignment.center, runSpacing: 4, children: tools);
+    final sendRow = Row(mainAxisSize: MainAxisSize.min, children: send);
+    if (large) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        toolsWrap,
+        const SizedBox(height: 6),
+        Align(alignment: Alignment.centerRight, child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: sendRow)),
+      ]);
+    }
+    return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [Expanded(child: toolsWrap), const SizedBox(width: 8), sendRow]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = ArceScope.of(context);
@@ -243,7 +260,8 @@ class _ChatPageState extends State<ChatPage> {
                 ),
               ),
             ),
-            Row(children: [
+            _toolsAndSend(
+              tools: [
               _ToolButton(svg: ArceSvg.paperclip, onTap: _pickFiles, tooltip: 'ファイルを添付'),
               const SizedBox(width: 2),
               Container(width: 1, height: 19, color: c.line),
@@ -282,7 +300,8 @@ class _ChatPageState extends State<ChatPage> {
                   }
                 },
               ),
-              const Spacer(),
+              ],
+              send: [
               if (chat.isGenerating) ...[
                 if (canSend) ...[
                   _SendButton(label: '割り込む', svg: ArceSvg.send, onTap: _send),
@@ -291,7 +310,8 @@ class _ChatPageState extends State<ChatPage> {
                 _SendButton(label: '停止', svg: ArceSvg.stop, onTap: app.chat.stop, stop: true),
               ] else
                 _SendButton(label: '送信', svg: ArceSvg.send, onTap: canSend ? _send : null),
-            ]),
+              ],
+            ),
           ]),
         ),
         PromptTokenLine(app: app, draft: _draft),
