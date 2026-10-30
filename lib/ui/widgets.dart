@@ -251,37 +251,52 @@ class SettingRow extends StatelessWidget {
   final Widget trailing;
   final bool last;
 
+  /// Above this text size the control is put under the text, not beside it: a switch, a button or a value
+  /// does not shrink with the text, and beside a title that is two or three lines long it left no room.
+  static const stackAbove = 1.15;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final stacked = MediaQuery.textScalerOf(context).scale(10) / 10 > stackAbove;
+    final text = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: ts(context, 11, weight: FontWeight.w600)),
+        const SizedBox(height: 3),
+        Text(subtitle, style: ts(context, 9, color: c.muted, height: 1.45)),
+      ],
+    );
+    final badge = Container(
+      width: 31,
+      height: 31,
+      decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(10)),
+      alignment: Alignment.center,
+      child: ArceIcon(icon, size: 16, color: c.accent),
+    );
     return Container(
       constraints: const BoxConstraints(minHeight: 54),
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 1),
       decoration: BoxDecoration(border: last ? null : Border(bottom: BorderSide(color: c.line))),
-      child: Row(
-        children: [
-          Container(
-            width: 31,
-            height: 31,
-            decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(10)),
-            alignment: Alignment.center,
-            child: ArceIcon(icon, size: 16, color: c.accent),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: stacked
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(title, style: ts(context, 11, weight: FontWeight.w600)),
-                const SizedBox(height: 3),
-                Text(subtitle, style: ts(context, 9, color: c.muted, height: 1.45)),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [badge, const SizedBox(width: 10), Expanded(child: text)]),
+                const SizedBox(height: 6),
+                // a control that is wider than the row (a long value at a large text size) shrinks to fit
+                Align(alignment: Alignment.centerRight, child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: trailing)),
+              ],
+            )
+          : Row(
+              children: [
+                badge,
+                const SizedBox(width: 10),
+                Expanded(child: text),
+                const SizedBox(width: 8),
+                trailing,
               ],
             ),
-          ),
-          const SizedBox(width: 8),
-          trailing,
-        ],
-      ),
     );
   }
 }

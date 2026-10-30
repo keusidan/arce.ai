@@ -1553,9 +1553,10 @@ class _Footer extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(3, 11, 3, 3),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('ARCE.AI · ローカルAI', style: ts(context, 9, color: c.muted)),
+          Expanded(child: Text('ARCE.AI · ローカルAI', style: ts(context, 9, color: c.muted))),
+          const SizedBox(width: 8),
           ListenableBuilder(
             listenable: app.updates,
             builder: (context, _) => Text(

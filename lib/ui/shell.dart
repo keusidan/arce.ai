@@ -74,9 +74,10 @@ class _NarrowLayout extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 9, 14, 0),
             child: Column(children: [
-              SizedBox(
-                height: 48,
-                child: Row(children: [
+              // as tall as 48 px, and taller when the text is larger (a fixed height made the title overflow)
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
                   Builder(
                     builder: (context) => IconTap(
                       svg: ArceSvg.menu,
@@ -88,8 +89,8 @@ class _NarrowLayout extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('ARCE.AI', maxLines: 1, style: ts(context, 16, weight: FontWeight.w800, letterSpacing: .56, height: 1.1)),
+                    child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('ARCE.AI', maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(context, 16, weight: FontWeight.w800, letterSpacing: .56, height: 1.1)),
                       const SizedBox(height: 1),
                       Text('Local AI · Chat & Coding', maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(context, 9, color: c.muted, letterSpacing: .2)),
                     ]),
@@ -98,8 +99,8 @@ class _NarrowLayout extends StatelessWidget {
                   EnginePill(app: app, compact: true),
                 ]),
               ),
-              SizedBox(
-                height: 39,
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 39),
                 child: Row(children: [
                   Expanded(child: ThreadTitle(app: app)),
                   IconTap(svg: ArceSvg.history, tooltip: '会話履歴', onTap: () => app.goTo(AppPage.history)),
@@ -192,9 +193,9 @@ class _BottomNav extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () => app.goTo(page),
-          child: SizedBox(
-            height: 50,
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 50),
+            child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
               Container(
                 width: 42,
                 height: 25,
@@ -206,7 +207,7 @@ class _BottomNav extends StatelessWidget {
                 child: ArceIcon(svg, size: 19, color: active ? const Color(0xFFB9BDFF) : c.navMuted),
               ),
               const SizedBox(height: 2),
-              Text(label, style: ts(context, 9, weight: FontWeight.w500, color: active ? Colors.white : c.navMuted)),
+              Text(label, maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: ts(context, 9, weight: FontWeight.w500, color: active ? Colors.white : c.navMuted)),
             ]),
           ),
         ),
@@ -405,7 +406,7 @@ class _MenuDrawer extends StatelessWidget {
               child: Row(children: [
                 ArceIcon(ArceSvg.brand, size: 32, color: Colors.white),
                 const SizedBox(width: 10),
-                Text('ARCE.AI', style: ts(context, 16, weight: FontWeight.w800, letterSpacing: .8, color: Colors.white)),
+                Flexible(child: Text('ARCE.AI', maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(context, 16, weight: FontWeight.w800, letterSpacing: .8, color: Colors.white))),
               ]),
             ),
             Padding(
