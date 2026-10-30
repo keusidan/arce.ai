@@ -182,6 +182,43 @@ void main() {
       expect(SecretRedaction.redact('nothing', {'x': 'something-else'}), 'nothing');
     });
 
+    test('the forms an attacker would pick: hex, \\u escapes, escaped slashes, HTML entities', () {
+      const token = 'sk-Ab/12+xyZ';
+      final forms = [
+        [for (final b in utf8.encode(token)) b.toRadixString(16).padLeft(2, '0')].join(),
+        [for (final u in token.codeUnits) '\\u${u.toRadixString(16).padLeft(4, '0')}'].join(),
+        jsonEncode(token).substring(1, jsonEncode(token).length - 1).replaceAll('/', r'\/'),
+        [for (final r in token.runes) '&#$r;'].join(),
+      ];
+      for (final form in forms) {
+        expect(SecretRedaction.redact('x $form y', {'k': token}), 'x [secret:k] y', reason: form);
+      }
+    });
+
+    test('a value in the middle of a longer base64 text is found at all three alignments', () {
+      const token = 'AIzaSyExample-Token_123';
+      for (final before in ['', 'a', 'ab', 'abc', 'abcd']) {
+        for (final after in ['', 'z', 'zy', 'zyx']) {
+          for (final codec in [base64, base64Url]) {
+            final blob = codec.encode(utf8.encode('$before$token$after'));
+            final out = SecretRedaction.redact('blob=$blob', {'k': token});
+            expect(out, contains('[secret:k]'), reason: '$before|$after|$blob');
+            expect(out, isNot(contains(token)));
+          }
+        }
+      }
+    });
+
+    test('a value cut off at the end is taken out with trimTail (the other half may come next)', () {
+      const token = 'AIzaSyExample-Token_123';
+      final cut = 'text ${token.substring(0, 12)}';
+      expect(SecretRedaction.redact(cut, {'k': token}), cut);
+      expect(SecretRedaction.redact(cut, {'k': token}, trimTail: true), 'text ');
+      // a whole value is replaced, and an ordinary end is left alone
+      expect(SecretRedaction.redact('a $token', {'k': token}, trimTail: true), 'a [secret:k]');
+      expect(SecretRedaction.redact('all done', {'k': token}, trimTail: true), 'all done');
+    });
+
     test('a value that contains another secret is replaced whole', () {
       expect(SecretRedaction.redact('t=AAAA-BBBB-CCCC', {'long': 'AAAA-BBBB-CCCC', 'part': 'BBBB'}), 't=[secret:long]');
     });

@@ -250,15 +250,18 @@ class ShellSessionManager {
 
   /// [text] without the values of the secrets of a session: the ones passed under their own name (`[NAME]`)
   /// and the ones used by placeholder (`[secret:id]`, in the forms `SecretRedaction` knows).
-  static String _redact(String text, Map<String, String> secrets, Map<String, String> idValues) =>
-      ShellSecrets.redact(SecretRedaction.redact(text, idValues), secrets);
+  ///
+  /// [screen]: the end of the text is where a program is still writing, so the beginning of a value at the very
+  /// end is taken out too (the rest of it may come at the next read).
+  static String _redact(String text, Map<String, String> secrets, Map<String, String> idValues, {bool screen = false}) =>
+      ShellSecrets.redact(SecretRedaction.redact(text, idValues, trimTail: screen), secrets);
 
   /// What the model gets: the screen and the lines that scrolled off, with the values of the secrets this
   /// session was given taken out (a program may print its environment at any time, not only at the start).
   SessionView _view(_Live live, Map<Object?, Object?> answer) => SessionView(
         id: live.id,
         command: live.command,
-        screen: _redact(live.screen.text(), live.secrets, live.idValues),
+        screen: _redact(live.screen.text(), live.secrets, live.idValues, screen: true),
         scrolled: [for (final line in live.screen.takeScrolled()) _redact(line, live.secrets, live.idValues)],
         alive: answer['alive'] == true,
         exit: answer['exit'] is num ? (answer['exit']! as num).toInt() : null,

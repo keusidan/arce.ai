@@ -265,6 +265,19 @@ void main() {
       expect(out.activity.summary, isNot(contains(_key)));
     });
 
+    test('a value that stands across the cut is not left half in the answer (the values are taken out before the cut)', () async {
+      // the key starts 8 characters before the end of what is kept
+      final body = '${'x' * 592}$_key${'y' * 300}';
+      final fake = Fake((r) => http.Response(body, 200));
+      final out = await tool(fake, settings: const HttpRequestSettings(maxResponseChars: 600)).run(get('https://generativelanguage.googleapis.com/x', headers: {'x-goog-api-key': '{{secret:gemini}}'}));
+      expect(out.response, contains('left out'));
+      expect(out.response, isNot(contains(_key.substring(0, 8))), reason: 'not even the first half');
+      // the same value, and a long answer with it far inside: replaced, not cut
+      final inside = Fake((r) => http.Response('a $_key b', 200));
+      final whole = await tool(inside).run(get('https://generativelanguage.googleapis.com/x', headers: {'x-goog-api-key': '{{secret:gemini}}'}));
+      expect(whole.response, allOf(contains('[secret:gemini]'), isNot(contains(_key))));
+    });
+
     test('a long answer is cut at the length set, and says so; the status codes 4xx and 5xx mark the log as failed; HEAD has no body', () async {
       final fake = Fake((r) => http.Response('x' * 5000, 200));
       final out = await tool(fake, settings: const HttpRequestSettings(maxResponseChars: 600)).run(get('https://a.example/x'));

@@ -192,7 +192,7 @@ class HttpRequestTool {
     final used = client ?? http.Client();
     String redact(String text) => SecretRedaction.redact(text, values);
     try {
-      final result = await _send(used, call.method, finalUrl, headers, body, values.isNotEmpty, ids, timeout).timeout(timeout);
+      final result = await _send(used, call.method, finalUrl, headers, body, values.isNotEmpty, ids, timeout, values).timeout(timeout);
       final text = redact(result.text);
       final failed = result.status >= 400;
       return ToolOutcome(text, ToolActivity('HTTP', redact('$shown → ${result.status}'), failed: failed));
@@ -294,6 +294,7 @@ class HttpRequestTool {
     bool withSecrets,
     List<String> ids,
     Duration timeout,
+    Map<String, String> values,
   ) async {
     var url = firstUrl;
     var currentMethod = method;
@@ -331,12 +332,12 @@ class HttpRequestTool {
         }
         continue;
       }
-      return _Result(status, await _describe(response, notes, method == 'HEAD' || currentMethod == 'HEAD'));
+      return _Result(status, await _describe(response, notes, method == 'HEAD' || currentMethod == 'HEAD', values));
     }
   }
 
   /// The status, a few headers, and the body (cut) of [response].
-  Future<String> _describe(http.StreamedResponse response, List<String> notes, bool head) async {
+  Future<String> _describe(http.StreamedResponse response, List<String> notes, bool head, Map<String, String> values) async {
     final b = StringBuffer('HTTP ${response.statusCode}${response.reasonPhrase == null || response.reasonPhrase!.isEmpty ? '' : ' ${response.reasonPhrase}'}');
     for (final note in notes) {
       b.write('\n($note)');
@@ -362,10 +363,15 @@ class HttpRequestTool {
         break;
       }
     }
-    var text = utf8.decode(bytes, allowMalformed: true);
+    // the values are taken out of the whole text first and the cut is made after: a value that stood across
+    // the cut would otherwise leave its first half in the answer (and one cut by the read limit its tail is
+    // trimmed too)
+    var text = SecretRedaction.redact(utf8.decode(bytes, allowMalformed: true), values);
     if (text.length > settings.maxResponseChars) {
-      text = text.substring(0, settings.maxResponseChars);
+      text = SecretRedaction.redact(text.substring(0, settings.maxResponseChars), values, trimTail: true);
       cut = true;
+    } else if (cut) {
+      text = SecretRedaction.redact(text, values, trimTail: true);
     }
     if (text.isNotEmpty) {
       b

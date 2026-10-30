@@ -188,34 +188,83 @@ abstract final class SecretHosts {
 }
 
 /// Takes the values of secrets out of a text, in the forms they turn up in: as they are, URL-encoded,
-/// escaped for JSON, and in base64. A value that was cut, mixed with other text or encoded some other way
-/// is not found: this is for a command that prints its environment or a server that echoes a header, not
-/// for a program that hides what it does.
+/// escaped for JSON (also with `\/` and with `\uXXXX`), as HTML entities, in hex, and in base64 (both
+/// alphabets, with and without padding, and at the three alignments a value may have inside a longer
+/// base64 text). A value that was cut, mixed with other text or encoded some other way is not found: this
+/// is for a command that prints its environment or a server that echoes a header, not for a program that
+/// hides what it does.
+///
+/// The forms and the cut-off tail follow what the open-source agent credential proxies check (CrimsonWorks
+/// agent-vault: encodings, base64 at 3 alignments, a secret split at a chunk boundary).
 abstract final class SecretRedaction {
   /// A value shorter than this is not looked for: it would mangle ordinary text.
   static const minLength = 4;
 
-  /// The forms of [value] that are looked for.
+  /// A piece of a base64 text (a value in the middle of a longer one) is looked for only when it is this
+  /// long: a short piece would turn up in ordinary text.
+  static const minAlignedLength = 8;
+
+  /// The forms of [value] that are looked for, longest first.
   static List<String> variants(String value) {
     if (value.length < minLength) return const [];
     final bytes = utf8.encode(value);
     final standard = base64.encode(bytes);
+    final url = base64Url.encode(bytes);
+    final escaped = jsonEncode(value).substring(1, jsonEncode(value).length - 1);
     final forms = <String>{
       value,
       Uri.encodeComponent(value),
       Uri.encodeQueryComponent(value),
-      jsonEncode(value).substring(1, jsonEncode(value).length - 1),
+      escaped,
+      escaped.replaceAll('/', r'\/'),
       standard,
       standard.replaceAll('=', ''),
-      base64Url.encode(bytes),
-      base64Url.encode(bytes).replaceAll('=', ''),
+      url,
+      url.replaceAll('=', ''),
+      _unicodeEscaped(value),
+      _hex(bytes, upper: false),
+      _hex(bytes, upper: true),
+      [for (final rune in value.runes) '&#$rune;'].join(),
+      [for (final rune in value.runes) '&#x${rune.toRadixString(16)};'].join(),
     }..removeWhere((form) => form.length < minLength);
+    for (final alphabet in [base64, base64Url]) {
+      for (final offset in [0, 1, 2]) {
+        final piece = _alignedBase64(alphabet, bytes, offset);
+        if (piece.length >= minAlignedLength) forms.add(piece);
+      }
+    }
     // the longest first, so that a form that contains another is replaced whole
     return forms.toList()..sort((a, b) => b.length.compareTo(a.length));
   }
 
-  /// [text] with every form of every value of [idToValue] replaced by `[secret:<id>]`.
-  static String redact(String text, Map<String, String> idToValue) {
+  static String _unicodeEscaped(String value) {
+    final b = StringBuffer();
+    for (final unit in value.codeUnits) {
+      b.write('\\u${unit.toRadixString(16).padLeft(4, '0')}');
+    }
+    return b.toString();
+  }
+
+  static String _hex(List<int> bytes, {required bool upper}) {
+    final text = [for (final b in bytes) b.toRadixString(16).padLeft(2, '0')].join();
+    return upper ? text.toUpperCase() : text;
+  }
+
+  /// The base64 characters that are the same whatever bytes come before and after [bytes] when [bytes] start
+  /// [offset] bytes into a group of three: the characters that mix in a neighbour's bits are left out.
+  static String _alignedBase64(Codec<List<int>, String> alphabet, List<int> bytes, int offset) {
+    final text = alphabet.encode([...List.filled(offset, 0), ...bytes]).replaceAll('=', '');
+    final head = const [0, 2, 3][offset]; // the characters that hold the padding bytes' bits
+    final tail = (bytes.length + offset) % 3 == 0 ? 0 : 1; // the last character holds bits of the next byte
+    if (text.length <= head + tail) return '';
+    return text.substring(head, text.length - tail);
+  }
+
+  /// [text] with every form of every value of [idToValue] replaced by `[secret:<id>]`. With [trimTail], a
+  /// tail of [text] that is the beginning of a form (a value that was cut off, or that is still being written)
+  /// is removed too: the rest of it may come in the next piece, and the two halves must not be put together
+  /// by whoever reads them.
+  static String redact(String text, Map<String, String> idToValue, {bool trimTail = false}) {
     var out = text;
     final all = <(String, String)>[
       for (final entry in idToValue.entries)
@@ -224,6 +273,17 @@ abstract final class SecretRedaction {
     for (final (form, id) in all) {
       out = out.replaceAll(form, '[secret:$id]');
     }
-    return out;
+    if (!trimTail) return out;
+    var cut = 0;
+    for (final (form, _) in all) {
+      final most = form.length - 1 < out.length ? form.length - 1 : out.length;
+      for (var k = most; k >= minLength && k > cut; k--) {
+        if (out.endsWith(form.substring(0, k))) {
+          cut = k;
+          break;
+        }
+      }
+    }
+    return cut == 0 ? out : out.substring(0, out.length - cut);
   }
 }
