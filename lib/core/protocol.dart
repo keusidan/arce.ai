@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'plan_graph.dart';
+import 'secret_placeholders.dart';
 import 'settings_spec.dart';
 import 'shell_secrets.dart';
 
@@ -418,6 +419,29 @@ abstract final class Protocol {
   /// The tool that calls an address for the model, with secrets put in by placeholder (docs 15.13, path A).
   static const httpRequestName = 'http_request';
 
+  static const httpRequestMethods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
+
+  /// The definition without the list of secrets (that part of the description is written when the tool is
+  /// offered, from what the user has set up: see `HttpRequestTool.definition`).
+  static final httpRequest = ToolDefinition(
+    name: httpRequestName,
+    description:
+        'Call an address over HTTP and read the answer (like curl, but the app sends it). To use a key or a '
+        'token, write {{secret:ID}} where it goes (in the url, a header value or the body): the app puts the '
+        'value in, never shows it to you, and sends it only to the hosts that secret is bound to.',
+    parameters: _objectSchema(
+      required: ['url'],
+      properties: {
+        'method': {'type': 'string', 'enum': httpRequestMethods},
+        'url': {'type': 'string'},
+        'headers': {'type': 'object'},
+        'body': {'type': 'string'},
+        'json': {'type': 'object'},
+        'timeout_seconds': {'type': 'integer'},
+      },
+    ),
+  );
+
   /// A program that is talked to: it keeps running, asks for input, shows a screen. Starts under a pseudo
   /// terminal; the answer is always the terminal screen as text.
   static const shellSessionName = 'shell_session';
@@ -524,7 +548,7 @@ abstract final class Protocol {
 
   /// The tools that parse as an [McpCall]: the MCP servers' own, and the app's own two above.
   static bool isMcpLike(String name) =>
-      name.startsWith('mcp_') || name == runCommandName || name == ciStatusName || name == shellSessionName;
+      name.startsWith('mcp_') || name == runCommandName || name == ciStatusName || name == shellSessionName || name == httpRequestName;
 
   /// JSON Schema for the body of one `<tool_call>` block restricted to [tools]:
   /// `{"name": <one of the tools>, "arguments": <that tool's parameters>}`.
@@ -626,6 +650,7 @@ abstract final class ToolApproval {
       final secrets = names.isEmpty ? '' : '\n秘密を渡します: ${names.join('、')}（このコマンドは、これらの値を読めます。送り先は制限できません）';
       return 'このコマンドを実行します。$reason\n\$ $command\n場所: $cwd$limit$secrets';
     }
+    if (call.name == Protocol.httpRequestName) return _httpRequestTitle(call, reason);
     if (call.name == Protocol.shellSessionName) {
       final names = ShellSecrets.names(call.arguments['secrets']) ?? const <String>[];
       final secrets = names.isEmpty ? '' : '\n秘密を渡します: ${names.join('、')}（このコマンドは、これらの値を読めます。送り先は制限できません）';
@@ -644,6 +669,35 @@ abstract final class ToolApproval {
       b
         ..writeln()
         ..write('${entry.key}: ${summarize(entry.value)}');
+    }
+    return b.toString();
+  }
+
+  /// The card of `http_request`: the method, the address as the model wrote it (placeholders as they are:
+  /// never a value), the host it really goes to, the secrets it uses, and the start of the body.
+  static String _httpRequestTitle(McpCall call, String reason) {
+    final args = call.arguments;
+    final method = '${args['method'] ?? 'GET'}';
+    final url = '${args['url'] ?? ''}'.trim();
+    final headers = args['headers'];
+    final json = args['json'];
+    final body = json != null ? jsonEncode(json) : '${args['body'] ?? ''}';
+    final everything = [
+      url,
+      if (headers is Map) ...headers.keys.map((k) => '$k'),
+      if (headers is Map) ...headers.values.map((v) => '$v'),
+      body,
+    ].join('\n');
+    final ids = SecretPlaceholders.idsIn(everything);
+    final real = SecretPlaceholders.substitute(url, (_) => 'x');
+    final host = SecretHosts.normalizeHost(Uri.tryParse(real)?.host ?? '');
+    final b = StringBuffer('この HTTP リクエストを送ります。$reason\n$method $url\n送り先のホスト: ${host ?? '（読み取れません）'}');
+    if (ids.isNotEmpty) {
+      b.write('\n使う秘密: ${ids.join('、')}（値は見えません。設定で決めたホストにだけ送ります。違うホストなら送りません）');
+    }
+    if (body.isNotEmpty) {
+      final shown = body.length > 200 ? '${body.substring(0, 200)}…' : body;
+      b.write('\n本文（${body.length} 文字）: ${shown.replaceAll('\n', ' ⏎ ')}');
     }
     return b.toString();
   }
@@ -823,6 +877,7 @@ abstract final class ToolCallParser {
       if (Protocol.isMcpLike(name)) {
         if (name == Protocol.runCommandName) return _parseRunCommand(args);
         if (name == Protocol.shellSessionName) return _parseShellSession(args);
+        if (name == Protocol.httpRequestName) return _parseHttpRequest(args);
         return ParseOk(McpCall(name, args.cast<String, Object?>()));
       }
       return ParseInvalid("tool '$name' has no handler");
@@ -909,6 +964,45 @@ abstract final class ToolCallParser {
         if (secrets.isNotEmpty) 'secrets': secrets,
       }),
     );
+  }
+
+  /// `http_request`: the method, the address, the headers and the body, checked here so that the card, the
+  /// policy and the tool see the same arguments. A body is either text (`body`) or an object (`json`).
+  static ParseResult _parseHttpRequest(Map<dynamic, dynamic> args) {
+    final rawMethod = args['method'];
+    if (rawMethod != null && rawMethod is! String) throw _WrongType('method');
+    final method = (rawMethod as String? ?? 'GET').trim().toUpperCase();
+    if (!Protocol.httpRequestMethods.contains(method)) {
+      return ParseInvalid('method must be one of ${Protocol.httpRequestMethods.join(', ')}');
+    }
+    final url = _requiredText(args, 'url');
+    if (url == null) return const ParseInvalid('the url is blank');
+    final headersRaw = args['headers'];
+    final headers = <String, String>{};
+    if (headersRaw != null) {
+      if (headersRaw is! Map) throw _WrongType('headers');
+      for (final entry in headersRaw.entries) {
+        final value = entry.value;
+        if (entry.key is! String || (value is! String && value is! num && value is! bool)) throw _WrongType('headers');
+        headers[entry.key as String] = '$value';
+      }
+    }
+    final body = args['body'];
+    if (body != null && body is! String) throw _WrongType('body');
+    final json = args['json'];
+    if (json != null && json is! Map && json is! List) throw _WrongType('json');
+    if (body != null && json != null) return const ParseInvalid('give either body or json, not both');
+    final timeout = args['timeout_seconds'];
+    if (timeout != null && timeout is! num) throw _WrongType('timeout_seconds');
+    return ParseOk(McpCall(Protocol.httpRequestName, {
+      'method': method,
+      'url': url,
+      if (headers.isNotEmpty) 'headers': headers,
+      // the body is what the model wrote, spaces and line breaks included
+      if (body is String && body.isNotEmpty) 'body': body,
+      'json': ?json,
+      if (timeout is num) 'timeout_seconds': timeout.toInt(),
+    }));
   }
 
   /// `shell_session`: the action and what it needs, checked here so that the card and the policy see the
