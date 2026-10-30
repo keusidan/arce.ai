@@ -97,11 +97,6 @@ void main() {
       'searchEnabled',
       // the batch size is only for the chat to change; the screen has no row for it
       'batchSize',
-      // http_request's three numbers and switch (docs 15.13) get their rows with the secrets screen; until
-      // then (this list is checked: a key that has a row must leave it)
-      'httpRequestEnabled',
-      'httpRequestMaxResponseChars',
-      'httpRequestTimeoutSeconds',
     };
 
     test('every setting the chat can change has a row, or is in the list of those that have none', () {
@@ -196,7 +191,7 @@ void main() {
     });
 
     test('秘密 and 環境変数 find the secrets for commands', () {
-      expect(find('秘密').take(2).map((h) => h.entry.title).toSet(), {'秘密を追加', 'コマンドで使う秘密'}, reason: 'the two rows with it in the title come first');
+      expect(find('秘密').take(2).map((h) => h.entry.title).toSet(), {'秘密を追加', '秘密（モデルが {{secret:ID}} で使う）'}, reason: 'the two rows with it in the title come first');
       expect(keys('秘密'), contains('shellSecrets'));
       expect(keys('環境変数'), contains('shellSecrets'));
     });

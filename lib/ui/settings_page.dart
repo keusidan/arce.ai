@@ -540,6 +540,8 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 10),
             ShellSecretsCard(app: app),
+            const SizedBox(height: 10),
+            HttpRequestCard(app: app),
           ],
         );
       },

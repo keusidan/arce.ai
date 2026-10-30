@@ -140,7 +140,7 @@ final List<SettingsSearchEntry> settingsIndex = [
   _row(SettingsSection.shell, '読まれるまで残す出力', subtitle: 'これを超えて出力されると、古い分は失われます', keywords: ['session', 'セッション', 'buffer', 'バッファ', 'kb'], key: 'shellSessionBufferKb'),
   _row(SettingsSection.shell, 'ワークスペースの上限', subtitle: '全チャット共通の /workspace が、この大きさを超えて増えたらコマンドを止めます（rm で減らすコマンドは通ります）', keywords: ['workspace', '容量', 'mb', 'ストレージ', '制限'], key: 'workspaceLimitMb'),
   _row(SettingsSection.shell, '互換モード（seccomp を切る）', subtitle: 'この端末で proot が起動できないときだけ使います（PROOT_NO_SECCOMP=1）', keywords: ['compat', 'seccomp', 'proot', '起動できない', 'エラー'], key: 'shellCompatMode'),
-  _row(SettingsSection.shell, 'コマンドで使う秘密', subtitle: 'GitHub のトークンなどを、コマンドの環境変数として渡せます（例：git push、gh、npm publish）。', keywords: ['secret', '秘密', '環境変数', 'env', 'token', 'トークン', 'github_token', 'gh_token', 'npm', 'api キー', 'git push'], key: 'shellSecrets'),
+  _row(SettingsSection.shell, '秘密（モデルが {{secret:ID}} で使う）', subtitle: 'GitHub のトークンなどを、コマンドの環境変数として渡せます（例：git push、gh、npm publish）。', keywords: ['secret', '秘密', '環境変数', 'env', 'token', 'トークン', 'github_token', 'gh_token', 'npm', 'api キー', 'git push', 'プレースホルダー', 'placeholder', 'id', 'ホスト', 'host', 'コマンドで使う秘密'], key: 'shellSecrets'),
   _row(SettingsSection.shell, '秘密を追加', keywords: ['secret', '秘密', '環境変数', 'env', 'token', 'トークン', '名前']),
 
   // ------------------------------------------------------------------ limits and timeouts
@@ -237,4 +237,15 @@ final List<SettingsSearchEntry> settingsIndex = [
   _row(SettingsSection.providers, '設定中のモデルを確かめる', subtitle: 'モデルの一覧のボタン。答えるモデル・コーディングモードのモデル・タイトル用のモデルだけを、そのキーで読めるモデル一覧で調べます（一覧にないモデルや、チャットに対応していないモデルに印が付きます）', keywords: ['gemini', '無料枠', 'free tier', 'probe', '確認', '使えない', 'モデル', 'キー', 'プラン', '429', '403', '設定中', '確かめる']),
   _row(SettingsSection.providers, '一覧にあるモデルにも、短い問い合わせを 1 回送る', subtitle: 'オフ（既定）では、モデル一覧だけで判断します（回数を使いません）。オンにすると、無料枠で使えないモデルまで分かります（確かめるたびに、回数を 1 回ずつ使います）', keywords: ['gemini', '無料枠', 'free tier', '問い合わせ', '回数', 'models.list', 'probe', '確認', '使えない'], key: 'modelCheckAsksToo'),
   _row(SettingsSection.providers, 'モデルを選んだとき、そのモデルを 1 回だけ確かめる', subtitle: '答えるモデルを変えたとき、そのモデル 1 つを確かめます（モデル一覧で判断します。印が新しければ確かめません）。使えないときは、そう知らせます', keywords: ['gemini', '無料枠', 'free tier', '自動', '確認', '使えない', 'モデル', '選ぶ', 'auto', 'probe'], key: 'autoCheckSelectedModel'),
+
+  // ---- agent C (secrets screen)
+  _row(SettingsSection.shell, 'モデルに使わせる', subtitle: '', keywords: ['secret', '秘密', 'モデル', 'スイッチ', 'オフ', '使わせない', 'placeholder', 'プレースホルダー', 'secret:id'], key: 'secretsOffForModel'),
+  _row(SettingsSection.shell, '環境変数の名前', keywords: ['secret', '秘密', '環境変数', 'env', '名前', 'github_token', 'gh_token']),
+  _row(SettingsSection.shell, '送ってよいホスト（1 行に 1 つ）', keywords: ['secret', '秘密', 'ホスト', 'host', 'ドメイン', 'domain', '送り先', '*', 'ワイルドカード', 'api.github.com', 'placeholder', 'プレースホルダー']),
+  _row(SettingsSection.shell, 'API を呼ぶ道具（http_request）', subtitle: 'API を呼ぶだけなら、`http_request` を使わせます。', keywords: ['http_request', 'http', 'api', 'curl', 'リクエスト', 'request', '秘密', 'secret', 'プレースホルダー', 'placeholder', 'キー', 'トークン']),
+  _row(SettingsSection.shell, 'モデルが http_request（アプリが API を呼ぶ道具）を使えるようにする', subtitle: 'オフにすると、モデルにこの道具を渡しません', keywords: ['http_request', 'http', 'api', 'curl', 'オフ', 'スイッチ', '道具', 'tool'], key: 'httpRequestEnabled'),
+  _row(SettingsSection.shell, '呼び出しの前に確認する', keywords: ['http_request', '確認', '承認', 'confirm', 'approval', '毎回', '書き込み', '秘密', 'secret'], key: 'httpRequestConfirm'),
+  _row(SettingsSection.shell, 'http（暗号化されない通信）でも、キーやトークンを送れるようにする', subtitle: '既定はオフ（https だけ）。オンにすると、通信の途中で、キーを見られるおそれがあります。', keywords: ['http_request', 'http', 'https', '暗号化', 'insecure', '秘密', 'secret', 'キー', 'トークン', '危険'], key: 'httpRequestAllowInsecure'),
+  _row(SettingsSection.shell, '応答を、モデルに渡す文字数の上限', subtitle: '超えた分は省きます', keywords: ['http_request', '応答', 'レスポンス', 'response', '文字数', '上限', 'max', '省く'], key: 'httpRequestMaxResponseChars'),
+  _row(SettingsSection.shell, 'http_request の待ち時間', subtitle: 'この秒数で、通信をあきらめます', keywords: ['http_request', 'タイムアウト', 'timeout', '待ち時間', '秒'], key: 'httpRequestTimeoutSeconds'),
 ];
