@@ -7,7 +7,7 @@ import 'widgets.dart';
 
 /// "Linux 環境（試験）": a button that starts the packaged proot once and shows what came back.
 /// Only for Android; the Linux environment itself (a root file system, `run_command`) comes later
-/// (docs section 15).
+/// (docs/linux_environment).
 class ProotCheckRow extends StatefulWidget {
   const ProotCheckRow({super.key, required this.app});
 

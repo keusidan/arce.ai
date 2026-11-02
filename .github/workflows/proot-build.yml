@@ -1,6 +1,6 @@
 # Builds proot (the Termux fork, pinned as the submodule third_party/proot) for Android arm64 with the
 # NDK the app uses, and keeps the result as a workflow artifact. This is stage 1 of the in-app Linux
-# environment (docs/ARCE_AI_docs_*.md, section 15): it shows that proot builds, what it weighs and what
+# environment (docs/linux_environment_Claude-11-02-2026_18-29-26.md): it shows that proot builds, what it weighs and what
 # it links against. It does not release anything and is not part of any release workflow. The build
 # itself is the local action .github/actions/proot, which the packaging measurement also uses.
 name: Build proot

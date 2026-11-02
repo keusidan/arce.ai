@@ -398,7 +398,7 @@ class AppSettings {
   /// (only the model's name is sent).
   final bool fetchModelInfoFromHub;
 
-  // ---- the Linux environment (docs 15 and 19.5; Android only) ----
+  // ---- the Linux environment (docs/linux_environment; Android only) ----
 
   /// Offer `run_command` to the model at all. Off hides the tool and refuses to run one.
   final bool shellEnabled;
@@ -1048,7 +1048,7 @@ class AppSettings {
       fetchModelInfoFromHub: flag('fetchModelInfoFromHub', d.fetchModelInfoFromHub),
       shellEnabled: flag('shellEnabled', d.shellEnabled),
       // 0.12.1 saved its own default (true) with every settings write; that was never a choice, and the
-      // user asked for commands inside the environment to run without asking (docs 19.5, 2026-10-29)
+      // user asked for commands inside the environment to run without asking (docs/linux_environment)
       shellConfirm: json.containsKey('shellConfirmAlways')
           ? flag('shellConfirmAlways', d.shellConfirm)
           : d.shellConfirm,

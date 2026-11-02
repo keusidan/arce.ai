@@ -1,4 +1,4 @@
-# The repository bot (docs 12.7). Mention it in an issue or a pull request:  @arce-bot <what you want>
+# The repository bot (docs/github_bot). Mention it in an issue or a pull request:  @arce-bot <what you want>
 #
 #   - It reads the thread, asks a model, and replies. When a change is asked for, it puts the change on a
 #     branch of its own (bot/…) and opens a DRAFT pull request. It never merges and never touches main.
@@ -10,7 +10,7 @@
 #   - Actions tab -> "Bot" -> Run workflow -> an issue number, with "dry run" checked: it reads and thinks,
 #     and writes nothing (the log says what it would do).
 #
-# Set up once (docs 12.7): a GitHub App with Contents, Pull requests and Issues = read & write, installed on
+# Set up once (docs/github_bot): a GitHub App with Contents, Pull requests and Issues = read & write, installed on
 # this repository; secrets BOT_APP_PRIVATE_KEY and BOT_API_KEY; variables BOT_APP_ID, BOT_API_URL, BOT_MODEL.
 name: Bot
 

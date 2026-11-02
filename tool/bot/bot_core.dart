@@ -1,4 +1,4 @@
-// The repository bot (docs 12.7): the parts that decide what it may do. Nothing here touches the network
+// The repository bot (docs/github_bot): the parts that decide what it may do. Nothing here touches the network
 // or the disk, so every rule is tested (test/tool/bot_core_test.dart).
 //
 // The bot answers a comment that mentions it, and may propose a change as a draft pull request. A model

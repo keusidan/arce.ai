@@ -37,7 +37,7 @@ class ShellSecret {
 
 /// What the app does around a secret that a command was given.
 ///
-/// proot is not a security boundary (docs 15.4): a command that has a secret can send it anywhere the
+/// proot is not a security boundary (docs/linux_environment): a command that has a secret can send it anywhere the
 /// network reaches. So a secret is never there unless the user approved *that command* with the names
 /// shown on the card, and the model only ever sees names, never values. Redaction below is for the
 /// accident (a command that prints its environment); it does not stop a command that encodes the

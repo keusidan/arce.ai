@@ -380,8 +380,8 @@ abstract final class Protocol {
 
   // ---------------------------------------------------------------- the app's own tools
 
-  /// The app's own shell tool: one command in the Linux environment on the device (docs 15 and
-  /// 19.5). It is parsed as an [McpCall] and run by the MCP runtime, which is where the chat looks
+  /// The app's own shell tool: one command in the Linux environment on the device
+  /// (docs/linux_environment). It is parsed as an [McpCall] and run by the MCP runtime, which is where the chat looks
   /// for calls it cannot run itself.
   static const runCommandName = 'run_command';
 
@@ -423,7 +423,7 @@ abstract final class Protocol {
     ),
   );
 
-  /// The tool that calls an address for the model, with secrets put in by placeholder (docs 15.13, path A).
+  /// The tool that calls an address for the model, with secrets put in by placeholder (docs/secrets, path A).
   static const httpRequestName = 'http_request';
 
   static const httpRequestMethods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
@@ -761,7 +761,7 @@ abstract final class ToolApproval {
 }
 
 /// Decides whether a `run_command` call stays inside the local proot environment (/workspace and
-/// the Ubuntu rootfs), which is what lets it run without asking the user (B, docs 19.5).
+/// the Ubuntu rootfs), which is what lets it run without asking the user (B, docs/linux_environment).
 ///
 /// proot is not a sandbox: a command runs with the app's own user and proot only translates paths.
 /// What this reads is therefore only "does the command reach the device outside the container":
@@ -778,7 +778,7 @@ abstract final class SandboxPolicy {
   /// `/proc/self/exe`, its memory and environment), and through the file descriptors it holds. These
   /// are the doors a command can name; one that does is not "inside the sandbox". (A command that
   /// builds the name out of variables is not caught: proot is not a boundary, and what stops that is
-  /// the question the app asks after the model has read something from outside, docs 15.4.)
+  /// the question the app asks after the model has read something from outside, docs/linux_environment.)
   static final _procDoors = RegExp(
     r'''proc/(?:self|thread-self|\d+|\$\$|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\(.*?\))/(?:root|cwd|exe|mem|environ|map_files|fd|fdinfo|task)\b''',
   );

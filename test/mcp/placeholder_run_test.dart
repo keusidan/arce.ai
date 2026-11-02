@@ -10,7 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../services/linux_env_test.dart' show FakeBridge;
 
-/// `{{secret:ID}}` in `run_command` and `shell_session` (docs 15.13, path B), from the model's JSON to the
+/// `{{secret:ID}}` in `run_command` and `shell_session` (docs/secrets, path B), from the model's JSON to the
 /// process: the parser keeps what the model wrote, the card shows it, the command that runs has no value in
 /// its text, and nothing the model reads has one.
 void main() {

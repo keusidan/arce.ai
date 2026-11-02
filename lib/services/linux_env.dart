@@ -11,7 +11,7 @@ import 'file_downloader.dart';
 /// A number the channel sent, whatever its width.
 int asLong(Object? value) => value is num ? value.toInt() : 0;
 
-/// How the Linux environment is set up, as the settings describe it (section 19.5 of the docs).
+/// How the Linux environment is set up, as the settings describe it (the docs (linux_environment)).
 ///
 /// The environment itself is Android only: proot runs as a child process out of the app's native
 /// library folder, which the other platforms do not have.
@@ -361,7 +361,7 @@ class LinuxEnvironment extends ChangeNotifier {
   }
 
   /// Downloads the root file system, checks its SHA-256 and has it unpacked. Its size is not in the
-  /// workspace limit: it is the system, not the work (docs 19.5).
+  /// workspace limit: it is the system, not the work (docs/linux_environment).
   Future<LinuxStatus> install(LinuxConfig config) async {
     if (!_android) throw UnsupportedError('the Linux environment is Android only');
     _message = null;

@@ -5,7 +5,7 @@ plugins {
 }
 
 // Release signing comes from the environment (GitHub Actions secrets, see
-// docs/ARCE_AI_docs_Claude-10-26-2026_02-16-25.md, section 12). Without it a release build is signed with the debug key,
+// docs/release_ci_Claude-11-02-2026_18-29-26.md). Without it a release build is signed with the debug key,
 // which can run but cannot update an installed release build.
 val releaseKeystore: String? = System.getenv("ARCE_KEYSTORE_PATH")
 val releasePassword: String? = System.getenv("ARCE_KEYSTORE_PASSWORD")
@@ -78,7 +78,7 @@ android {
         jniLibs {
             // Extract the .so files at install time (and store them compressed in the APK). Android runs a
             // program only from a file on disk, and proot (libproot.so, libproot_loader.so) is one: it is
-            // started as a process from nativeLibraryDir. Measured in docs section 15.8: the APK gets
+            // started as a process from nativeLibraryDir. Measured in docs/linux_environment_Claude-11-02-2026_18-29-26.md: the APK gets
             // smaller (131 -> 68 MB), the device needs ~117 MB of disk for the libraries, and a delta
             // update patch is larger (1.1 -> 5.9 MB).
             useLegacyPackaging = true

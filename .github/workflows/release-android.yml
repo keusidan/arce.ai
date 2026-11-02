@@ -14,7 +14,7 @@
 # Building and publishing are separate jobs, so a failed publish can be re-run alone ("Re-run failed
 # jobs") and does not throw away the 25-minute build or its caches.
 #
-# Secrets: ARCE_KEYSTORE_BASE64, ARCE_KEYSTORE_PASSWORD, ARCE_KEY_ALIAS. Setup: docs/ARCE_AI_docs_Claude-10-26-2026_02-16-25.md (section 12)
+# Secrets: ARCE_KEYSTORE_BASE64, ARCE_KEYSTORE_PASSWORD, ARCE_KEY_ALIAS. Setup: docs/release_ci_Claude-11-02-2026_18-29-26.md
 name: Release Android
 
 on:
@@ -182,7 +182,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.ARCE_KEY_ALIAS }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ]; then
-            echo "::error::Signing secrets are missing. A debug-signed APK could not update the installed app. See docs/ARCE_AI_docs_Claude-10-26-2026_02-16-25.md (section 12)"
+            echo "::error::Signing secrets are missing. A debug-signed APK could not update the installed app. See docs/release_ci_Claude-11-02-2026_18-29-26.md"
             exit 1
           fi
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"

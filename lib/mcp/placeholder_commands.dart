@@ -42,7 +42,7 @@ class PreparedCommand {
   bool get usesSecrets => ids.isNotEmpty;
 }
 
-/// Path B of docs 15.13: `{{secret:ID}}` in a command that runs in proot.
+/// Path B of docs/secrets: `{{secret:ID}}` in a command that runs in proot.
 ///
 /// The app never puts a value into the text. It rewrites each placeholder into a reference to an environment
 /// variable (`${ARCE_SECRET_ID}`) and passes the value in that variable to this one command. The rewrite is

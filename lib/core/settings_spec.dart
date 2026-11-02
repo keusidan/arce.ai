@@ -528,7 +528,7 @@ abstract final class AgentSettings {
       min: 64,
       max: 100000,
     ),
-    // The Linux environment on the device (docs 15 and 19.5). Two of them are missing on purpose:
+    // The Linux environment on the device (docs/linux_environment). Two of them are missing on purpose:
     // `shellConfirm` decides whether a command is shown before it runs, and `linuxRootfsUrl` /
     // `linuxRootfsSha256` decide which system is downloaded: a chat message must not be able to
     // turn the first off or point the second somewhere else.

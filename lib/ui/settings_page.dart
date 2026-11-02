@@ -371,7 +371,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// The Linux environment: whether the model may run commands and with what limits, what is
-  /// installed, how much the shared workspace holds, and the check of proot itself (docs 15, 19.5).
+  /// installed, how much the shared workspace holds, and the check of proot itself (docs/linux_environment).
   /// Only Android: proot is a child process out of the native library folder.
   Widget _linux(AppController app, AppSettings s, void Function(AppSettings Function(AppSettings)) set) {
     final c = context.c;

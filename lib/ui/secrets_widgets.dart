@@ -49,7 +49,7 @@ String secretKindLabel(SecretKind kind) => switch (kind) {
 
 /// The secrets of the app (settings → Linux 環境), every item that holds a key or a token, each with an id
 /// made from its name: a model writes `{{secret:ID}}` and the app puts the value in at the moment of use, only
-/// for the hosts the secret is bound to (docs 15.13). The screen never shows a value.
+/// for the hosts the secret is bound to (docs/secrets). The screen never shows a value.
 class ShellSecretsCard extends StatelessWidget {
   const ShellSecretsCard({super.key, required this.app});
 
@@ -419,7 +419,7 @@ class _SecretEditorState extends State<_SecretEditor> {
   }
 }
 
-/// The settings of `http_request` (docs 15.13, path A): the app calls an address for the model, puts the
+/// The settings of `http_request` (docs/secrets, path A): the app calls an address for the model, puts the
 /// secrets the model named into the request, and sends them only to the hosts each is bound to.
 class HttpRequestCard extends StatelessWidget {
   const HttpRequestCard({super.key, required this.app});

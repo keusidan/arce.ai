@@ -123,7 +123,7 @@ class McpTools {
 
   final ShellSessionManager _sessions;
 
-  /// Every secret by id (docs 15.13): what a model may name in `{{secret:ID}}`. Never a value of its own.
+  /// Every secret by id (docs/secrets): what a model may name in `{{secret:ID}}`. Never a value of its own.
   final SecretBook secretBook;
 
   /// What `http_request` reads from the settings, and the client it uses (a test gives its own).
@@ -198,13 +198,13 @@ class McpTools {
   bool approvalRequired(String name, [Map<String, Object?> arguments = const {}]) {
     // ci_status only reads GitHub: nothing to approve
     if (name == Protocol.ciStatusName) return false;
-    // B (docs 19.5, 2026-10-29): a command that stays inside the sandbox (/workspace and the
+    // B (docs/linux_environment): a command that stays inside the sandbox (/workspace and the
     // Ubuntu rootfs) runs without asking; only one that reaches the device outside it asks.
     if (name == Protocol.runCommandName) {
       if (!shell.enabled || !_shellSupported) return false;
       // a command that is given a secret is approved every time, whatever it does: it can send it anywhere
       if ((ShellSecrets.names(arguments['secrets']) ?? const ['?']).isNotEmpty) return true;
-      // so is one that writes a placeholder (docs 15.13, path B): the card then says where each secret may go
+      // so is one that writes a placeholder (docs/secrets, path B): the card then says where each secret may go
       if (PlaceholderCommands.idsIn('${arguments['command'] ?? ''}').isNotEmpty) return true;
       if (shell.confirm) return true;
       return !SandboxPolicy.isInsideSandbox(McpCall(name, arguments));
@@ -237,7 +237,7 @@ class McpTools {
     return !SandboxPolicy.isInsideSandbox(McpCall(Protocol.runCommandName, {'command': text, 'cwd': cwd}));
   }
 
-  /// What the approval card shows under a command that uses secrets by placeholder (docs 15.13, path B): which
+  /// What the approval card shows under a command that uses secrets by placeholder (docs/secrets, path B): which
   /// secrets, where each may be sent, the addresses written in the command, and a warning when there is none.
   /// Empty for anything else, and for a command that will be refused (the card is then for the rest of the call).
   String approvalDetails(String name, Map<String, Object?> arguments) {
@@ -594,7 +594,7 @@ class McpTools {
   // ---------------------------------------------------------------- run_command
 
   /// The tool, with what the settings allow written into its description: the model cannot look
-  /// the limits up, so they are said here (docs 19.5, item 4).
+  /// the limits up, so they are said here (docs/linux_environment).
   static ToolDefinition _runCommandFor(
     ShellSettings s,
     List<String> secretNames, [

@@ -1,3 +1,8 @@
+# 企画書（利用者の原文）
+
+利用者（ぽんず）が書いた企画書。**利用者の原文のまま**を Markdown にした（コードブロックに入れただけ）。「必ず全て搭載すること」が利用者の指定。現在の実装の状況は、各ファイル（`screens`・`core_engine`・`integrations` ほか）と `verification` を見る。この企画書は Kotlin（Jetpack Compose）版の時代のもので、Flutter 版は Android・iOS・Windows・macOS・Linux の同じ画面で動く（`overview`）。企画にあって実装していない・別の形にしたもの（APK / EXE / JAR の自動ビルド、Termux 相当のシェルは proot の Linux 環境で代替、など）は `verification` の「未対応」と `linux_environment`。
+
+````text
 ARCE.AI企画書(ローカルAIによるコーディング・チャットアプリ)
 注意事項:必ず全て搭載すること。
 
@@ -79,3 +84,4 @@ ARCE.AI企画書(ローカルAIによるコーディング・チャットアプ�
 ・端末のシステム時計/タイムゾーンAPI
 ・コード生成・実行補助: Termux相当のシェル環境(exe/jar等の他形式ビルドを視野に入れる場合)、Python同梱ランタイム(py生成物の動作確認用)
 ・モデル管理: Hugging Face Hub API(Qwen/Gemma等のモデルダウンロード元)
+````

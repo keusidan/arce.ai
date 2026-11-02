@@ -208,7 +208,7 @@ class AppController extends ChangeNotifier {
   /// Sends the errors to a GitHub issue (settings: エラーの報告).
   final ErrorReporter errors;
 
-  /// The Linux environment on the device (docs 15 and 19.5): whether it is installed, installing
+  /// The Linux environment on the device (docs/linux_environment): whether it is installed, installing
   /// it, and its state for the settings screen. The tool itself runs through [McpTools].
   final LinuxEnvironment linux;
 
@@ -423,7 +423,7 @@ class AppController extends ChangeNotifier {
   }
 
   /// What the Linux environment's settings say now, asked on every use so a change applies to the
-  /// next command (docs 19.5).
+  /// next command (docs/linux_environment).
   ShellSettings get _shellSettings {
     final s = settings.value;
     return ShellSettings(
@@ -504,7 +504,7 @@ class AppController extends ChangeNotifier {
     resultMaxChars: settings.value.mcpResultMaxChars,
   );
 
-  /// Every item that holds a key or a token, each with an id made from its name (docs 15.13): the
+  /// Every item that holds a key or a token, each with an id made from its name (docs/secrets): the
   /// providers' API keys, the MCP servers' tokens, the search services' keys, the GitHub tokens and the
   /// values typed for commands. A model names one in `{{secret:ID}}`; its value goes only to the hosts it is
   /// bound to (the host of the provider's address, of the server's address, ... or the ones the user wrote).

@@ -35,7 +35,7 @@ class HttpRequestSettings {
 /// Looks a host name up: the addresses it points at. A test gives its own, so nothing needs the network.
 typedef HostResolver = Future<List<InternetAddress>> Function(String host);
 
-/// The tool `http_request` (docs 15.13, path A): a model asks the app to call an address, writing
+/// The tool `http_request` (docs/secrets, path A): a model asks the app to call an address, writing
 /// `{{secret:ID}}` where a key or a token goes; the app puts the value in, only for the hosts that secret is
 /// bound to, sends the request itself (not through proot), and hands back the answer with every value taken out.
 ///

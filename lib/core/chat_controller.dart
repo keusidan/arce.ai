@@ -575,7 +575,7 @@ class ChatController extends ChangeNotifier {
   final bool Function(String name, [Map<String, Object?> arguments])? _mcpApproval;
 
   /// Lines the app adds under a command on the approval card (which secrets it uses and where they may
-  /// go, docs 15.13); empty for a call that has nothing to add. Null adds nothing.
+  /// go, docs/secrets); empty for a call that has nothing to add. Null adds nothing.
   final String Function(String name, Map<String, Object?> arguments)? _approvalDetails;
 
   /// Tools from outside the app (an MCP server). Read for every generation, so adding or removing
