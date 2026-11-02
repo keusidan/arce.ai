@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/attachments.dart';
+import '../core/chat_controller.dart';
 import '../services/app_controller.dart';
 import 'arce_text_field.dart';
 import 'app_scope.dart';
@@ -33,6 +34,9 @@ class _ChatPageState extends State<ChatPage> {
   final _draft = ValueNotifier<String>('');
   AppController? _app;
   int _lastCount = 0;
+
+  /// A jump to the newest message is waiting for the end of this frame.
+  bool _scrollQueued = false;
 
   void _syncDraft() {
     final app = _app;
@@ -73,11 +77,16 @@ class _ChatPageState extends State<ChatPage> {
     _lastCount = count;
     if (!_scroll.hasClients) return;
     final nearBottom = _scroll.position.maxScrollExtent - _scroll.offset < 160;
-    if (grew || nearBottom) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
-      });
-    }
+    if (!grew && !nearBottom) return;
+    // one jump per frame: a reply sends many pieces, and each of them used to queue its own jump
+    if (_scrollQueued) return;
+    _scrollQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollQueued = false;
+      if (!_scroll.hasClients) return;
+      if (!grew && _scroll.position.maxScrollExtent - _scroll.offset >= 160) return;
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+    });
   }
 
   Future<void> _pickFiles() async {
@@ -334,7 +343,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
-class _Messages extends StatelessWidget {
+class _Messages extends StatefulWidget {
   const _Messages({required this.app, required this.scroll, required this.onPrompt});
 
   final AppController app;
@@ -342,30 +351,64 @@ class _Messages extends StatelessWidget {
   final ValueChanged<String> onPrompt;
 
   @override
+  State<_Messages> createState() => _MessagesState();
+}
+
+class _MessagesState extends State<_Messages> {
+  /// The rows of the messages that are not being written now, kept as they are. A new piece of the
+  /// last reply then rebuilds that one row instead of the whole conversation (reading every Markdown
+  /// reply again on each piece was the largest cost of a long chat). A row reads the settings, so a
+  /// settings change drops them all.
+  final _rows = <int, (UiMessage, Object?, Widget)>{};
+  ChatController? _chat;
+
+  @override
   Widget build(BuildContext context) {
+    final app = widget.app;
     final state = app.chat.state;
     final settings = app.settings.value;
+    if (!identical(_chat, app.chat.current)) {
+      _chat = app.chat.current;
+      _rows.clear();
+    }
     final last = state.messages.isEmpty ? null : state.messages.last;
     // the animated card is for the time before anything arrives; the thinking block takes over then
     final showThinkingCard = state.isGenerating &&
         settings.thinking &&
         (last?.text.trim().isEmpty ?? true) &&
         (last?.thinking.trim().isEmpty ?? true);
+    final lastIndex = state.messages.length - 1;
+    if (_rows.isNotEmpty) {
+      final ids = {for (final m in state.messages) m.id};
+      _rows.removeWhere((id, _) => !ids.contains(id));
+    }
+    Widget messageRow(int i) {
+      final message = state.messages[i];
+      if (i == lastIndex) return MessageView(message: message, isLast: true, state: state);
+      final cached = _rows[message.id];
+      if (cached != null && identical(cached.$1, message) && identical(cached.$2, settings)) {
+        return cached.$3;
+      }
+      final row = MessageView(message: message, isLast: false, state: state);
+      _rows[message.id] = (message, settings, row);
+      return row;
+    }
+
     return SelectionArea(
       child: ListView(
-        controller: scroll,
+        controller: widget.scroll,
         padding: const EdgeInsets.fromLTRB(12, 14, 12, 13),
         children: [
           Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 920),
               child: state.messages.isEmpty
-                  ? _Welcome(app: app, onPrompt: onPrompt)
+                  ? _Welcome(app: app, onPrompt: widget.onPrompt)
                   : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      for (var i = 0; i < state.messages.length; i++)
+                      for (var i = 0; i <= lastIndex; i++)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 16),
-                          child: MessageView(message: state.messages[i], isLast: i == state.messages.length - 1, state: state),
+                          child: RepaintBoundary(child: messageRow(i)),
                         ),
                       if (showThinkingCard)
                         ThinkingCard(task: state.task, style: settings.thinkingStyle),

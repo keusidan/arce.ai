@@ -241,6 +241,17 @@ void main() {
     expect(chat.state.messages.last.text, 'done');
   });
 
+  test('a burst of pieces is not told to the screen piece by piece, and the reply still ends whole', () async {
+    final reply = 'あ' * 600; // 200 pieces of three characters, all within a few milliseconds
+    final engine = ScriptedEngine([(reply, FinishReason.eog)]);
+    final chat = ChatController(engine);
+    var told = 0;
+    chat.addListener(() => told++);
+    await chat.send('こんにちは');
+    expect(chat.state.messages.last.text, reply, reason: 'the last piece is always told, even inside the interval');
+    expect(told, lessThan(100), reason: 'the screen is given the state a few times, not for every piece');
+  });
+
   test('how long the model thought is counted from its first thinking text to its first word, and the live mark is cleared', () async {
     final engine = _SlowThinker();
     final chat = ChatController(engine, store: (_, {required generating}) {});

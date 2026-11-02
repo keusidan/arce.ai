@@ -335,14 +335,21 @@ Java_ai_arce_app_engine_LlamaNative_nativeStart(JNIEnv * env, jobject, jlong eng
 
     const std::string prompt = from_bytes(env, prompt_utf8);
     const llama_vocab * vocab = llama_model_get_vocab(engine->model);
-    const int n_prompt = -llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()), nullptr, 0,
-                                         true, true);
-    std::vector<llama_token> tokens(n_prompt);
-    if (llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()), tokens.data(), n_prompt, true,
-                       true) < 0) {
+    // One pass in the normal case: a token covers at least one UTF-8 byte, so a buffer the size of the
+    // prompt cannot be too small. The second call only covers a tokenizer that adds tokens of its own.
+    std::vector<llama_token> tokens(prompt.size() + 8);
+    int n_prompt = llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()), tokens.data(),
+                                  static_cast<int32_t>(tokens.size()), true, true);
+    if (n_prompt < 0) {
+        tokens.resize(-n_prompt);
+        n_prompt = llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()), tokens.data(),
+                                  static_cast<int32_t>(tokens.size()), true, true);
+    }
+    if (n_prompt < 0) {
         set_error("tokenize failed");
         return 0;
     }
+    tokens.resize(n_prompt);
 
     const int n_ctx = static_cast<int>(llama_n_ctx(engine->ctx));
     if (n_prompt >= n_ctx) {
