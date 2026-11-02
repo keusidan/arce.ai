@@ -710,6 +710,28 @@ void main() {
     expect(chat.state.messages.last.text, contains('a.py'));
   });
 
+  test('a long prompt says what the wait is for: its size, and that a device model needs minutes for it', () async {
+    final engine = ScriptedEngine([('答え', FinishReason.eog)]);
+    final chat = ChatController(engine);
+    final stages = <String>[];
+    chat.addListener(() {
+      final p = chat.state.progress;
+      if (p != null && (stages.isEmpty || stages.last != p.stage)) stages.add(p.stage);
+    });
+    await chat.send('あ' * 6000); // 18,000 bytes: 6,000 tokens and more
+    final waiting = stages.firstWhere((s) => s.contains('返信を待っています'));
+    expect(waiting, allOf(contains('指示は約'), contains('トークン'), contains('数分')));
+    expect(waiting, matches(RegExp(r'約 \d{1,3}(,\d{3})+ トークン')));
+    stages.clear();
+    final short = ChatController(ScriptedEngine([('答え', FinishReason.eog)]));
+    short.addListener(() {
+      final p = short.state.progress;
+      if (p != null && (stages.isEmpty || stages.last != p.stage)) stages.add(p.stage);
+    });
+    await short.send('hi');
+    expect(stages, contains('モデルに送信しています（返信を待っています）'), reason: 'a short prompt keeps the plain text');
+  });
+
   test('the progress says what the reply is doing, and counts the requests and the tools', () async {
     final engine = ScriptedEngine([
       ('<think>**検索の計画**\n語を決める</think><tool_call>\n{"name":"web_search","arguments":{"query":"kotlin"}}\n</tool_call>', FinishReason.eog),

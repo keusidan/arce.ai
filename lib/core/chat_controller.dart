@@ -1403,6 +1403,12 @@ class ChatController extends ChangeNotifier {
     return Compaction.clean(out.toString());
   }
 
+  /// From this many tokens of prompt on, the waiting text says how long a device model may need. A hint for
+  /// the screen, not a limit.
+  static const slowPromptTokens = 3000;
+
+  static String _grouped(int n) => n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+
   /// One pass through the engine; streams text and thinking into message [id].
   Future<_Attempt> _attempt(
     int id,
@@ -1525,7 +1531,14 @@ class ChatController extends ChangeNotifier {
       ),
     );
     meter.modelRequest();
-    meter.stage('$actorに送信しています（返信を待っています）');
+    // a device model reads the whole prompt before its first word: for a prompt this long that takes
+    // minutes on a phone, and the screen should say what it waits for instead of looking stuck
+    final promptTokens = (utf8.encode(request.prompt).length / 3).ceil();
+    meter.stage(
+      promptTokens < slowPromptTokens
+          ? '$actorに送信しています（返信を待っています）'
+          : '$actorに送信しています（返信を待っています。指示は約 ${_grouped(promptTokens)} トークン。端末のモデルでは、最初にこれを読み込むので、数分かかることがあります）',
+    );
     try {
       await for (final event in _engine.generate(request)) {
         switch (event) {

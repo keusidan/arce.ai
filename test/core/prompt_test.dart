@@ -1,5 +1,7 @@
 import 'package:arce_ai/core/prompt.dart';
 import 'package:arce_ai/core/protocol.dart';
+import 'package:arce_ai/core/settings_spec.dart';
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -61,5 +63,43 @@ void main() {
     const turns = <ChatMessage>[UserTurn('a'), AssistantTurn('b', '{"x":1}', '考えた'), AssistantTurn('d'), ToolResponseTurn('c')];
     final back = [for (final t in turns) ChatMessage.fromJson(t.toJson())];
     expect(back.map((t) => t.toJson()), turns.map((t) => t.toJson()));
+  });
+
+  group('the tool text in the prompt', () {
+    final tools = [Protocol.getSettings, Protocol.updateSettings, Protocol.askUser];
+    final prompt = ChatMlPromptBuilder.build(const [UserTurn('hi')], tools, null, true);
+
+    test('does not list every setting name: a device model had to read them all before it could answer', () {
+      for (final key in AgentSettings.keys) {
+        expect(prompt, isNot(contains('"$key"')), reason: key);
+      }
+      // the names were about a third of this tool's text, and its text a quarter of all the tools'
+      String signature(ToolDefinition t) => jsonEncode({'name': t.name, 'description': t.description, 'parameters': t.parameters});
+      final shortened = ChatMlPromptBuilder.build(const [], [Protocol.updateSettings], null, true);
+      final names = AgentSettings.keys.join(',').length;
+      expect(shortened.length, lessThan(ChatMlPromptBuilder.build(const [], [], null, true).length + signature(Protocol.updateSettings).length - names ~/ 2));
+      expect(prompt, contains(ChatMlPromptBuilder.longEnumNote));
+    });
+
+    test('keeps the names in the grammar that constrains the call, and rejects an unknown one', () {
+      final schema = jsonEncode(Protocol.toolCallSchema(tools));
+      for (final key in AgentSettings.keys) {
+        expect(schema, contains('"$key"'), reason: key);
+      }
+      expect(AgentSettings.normalize('noSuchSetting', true), isA<SettingsChangeInvalid>());
+    });
+
+    test('a short list of choices is still written out', () {
+      final withShort = ChatMlPromptBuilder.build(const [UserTurn('hi')], [Protocol.updateSettings], null, true);
+      expect(withShort, contains('"required":["key","value"]'));
+      final short = ToolDefinition(
+        name: 'pick',
+        description: 'pick one',
+        parameters: {'type': 'object', 'properties': {'color': {'type': 'string', 'enum': ['red', 'green']}}},
+      );
+      final text = ChatMlPromptBuilder.build(const [UserTurn('hi')], [short], null, true);
+      expect(text, contains('"enum":["red","green"]'));
+      expect(text, isNot(contains(ChatMlPromptBuilder.longEnumNote)));
+    });
   });
 }

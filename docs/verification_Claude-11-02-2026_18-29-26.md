@@ -30,6 +30,8 @@
 - 実際の GitHub への Issue 送信（エラー報告）、GitHub App の bot（`github_bot`。最初は dry run で確かめる）。
 - 外部 URL（`sources`）の一部は、この環境から開けず未確認。
 
+- 端末のモデル（Qwen3-8B Q4_K_M）で、指示が約 4,000 トークンのとき、最初の言葉が出るまでの時間（実機の報告では 4 分半たっても出なかった）。読み込みの速さ（トークン/秒）は未測定。
+
 ## 未対応・今後
 - Kotlin 版にあった Python / Java の実行とビルド（サンドボックス）、WorkManager による更新の通知は、Flutter 版に移していない（シェルの道具で同じことができる）。Android 以外の推論（llama.cpp を FFI で各 OS に入れるなど）。iOS の署名と TestFlight、macOS の公証、Windows のコード署名。
 - 履歴の画像の保存、送信前プロンプトのプレビュー、使用量・費用の記録（`prompt_tokens` / `completion_tokens` / `cost_micros` の列はあるが書いていない）。

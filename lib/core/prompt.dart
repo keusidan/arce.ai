@@ -160,15 +160,53 @@ Rules:
   /// that sends the tools another way cuts from here.
   static const toolsMarker = '\n\n# Tools\n\n';
 
+  /// A list of allowed values longer than this is not written into the prompt (it stays in the grammar
+  /// that constrains the call, and in the checks of the call): `update_settings` lists every setting name
+  /// there, which was most of the 3,400 tokens of tool definitions a device model had to read before it
+  /// could answer, minutes on a phone.
+  static const longEnumLimit = 24;
+
+  /// Said after a description whose list of allowed values was left out of the prompt.
+  static const longEnumNote = 'Some fields take one of many names that are not listed here; the call is '
+      'only accepted with a valid name, and get_settings lists the names of the settings.';
+
+  /// [schema] without its `enum` lists of more than [longEnumLimit] values, and whether any was removed.
+  static ({Object? value, bool changed}) _withoutLongEnums(Object? schema) {
+    var changed = false;
+    Object? walk(Object? node) {
+      if (node is Map) {
+        final out = <String, Object?>{};
+        node.forEach((key, value) {
+          if (key == 'enum' && value is List && value.length > longEnumLimit) {
+            changed = true;
+          } else {
+            out['$key'] = walk(value);
+          }
+        });
+        return out;
+      }
+      if (node is List) return [for (final item in node) walk(item)];
+      return node;
+    }
+
+    final value = walk(schema);
+    return (value: value, changed: changed);
+  }
+
   static void _appendTools(StringBuffer b, List<ToolDefinition> tools) {
     b
       ..write(toolsMarker)
       ..write('You may call one or more functions to assist with the user query.\n\n')
       ..write('You are provided with function signatures within <tools></tools> XML tags:\n<tools>');
     for (final tool in tools) {
+      final shortened = _withoutLongEnums(tool.parameters);
       final signature = {
         'type': 'function',
-        'function': {'name': tool.name, 'description': tool.description, 'parameters': tool.parameters},
+        'function': {
+          'name': tool.name,
+          'description': shortened.changed ? '${tool.description} $longEnumNote' : tool.description,
+          'parameters': shortened.value,
+        },
       };
       b
         ..write('\n')
