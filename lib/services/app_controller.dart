@@ -5,6 +5,7 @@ import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener, WidgetsFlutterBinding;
 
@@ -39,6 +40,8 @@ import '../engine/demo_engine.dart';
 import '../mcp/mcp_client.dart';
 import '../mcp/http_request_tool.dart';
 import '../mcp/mcp_tools.dart';
+import '../mcp/show_tool.dart' show ShowSettings;
+import '../core/page_blocks.dart';
 import '../engine/hybrid_engine.dart';
 import '../engine/native_engine.dart';
 import 'conversation_database.dart';
@@ -100,6 +103,7 @@ class AppController extends ChangeNotifier {
     required this.cloud,
     required this.engine,
     required this.preview,
+    this.workspaceDirectory,
     required this.errors,
     required this.linux,
     required this.availability,
@@ -205,6 +209,29 @@ class AppController extends ChangeNotifier {
   final RoutingEngine engine;
   final PreviewServer preview;
 
+  /// The folder the Linux environment sees as `/workspace` (null where there is no such environment): what `show` may
+  /// show files of.
+  final Directory? workspaceDirectory;
+
+  /// The address that shows [source] on this device (an address only the app knows, or the port of a program that serves
+  /// it). Throws a sentence for the user when the page cannot be shown (no workspace here, no such file any more).
+  Future<Uri> pageAddress(PageSource source) async {
+    switch (source) {
+      case HtmlSource():
+        return preview.publish(source.html);
+      case SvgSource():
+        return preview.publish(PageBlocks.pageOfSvg(source.svg));
+      case PortSource():
+        return PageBlocks.addressOf(source);
+      case WorkspaceSource():
+        final workspace = workspaceDirectory;
+        if (workspace == null) throw 'この端末には、ワークスペースがありません';
+        final found = WorkspacePages.resolve(workspace, source.path);
+        if (found == null) throw 'ワークスペースに、そのページがありません（/workspace/${source.path}）';
+        return preview.publishFolder(found.root, found.entry);
+    }
+  }
+
   /// Sends the errors to a GitHub issue (settings: エラーの報告).
   final ErrorReporter errors;
 
@@ -262,6 +289,7 @@ class AppController extends ChangeNotifier {
     LinuxEnvironment? linux,
     ReplyNotifier? notifier,
     ModelAvailabilityStore? availability,
+    Directory? workspaceDirectory,
   }) async {
     final settings = await SettingsStore.load();
     final providers = await ProviderStore.load();
@@ -295,6 +323,9 @@ class AppController extends ChangeNotifier {
         cloud: cloud,
       ),
       preview: PreviewServer(),
+      // the app's data folder is where the Linux environment keeps its workspace (`LinuxEnv.kt`: filesDir/workspace)
+      workspaceDirectory: workspaceDirectory ??
+          (LinuxEnvironment.supported ? Directory('${(supportDirectory ?? await getApplicationSupportDirectory()).path}/workspace') : null),
       errors: ErrorReporter(
         client: reportClient,
         prefs: await SharedPreferences.getInstance(),
@@ -491,6 +522,8 @@ class AppController extends ChangeNotifier {
     shell: _shellSettings,
     secrets: _shellSecretValues(),
     secretBook: secretBook(),
+    show: ShowSettings(enabled: settings.value.showEnabled, maxChars: settings.value.showMaxChars),
+    workspaceDirectory: workspaceDirectory,
     httpRequest: HttpRequestSettings(
       enabled: settings.value.httpRequestEnabled,
       confirm: settings.value.httpRequestConfirm,
@@ -858,6 +891,7 @@ class AppController extends ChangeNotifier {
     cloud.tokenPrecheck = s.tokenPrecheck;
     cloud.overheadRatio = s.tokenOverheadPercent / 100;
     preview.maxPages = s.previewMaxPages;
+    preview.maxFileBytes = s.showMaxFileMb * 1024 * 1024;
   }
 
   void _announceFallback(AiProvider from, AiProvider to, String reason) {

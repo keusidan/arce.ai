@@ -407,6 +407,25 @@ abstract final class AgentSettings {
       min: 0,
       max: 2000,
     ),
+    'showEnabled': SettingSpec(
+      key: 'showEnabled',
+      label: 'モデルが道具 show で、ページをチャットに出せるようにする',
+      kind: SettingKind.flag,
+    ),
+    'showMaxChars': SettingSpec(
+      key: 'showMaxChars',
+      label: 'show で一度に渡せるページ（HTML・SVG）の最大文字数',
+      kind: SettingKind.whole,
+      min: 1000,
+      max: 2000000,
+    ),
+    'showMaxFileMb': SettingSpec(
+      key: 'showMaxFileMb',
+      label: 'show で表示するフォルダから配るファイルの最大サイズ（MB）',
+      kind: SettingKind.whole,
+      min: 1,
+      max: 500,
+    ),
     'errorReportMinHours': SettingSpec(
       key: 'errorReportMinHours',
       label: 'エラー報告：同じ問題にコメントする間隔（時間）',
@@ -613,6 +632,8 @@ abstract final class AgentSettings {
     // a message must not switch off the question before a call that carries a secret, nor allow an unencrypted one
     'httpRequestConfirm',
     'httpRequestAllowInsecure',
+    // a page that opens by itself runs what a model wrote without a press of the button: not for a message to switch on
+    'autoShowPages',
     'linuxRootfsUrl',
     'linuxRootfsSha256',
     // where the names of the Linux environment are looked up: a chosen resolver can answer for any site

@@ -147,6 +147,8 @@ final List<SettingsSearchEntry> settingsIndex = [
   // ------------------------------------------------------------------ limits and timeouts
   _row(SettingsSection.limits, '添付できるファイルの数', subtitle: '1回のメッセージに付けられる数', keywords: ['attach', '添付', 'ファイル'], key: 'attachMaxFiles'),
   _row(SettingsSection.limits, 'ブラウザで開く試作ページを残す数', subtitle: '生成した HTML をブラウザで開く入口（アドレスは推測できない）。これを超えると古いものから消えます', keywords: ['preview', 'プレビュー', 'html', '試作', 'ページ'], key: 'previewMaxPages'),
+  _row(SettingsSection.limits, 'show で一度に渡せるページの文字数', subtitle: 'モデルが道具 show に HTML・SVG を直接渡すときの最大の長さ。これより長いページは、ファイルに書いて、パスで見せます', keywords: ['show', 'ページ', 'html', '文字数', '上限'], key: 'showMaxChars'),
+  _row(SettingsSection.limits, 'show で表示するフォルダから配るファイルの大きさ（MB）', subtitle: '/workspace のページの画像やスクリプトなどの 1 ファイルの上限。これを超えるファイルは配りません', keywords: ['show', 'ファイル', 'workspace', '上限', 'mb'], key: 'showMaxFileMb'),
   _row(SettingsSection.limits, '添付1ファイルから読む文字数', subtitle: 'これを超えた分は省略されます', keywords: ['attach', '添付', '文字数', 'ファイル'], key: 'attachCharsPerFile'),
   _row(SettingsSection.limits, '添付全体で読む文字数', subtitle: 'コンテキストを使い切らないための上限', keywords: ['attach', '添付', '文字数', 'コンテキスト'], key: 'attachTotalChars'),
   _row(SettingsSection.limits, '送る画像の大きさ', subtitle: '画像に対応するモデルへ送る1枚の上限', keywords: ['image', '画像', 'mb', 'サイズ'], key: 'attachImageMb'),
@@ -179,6 +181,8 @@ final List<SettingsSearchEntry> settingsIndex = [
   _row(SettingsSection.basic, '思考の内容を開いたまま表示', subtitle: 'オフにすると、思考が終わったあとは折りたたみます（見出しをタップで開け閉めできます）', keywords: ['thinking', '思考', '折りたたみ', '展開'], key: 'thinkingExpanded'),
   _row(SettingsSection.basic, '長いコードブロックを折りたたむ行数', subtitle: 'この行数より長いコードは、最初は折りたたみます（見出しをタップで開け閉めできます）。0 なら折りたたみません', keywords: ['code', 'コード', '折りたたみ', '行数', 'fold'], key: 'codeFoldLines'),
   _row(SettingsSection.basic, 'HTML・SVG をチャットの中で表示する高さ', subtitle: 'HTML と SVG のコードブロックに「表示」のボタンを出し、押すと、この高さでチャットの中に表示します。0 ならボタンを出しません', keywords: ['html', 'svg', 'preview', 'プレビュー', '表示', 'webview', 'ブラウザ', 'グラフィカル'], key: 'inlinePreviewHeight'),
+  _row(SettingsSection.basic, 'モデルが画面にページを出せるようにする（show）', subtitle: 'HTML・SVG・/workspace のファイル・Linux 環境のプログラムが出すページを、モデルがチャットの中のカードとして出します。ボタンを押すと開きます', keywords: ['show', '画面', 'ページ', 'html', 'ビューア', 'グラフィカル', 'ポート', 'port'], key: 'showEnabled'),
+  _row(SettingsSection.basic, 'ページを自動で開く', subtitle: 'ボタンを押さなくても、チャットの中のページを開きます。モデルが書いたページを、そのまま動かすので、オフのままをおすすめします（チャットからは変えられません）', keywords: ['auto', '自動', 'ページ', 'html', 'show', 'webview'], key: 'autoShowPages'),
   _row(SettingsSection.basic, 'タイトルをモデルに考えさせる', subtitle: 'オフにすると、最初の質問がそのままタイトルになります', keywords: ['title', 'タイトル', '履歴', '自動'], key: 'autoTitle'),
   _row(SettingsSection.basic, 'タイトルを考えるモデル', subtitle: '未選択なら、使用中のオンラインモデル（安いモデルにすると節約できます）', keywords: ['title', 'タイトル', 'モデル', '節約'], key: 'titleModel'),
   _row(SettingsSection.basic, 'タイトルの最大文字数', subtitle: '長いタイトルは、この長さで切ります', keywords: ['title', 'タイトル', '文字数'], key: 'titleMaxChars'),

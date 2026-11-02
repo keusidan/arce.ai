@@ -13,7 +13,7 @@
 ## ツール（`lib/core/protocol.dart`。定義の版 `Protocol.schemaVersion` は **7**）
 - `ask_user`、`web_search`、`get_weather`（Open-Meteo）、`get_time`（`timezone` パッケージ）、`get_settings`、`update_settings`、`add_provider`。
 - MCP のツール：`mcp_<サーバー id>__<ツール名>`。サーバーが多いときは、**必要なときだけ呼ぶ形**（`mcp_find`・`mcp_describe`・`mcp_call`。`integrations`）。
-- アプリ自身の道具（`McpTools` が実行する）：`run_command`・`shell_session`（Linux 環境。`linux_environment`）、`http_request`（`secrets`）、`ci_status`（GitHub Actions の読み取りだけ。`integrations`）。
+- アプリ自身の道具（`McpTools` が実行する）：`run_command`・`shell_session`（Linux 環境。`linux_environment`）、`http_request`（`secrets`）、`show`（ページをチャットのカードとして出す。`screens`。承認は要らない）、`ci_status`（GitHub Actions の読み取りだけ。`integrations`）。
 - **プロンプトの中の道具の定義**（`ChatMlPromptBuilder._appendTools`）：選べる値の一覧（`enum`）が **24 個より多いもの**（`update_settings` の設定名）は、プロンプトには書かず、短い注意（`longEnumNote`）を足す。モデルの出力を縛る文法（`Protocol.toolCallSchema`）と呼び出しの検査（`AgentSettings.normalize`）には、一覧を全部残すので、正しくない名前は受け付けない。設定名は `get_settings` が返す。端末のモデルは答えの前に指示を全部読むので、道具の定義が長いと最初の言葉までが遅い（8B の Q4 で、指示約 4,000 トークンのうち道具が約 3,400 トークンだったとき、4 分半たっても最初の言葉が出なかった。実機の報告）。
 - 検索の順：SearXNG のアドレス（入れていれば）→ 登録した検索 API（一覧の順、有効なもの）→ DuckDuckGo Instant Answer（`integrations`）。
 - 道具の定義・承認・実行は、1 つの `McpTools` から作る（定義を作る側と実行する側が別のインスタンスだと、設定やトークンが片方にしか渡らない）。

@@ -31,6 +31,7 @@
 - 外部 URL（`sources`）の一部は、この環境から開けず未確認。
 
 - チャットの中の HTML・SVG の表示（`screens`）：5 つの OS とも、WebView を入れてビルドできること（dry run で確認）。**実際に表示されるかは、どの OS でも未確認**。特に、Android（http の許可。`network_security_config.xml`）、Linux（WebKitGTK が無い環境で起動できるか）、Windows（WebView2 が無い PC）。
+- 道具 `show`：モデルが実際に呼ぶか、`/workspace` のページと proot のポートが、実機の WebView に出るか、proot の中のポートが 127.0.0.1 で見えるか（未確認）。
 - 端末のモデル（Qwen3-8B Q4_K_M）で、指示が約 4,000 トークンのとき、最初の言葉が出るまでの時間（実機の報告では 4 分半たっても出なかった）。読み込みの速さ（トークン/秒）は未測定。
 
 ## 未対応・今後

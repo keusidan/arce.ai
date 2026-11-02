@@ -540,7 +540,7 @@ class ChatController extends ChangeNotifier {
   /// this reply or an earlier one). Recomputed when a conversation is opened.
   bool _sawExternal = false;
 
-  static bool _isExternal(ToolCall call) => call is WebSearch || (call is McpCall && call.name != Protocol.runCommandName && call.name != Protocol.ciStatusName);
+  static bool _isExternal(ToolCall call) => call is WebSearch || (call is McpCall && call.name != Protocol.runCommandName && call.name != Protocol.ciStatusName && call.name != Protocol.showName);
 
   /// Whether the history holds the answer of an outside tool (a saved conversation that is opened again).
   static bool _historyHasExternal(Iterable<ChatMessage> history) {

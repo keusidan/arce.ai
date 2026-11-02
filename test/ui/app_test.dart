@@ -23,7 +23,7 @@ import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<AppController> makeApp(WidgetTester tester, {http.Client? reportClient, ReplyNotifier? notifier}) async {
+Future<AppController> makeApp(WidgetTester tester, {http.Client? reportClient, ReplyNotifier? notifier, Directory? workspace}) async {
   SharedPreferences.setMockInitialValues({
     // no network in tests: skip the automatic update check
     'settings.v1': '{"autoUpdateCheck":false,"autoCheckSelectedModel":false}',
@@ -38,6 +38,7 @@ Future<AppController> makeApp(WidgetTester tester, {http.Client? reportClient, R
       updateService: UpdateService(settings, currentVersion: const Version(0, 4, 0)),
       reportClient: reportClient,
       notifier: notifier,
+      workspaceDirectory: workspace,
     );
   });
   addTearDown(() async {

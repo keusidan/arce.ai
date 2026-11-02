@@ -11,6 +11,7 @@ import '../core/artifacts.dart';
 import '../core/chat_controller.dart';
 import '../core/generation.dart';
 import '../core/markdown_lite.dart';
+import '../core/page_blocks.dart';
 import '../core/protocol.dart';
 import '../core/safe_url.dart';
 import '../core/run_progress.dart';
@@ -348,20 +349,20 @@ class CodeCard extends StatefulWidget {
 class _CodeCardState extends State<CodeCard> {
   bool? _open;
 
-  /// The address of the page shown under the code (an HTML or SVG block, once "表示" is pressed).
+  /// The address of the page shown under the code (once "表示" is pressed, or by itself when the setting says so).
   Uri? _page;
+  bool _autoTried = false;
 
-  /// The page of an HTML block, or of an SVG block laid in a plain page. Null for any other block.
-  String? _html() {
+  /// The page this block stands for: an HTML or SVG block is one, and so is a block the tool `show` wrote
+  /// (`arce-view`). Null for any other block, and for an `arce-view` block that holds nothing allowed.
+  PageSource? _source() {
     final block = widget.block;
-    switch (block.language.toLowerCase()) {
-      case 'html':
-        return block.code;
-      case 'svg':
-        return '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<body style="margin:0;background:#fff;display:flex;justify-content:center">${block.code}</body>';
-    }
-    return null;
+    return switch (block.language.toLowerCase()) {
+      'html' => HtmlSource(block.code),
+      'svg' => SvgSource(block.code),
+      PageBlocks.language => PageBlocks.decode(block.code),
+      _ => null,
+    };
   }
 
   Future<void> _togglePage() async {
@@ -371,11 +372,21 @@ class _CodeCardState extends State<CodeCard> {
     }
     final app = ArceScope.of(context);
     try {
-      final uri = await app.preview.publish(_html()!);
+      final uri = await app.pageAddress(_source()!);
       if (mounted) setState(() => _page = uri);
     } catch (e) {
-      app.showToast('表示できませんでした');
+      app.showToast(e is String ? e : '表示できませんでした');
     }
+  }
+
+  /// With the setting 自動で開く on, a page opens once when it has been written in full.
+  void _openByItself(PageSource? source, int height) {
+    if (_autoTried || source == null || !widget.block.closed || height <= 0) return;
+    if (!(ArceScope.maybeOf(context)?.settings.value.autoShowPages ?? false)) return;
+    _autoTried = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _page == null) _togglePage();
+    });
   }
 
   int get _lines => '\n'.allMatches(widget.block.code).length + 1;
@@ -388,7 +399,11 @@ class _CodeCardState extends State<CodeCard> {
     final open = _open ?? (!block.closed || foldFrom <= 0 || _lines <= foldFrom);
     final isHtml = block.language.toLowerCase() == 'html';
     final pageHeight = ArceScope.maybeOf(context)?.settings.value.inlinePreviewHeight ?? 0;
-    final canShow = block.closed && _html() != null && pageHeight > 0;
+    final source = block.closed ? _source() : null;
+    // a block the tool `show` wrote is a card for the page, not code: its text is the address of the page
+    final isView = source != null && block.language.toLowerCase() == PageBlocks.language;
+    final canShow = source != null && pageHeight > 0;
+    _openByItself(source, pageHeight);
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10), border: Border.all(color: c.line)),
@@ -407,7 +422,7 @@ class _CodeCardState extends State<CodeCard> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      '${block.language.isEmpty ? 'code' : block.language}${open ? '' : '  ·  $_lines行'}',
+                      isView ? _describe(source) : '${block.language.isEmpty ? 'code' : block.language}${open ? '' : '  ·  $_lines行'}',
                       style: ts(context, 10, color: c.muted, weight: FontWeight.w600),
                     ),
                   ),
@@ -419,12 +434,14 @@ class _CodeCardState extends State<CodeCard> {
                   if (canShow) _MiniAction(label: _page == null ? '表示' : '閉じる', svg: ArceSvg.eye, onTap: _togglePage),
                   if (isHtml && block.closed)
                     _MiniAction(label: 'ブラウザ', svg: ArceSvg.eye, onTap: () => previewHtml(context, block.code)),
-                  _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, block.code)),
+                  if (isView && _page != null)
+                    _MiniAction(label: 'ブラウザ', svg: ArceSvg.eye, onTap: () => openUrl(_page.toString())),
+                  if (!isView) _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, block.code)),
                 ]),
               ),
             ),
           ),
-          if (open) ...[
+          if (open && !isView) ...[
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.all(10),
@@ -449,6 +466,17 @@ class _CodeCardState extends State<CodeCard> {
       ),
     );
   }
+}
+
+/// What a page is, in a few words, for the head of its card.
+String _describe(PageSource source) {
+  if (source.title.isNotEmpty) return source.title;
+  return switch (source) {
+    HtmlSource() => 'ページ（HTML）',
+    SvgSource() => '図（SVG）',
+    WorkspaceSource() => '/workspace/${source.path}',
+    PortSource() => '127.0.0.1:${source.port}${source.path}',
+  };
 }
 
 class _MiniAction extends StatelessWidget {

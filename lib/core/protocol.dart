@@ -449,6 +449,33 @@ abstract final class Protocol {
     ),
   );
 
+  /// The tool that puts a page on the user's screen, inside the chat (docs/screens, docs/shell_sessions).
+  static const showName = 'show';
+
+  static final show = ToolDefinition(
+    name: showName,
+    description:
+        'Show a page to the user inside the chat: a card with a button that opens it right there (it runs in a '
+        'sandbox). Give exactly one of: html (a whole page, with its style and script written in it), svg (a '
+        'picture), path (a file or a folder of /workspace in the Linux environment: .html, .svg or a picture, or a '
+        'folder that has an index.html; the style, script and pictures beside it are served too), or port (a program '
+        'of this device that serves a page on 127.0.0.1:port, 1024-65535, such as a web server or a viewer you '
+        'started with shell_session: a command of run_command ends when it returns, so what must keep running is '
+        'started with shell_session). url_path is the address below the port (default /). title names the card. '
+        'Use it to show what you made instead of asking the user to open it.',
+    parameters: _objectSchema(
+      required: [],
+      properties: {
+        'html': {'type': 'string'},
+        'svg': {'type': 'string'},
+        'path': {'type': 'string'},
+        'port': {'type': 'integer'},
+        'url_path': {'type': 'string'},
+        'title': {'type': 'string'},
+      },
+    ),
+  );
+
   /// A program that is talked to: it keeps running, asks for input, shows a screen. Starts under a pseudo
   /// terminal; the answer is always the terminal screen as text.
   static const shellSessionName = 'shell_session';
@@ -557,7 +584,7 @@ abstract final class Protocol {
 
   /// The tools that parse as an [McpCall]: the MCP servers' own, and the app's own two above.
   static bool isMcpLike(String name) =>
-      name.startsWith('mcp_') || name == runCommandName || name == ciStatusName || name == shellSessionName || name == httpRequestName;
+      name.startsWith('mcp_') || name == runCommandName || name == ciStatusName || name == shellSessionName || name == httpRequestName || name == showName;
 
   /// JSON Schema for the body of one `<tool_call>` block restricted to [tools]:
   /// `{"name": <one of the tools>, "arguments": <that tool's parameters>}`.
@@ -890,6 +917,7 @@ abstract final class ToolCallParser {
         if (name == Protocol.runCommandName) return _parseRunCommand(args);
         if (name == Protocol.shellSessionName) return _parseShellSession(args);
         if (name == Protocol.httpRequestName) return _parseHttpRequest(args);
+        if (name == Protocol.showName) return _parseShow(args);
         return ParseOk(McpCall(name, args.cast<String, Object?>()));
       }
       return ParseInvalid("tool '$name' has no handler");
@@ -976,6 +1004,25 @@ abstract final class ToolCallParser {
         if (secrets.isNotEmpty) 'secrets': secrets,
       }),
     );
+  }
+
+  /// `show`: one thing to show (a page, a picture, a file of the workspace or a port), with the title of its card.
+  static ParseResult _parseShow(Map<dynamic, dynamic> args) {
+    for (final key in const ['html', 'svg', 'path', 'url_path', 'title']) {
+      if (args[key] != null && args[key] is! String) throw _WrongType(key);
+    }
+    final port = args['port'];
+    if (port != null && (port is! num || port != port.toInt())) throw _WrongType('port');
+    final given = [for (final key in const ['html', 'svg', 'path', 'port']) if (args[key] != null) key];
+    if (given.length != 1) return const ParseInvalid('give exactly one of html, svg, path or port');
+    final title = (args['title'] as String? ?? '').trim();
+    final text = args[given.single];
+    if (text is String && text.trim().isEmpty) return ParseInvalid('${given.single} is blank');
+    return ParseOk(McpCall(Protocol.showName, {
+      given.single: port is num ? port.toInt() : text,
+      if (args['url_path'] is String && (args['url_path'] as String).trim().isNotEmpty) 'url_path': (args['url_path'] as String).trim(),
+      if (title.isNotEmpty) 'title': title,
+    }));
   }
 
   /// `http_request`: the method, the address, the headers and the body, checked here so that the card, the

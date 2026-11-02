@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Directory;
 
 import 'package:http/http.dart' as http;
 
@@ -15,6 +16,7 @@ import 'http_request_tool.dart';
 import 'mcp_client.dart';
 import 'mcp_server.dart';
 import 'placeholder_commands.dart';
+import 'show_tool.dart';
 
 /// One configured server together with the client that talks to it.
 class McpServerClient {
@@ -116,6 +118,9 @@ class McpTools {
     this.secretBook = const EmptySecretBook(),
     this.httpRequest = const HttpRequestSettings(),
     this.httpClient,
+    this.show = const ShowSettings(),
+    this.workspaceDirectory,
+    this.showProbe,
   })  : _cache = cache ?? {},
         _environment = environment ?? shellEnvironment,
         _shellSupported = shellSupported ?? LinuxEnvironment.supported,
@@ -129,6 +134,14 @@ class McpTools {
   /// What `http_request` reads from the settings, and the client it uses (a test gives its own).
   final HttpRequestSettings httpRequest;
   final http.Client? httpClient;
+
+  /// What `show` reads from the settings, the workspace folder it may show files of (null: none on this device), and
+  /// how a test answers "does anything listen on this port".
+  final ShowSettings show;
+  final Directory? workspaceDirectory;
+  final Future<bool> Function(int port)? showProbe;
+
+  ShowTool get _show => ShowTool(settings: show, workspace: workspaceDirectory, probe: showProbe);
 
   HttpRequestTool get _http => HttpRequestTool(book: secretBook, settings: httpRequest, client: httpClient);
 
@@ -211,6 +224,8 @@ class McpTools {
     }
     if (name == Protocol.shellSessionName) return _sessionNeedsApproval(arguments);
     if (name == Protocol.httpRequestName) return _http.needsApproval(arguments);
+    // show only puts a card in the reply: the page opens when the user presses its button
+    if (name == Protocol.showName) return false;
     final parsed = parseName(name);
     if (parsed == null) return false;
     final server = _serverById(parsed.$1);
@@ -345,6 +360,7 @@ class McpTools {
       if (shell.enabled && _shellSupported) _runCommandFor(shell, secrets.keys.toList(), _usableSecrets, httpRequest.enabled),
       if (shell.enabled && _shellSupported) _shellSessionFor(shell, _usableSecrets),
       ...[?_http.definition()],
+      ...[?_show.definition()],
       Protocol.ciStatus,
     ];
     final reachable = <(McpServerClient, List<McpTool>)>[];
@@ -430,6 +446,7 @@ class McpTools {
     if (call.name == Protocol.ciStatusName) return _runCiStatus(call.arguments);
     if (call.name == Protocol.shellSessionName && _shellSupported) return _runSession(call.arguments);
     if (call.name == Protocol.httpRequestName) return _http.run(call.arguments);
+    if (call.name == Protocol.showName) return _show.run(call.arguments);
     if (call.name == Protocol.mcpFindName) return _find(call.arguments);
     if (call.name == Protocol.mcpDescribeName) return _describeTool(call.arguments);
     if (call.name == Protocol.mcpCallName) {

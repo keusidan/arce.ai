@@ -96,6 +96,10 @@ class AppSettings {
     this.thinkingExpanded = true,
     this.codeFoldLines = 0,
     this.inlinePreviewHeight = 360,
+    this.showEnabled = true,
+    this.showMaxChars = 200000,
+    this.showMaxFileMb = 20,
+    this.autoShowPages = false,
     this.errorReportEnabled = true,
     this.errorReportRepo = defaultRepo,
     this.errorReportMinHours = 6,
@@ -317,6 +321,13 @@ class AppSettings {
 
   /// The height of the page an HTML or SVG code block shows inside the chat; 0 leaves out the button that shows it.
   final int inlinePreviewHeight;
+
+  /// The tool `show`, with which the model puts a page on the screen: offered or not, the longest page it may carry,
+  /// the largest file of a shown folder, and whether a page opens by itself (instead of by the button).
+  final bool showEnabled;
+  final int showMaxChars;
+  final int showMaxFileMb;
+  final bool autoShowPages;
 
   // ---- error reports: an error goes to a GitHub issue, with the user's own token ----
 
@@ -594,6 +605,10 @@ class AppSettings {
     bool? thinkingExpanded,
     int? codeFoldLines,
     int? inlinePreviewHeight,
+    bool? showEnabled,
+    int? showMaxChars,
+    int? showMaxFileMb,
+    bool? autoShowPages,
     bool? errorReportEnabled,
     String? errorReportRepo,
     int? errorReportMinHours,
@@ -728,6 +743,10 @@ class AppSettings {
     thinkingExpanded: thinkingExpanded ?? this.thinkingExpanded,
     codeFoldLines: codeFoldLines ?? this.codeFoldLines,
     inlinePreviewHeight: inlinePreviewHeight ?? this.inlinePreviewHeight,
+    showEnabled: showEnabled ?? this.showEnabled,
+    showMaxChars: showMaxChars ?? this.showMaxChars,
+    showMaxFileMb: showMaxFileMb ?? this.showMaxFileMb,
+    autoShowPages: autoShowPages ?? this.autoShowPages,
     errorReportEnabled: errorReportEnabled ?? this.errorReportEnabled,
     errorReportRepo: errorReportRepo ?? this.errorReportRepo,
     errorReportMinHours: errorReportMinHours ?? this.errorReportMinHours,
@@ -864,6 +883,10 @@ class AppSettings {
     'thinkingExpanded': thinkingExpanded,
     'codeFoldLines': codeFoldLines,
     'inlinePreviewHeight': inlinePreviewHeight,
+    'showEnabled': showEnabled,
+    'showMaxChars': showMaxChars,
+    'showMaxFileMb': showMaxFileMb,
+    'autoShowPages': autoShowPages,
     'errorReportEnabled': errorReportEnabled,
     'errorReportRepo': errorReportRepo,
     'errorReportMinHours': errorReportMinHours,
@@ -1030,6 +1053,10 @@ class AppSettings {
       thinkingExpanded: flag('thinkingExpanded', d.thinkingExpanded),
       codeFoldLines: whole('codeFoldLines', d.codeFoldLines).clamp(0, 1000),
       inlinePreviewHeight: whole('inlinePreviewHeight', d.inlinePreviewHeight).clamp(0, 2000),
+      showEnabled: flag('showEnabled', d.showEnabled),
+      showMaxChars: whole('showMaxChars', d.showMaxChars).clamp(1000, 2000000),
+      showMaxFileMb: whole('showMaxFileMb', d.showMaxFileMb).clamp(1, 500),
+      autoShowPages: flag('autoShowPages', d.autoShowPages),
       errorReportEnabled: flag('errorReportEnabled', d.errorReportEnabled),
       errorReportRepo: text('errorReportRepo', d.errorReportRepo).trim(),
       errorReportMinHours: whole('errorReportMinHours', d.errorReportMinHours).clamp(1, 168),
