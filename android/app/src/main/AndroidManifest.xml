@@ -12,6 +12,7 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:largeHeap="true">
 
         <!-- Vendor GPU/NPU libraries for llama.cpp OpenCL and LiteRT-LM; none is required to run. -->

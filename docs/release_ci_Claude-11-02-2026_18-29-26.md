@@ -75,8 +75,8 @@
 |---|---|
 | macOS | Apple Developer ID で署名・公証していないため、初回は右クリック → 開く、または「システム設定 → プライバシーとセキュリティ」で許可が要る。自己更新のため App Sandbox は切ってある。 |
 | iOS | 未署名の ipa。実機に入れるには、AltStore や Sideloadly などで自分の Apple ID で署名する。TestFlight / App Store 配布には Apple Developer Program（有料）が要る。 |
-| Windows | SmartScreen が「不明な発行元」と表示することがある（コード署名証明書が無いため）。 |
-| Linux | 実行には GTK 3 と libsecret（GNOME Keyring など）が要る。無い環境でも動くが、GitHub トークンは保存されない。 |
+| Windows | SmartScreen が「不明な発行元」と表示することがある（コード署名証明書が無いため）。チャットの中の HTML 表示は WebView2 を使う（Windows 11 と、Edge が入った Windows 10 には入っている。無いと「ブラウザで開く」になる）。ビルドでは、WebView2 の部品を NuGet から取る（`webview_all_windows` の CMake。`nuget.exe` は SHA-256 を確かめる）。 |
+| Linux | 実行には GTK 3 と libsecret（GNOME Keyring など）と **WebKitGTK 4.1**（Ubuntu・Debian は `libwebkit2gtk-4.1-0`、Arch は `webkit2gtk-4.1`）が要る。**WebKitGTK が無いと、アプリが起動しない可能性がある**（部品が起動時に読み込むため。未確認）。ビルドには `libwebkit2gtk-4.1-dev`。無い環境でも動くが、GitHub トークンは保存されない。 |
 | 推論 | Android 以外は推論エンジンが無い（デモ応答のみ）。 |
 | ランナー（macOS・iOS） | `release-macos.yml`・`release-ios.yml` は **`macos-15`**（GitHub の `macos-14` のイメージは 2026-11-02 に廃止された。予告の停止テスト「brownout」の間は、ジョブが開始 1 秒で取り消された。[runner-images の案内 13518](https://github.com/actions/runner-images/issues/13518)）。次にイメージが変わるときは、この表と、2 つの `runs-on` を見直す。 |
 
@@ -90,4 +90,4 @@ flutter build linux --release        # このPCのOS用（Linux のパッケー�
 
 - Android のビルドには `third_party/llama.cpp`（サブモジュール）と Android SDK / NDK 29.0.13113456 が必要。
 - `flutter pub get` を走らせると `pubspec.lock` が変わることがある。意図しない変更はコミットしない（`git checkout -- pubspec.lock`）。
-- Linux でビルド・画面確認するには `apt install clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev xvfb xdotool imagemagick fonts-noto-cjk`。画面は `xvfb-run` で起動し、`xdotool` で操作して `import -window root` で撮れる。
+- Linux でビルド・画面確認するには `apt install clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev libwebkit2gtk-4.1-dev xvfb xdotool imagemagick fonts-noto-cjk`。画面は `xvfb-run` で起動し、`xdotool` で操作して `import -window root` で撮れる。
