@@ -33,7 +33,7 @@ flutter analyze && flutter test
 flutter run -d linux      # windows / macos / android / ios も同様
 ```
 
-Flutter 3.47.6（Dart 3.13）で確認しています。Linux でビルドするには `clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev` が必要です。
+Flutter 3.47.6（Dart 3.13）で確認しています。Linux でビルドするには `clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev libwebkit2gtk-4.1-dev` が必要です（チャットの中の HTML 表示に使う WebKitGTK。実行するときは `libwebkit2gtk-4.1-0`）。
 Android のビルドには Android SDK と NDK 29.0.13113456、CMake 3.22.1 が必要です（`android/app/build.gradle.kts`）。
 
 ## 構成
