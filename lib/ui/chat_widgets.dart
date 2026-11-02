@@ -134,12 +134,33 @@ class MessageView extends StatelessWidget {
 
 /// A reply written in Markdown: headings, bold / italic / strike / `code`, links, lists, quotes,
 /// rules, tables and code blocks (see [MarkdownLite] for what is read).
-class RichReply extends StatelessWidget {
+class RichReply extends StatefulWidget {
   const RichReply({super.key, required this.text});
   final String text;
 
   @override
-  Widget build(BuildContext context) => MarkdownBlocks(blocks: MarkdownLite.parse(text));
+  State<RichReply> createState() => _RichReplyState();
+}
+
+class _RichReplyState extends State<RichReply> {
+  /// The parse of [RichReply.text]. The reply is built again whenever a piece arrives (or the theme
+  /// changes), but the Markdown is read again only when the text it is made from changed.
+  late List<Block> _blocks;
+
+  @override
+  void initState() {
+    super.initState();
+    _blocks = MarkdownLite.parse(widget.text);
+  }
+
+  @override
+  void didUpdateWidget(RichReply old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) _blocks = MarkdownLite.parse(widget.text);
+  }
+
+  @override
+  Widget build(BuildContext context) => MarkdownBlocks(blocks: _blocks);
 }
 
 /// Blocks one under another. A heading has more room above it than the other blocks.

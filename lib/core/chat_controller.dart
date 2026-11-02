@@ -498,6 +498,12 @@ class ChatController extends ChangeNotifier {
   /// How many identical tool calls in a row count as a loop.
   static const repeatToolLimit = 3;
 
+  /// How often the screen is given a new state while text streams in, in milliseconds. A model sends
+  /// several pieces between two frames; telling the screen about each one rebuilt the reply more
+  /// often than it can be drawn, and the whole conversation with it. 50 ms still shows twenty
+  /// updates a second, which reads as writing; a change of step and the end of a round are sent at once.
+  static const _streamUpdateMs = 50;
+
   final InferenceEngine _engine;
   final ToolRuntime _toolRuntime;
   final StopSignal _stopSignal;
@@ -1409,14 +1415,24 @@ class ChatController extends ChangeNotifier {
     final task = GenerationTask();
     final segmenter = StreamSegmenter();
     var reason = FinishReason.error;
-    var thinkingText = '';
-    var answer = prefill;
+    // The text of this round, appended to as it arrives: a String is copied on every `+=`, which made
+    // a long reply quadratic in its own length.
+    final thinking = StringBuffer();
+    final answer = StringBuffer(prefill);
     String? toolCallJson;
     // how long the model thinks: counted from its first thinking text to its first word of the reply
     // (or the end), and added to what earlier rounds of this reply already thought
     final earlierThinkingMs = _state.messages.where((m) => m.id == id).firstOrNull?.thinkingMs ?? 0;
     var thoughtMs = 0;
     DateTime? thinkingSince;
+
+    // What the screen has not been told yet, and the step to tell it with. The state is pushed at most
+    // every [_streamUpdateMs] while pieces stream in, and at once when the step changes or the round ends.
+    var stage = '';
+    var thinkingStage = false;
+    final clock = Stopwatch()..start();
+    var lastFlushMs = -_streamUpdateMs;
+    var dirty = false;
 
     void endThinking() {
       final since = thinkingSince;
@@ -1425,42 +1441,84 @@ class ChatController extends ChangeNotifier {
       thinkingSince = null;
     }
 
+    void flush({bool force = false}) {
+      if (!dirty) return;
+      final now = clock.elapsedMilliseconds;
+      if (!force && now - lastFlushMs < _streamUpdateMs) return;
+      dirty = false;
+      lastFlushMs = now;
+      final thought = thinking.toString();
+      final text = _join(earlierText, answer.toString());
+      final shownThinking = _join(earlierThinking, thought);
+      final thinkingMs = earlierThinkingMs + thoughtMs;
+      final since = thinkingSince?.millisecondsSinceEpoch ?? 0;
+      // the line under the step is read now, not for every piece: it looks at the end of the thought
+      meter.stage(stage, detail: thinkingStage ? ThinkingHeadline.of(thought) : '');
+      _update(
+        (s) => s.copyWith(
+          task: task.state,
+          messages: [
+            for (final m in s.messages)
+              m.id == id
+                  ? m.copyWith(
+                      text: text,
+                      thinking: shownThinking,
+                      thinkingMs: thinkingMs,
+                      thinkingSince: since,
+                    )
+                  : m,
+          ],
+        ),
+      );
+    }
+
     void consume(List<StreamEvent> events) {
       for (final event in events) {
         switch (event) {
           case ThinkingText(:final text):
-            thinkingText += text;
+            final began = thinkingSince == null;
+            thinking.write(text);
             thinkingSince ??= DateTime.now();
             task.moveTo(TaskState.thinking);
-            meter.stage('$actorが考えています', detail: ThinkingHeadline.of(thinkingText));
+            stage = '$actorが考えています';
+            thinkingStage = true;
+            dirty = true;
+            // the seconds the screen counts start now: tell it at once, not on the next tick
+            if (began) flush(force: true);
           case PlainText(:final text):
+            final wasThinking = thinkingSince != null;
+            // tell the last headline of the thought before the step changes (and clears it)
+            if (wasThinking) flush(force: true);
             endThinking();
-            answer += text;
+            answer.write(text);
+            final moved = task.state != TaskState.generation;
             task.moveTo(TaskState.generation);
-            meter.stage('$actorが回答を書いています');
+            stage = '$actorが回答を書いています';
+            thinkingStage = false;
+            dirty = true;
+            if (wasThinking || moved) flush(force: true);
           case ToolCallEnd(:final json):
             // one call is run per round; of several calls in one reply (parallel calls) the first is the one
             toolCallJson ??= json;
           case ToolCallStart() || ToolCallDelta():
+            final wasThinking = thinkingSince != null;
+            if (wasThinking) flush(force: true);
             endThinking();
+            final moved = task.state != TaskState.generation;
             task.moveTo(TaskState.generation);
-            meter.stage('$actorが道具の呼び出しを書いています');
+            stage = '$actorが道具の呼び出しを書いています';
+            thinkingStage = false;
+            dirty = true;
+            if (moved) flush(force: true);
         }
       }
-      _replace(
-        id,
-        (m) => m.copyWith(
-          text: _join(earlierText, answer),
-          thinking: _join(earlierThinking, thinkingText),
-          thinkingMs: earlierThinkingMs + thoughtMs,
-          thinkingSince: thinkingSince?.millisecondsSinceEpoch ?? 0,
-        ),
-      );
-      _update((s) => s.copyWith(task: task.state));
+      flush();
     }
 
     // stopped before this request could start: it is not sent
-    if (_stopRequested) return _Attempt(FinishReason.cancelled, thinkingText, answer, null, false);
+    if (_stopRequested) {
+      return _Attempt(FinishReason.cancelled, thinking.toString(), answer.toString(), null, false);
+    }
     _update(
       (s) => s.copyWith(
         task: request.thinking ? TaskState.thinking : TaskState.generation,
@@ -1480,17 +1538,19 @@ class ChatController extends ChangeNotifier {
         }
       }
       consume(segmenter.finish());
+      flush(force: true);
     } finally {
       // a reply that was only thinking (or stopped or failed while thinking) still ends its thinking
       if (thinkingSince != null) {
         endThinking();
-        _replace(id, (m) => m.copyWith(thinkingMs: earlierThinkingMs + thoughtMs, thinkingSince: 0));
+        dirty = true;
       }
+      flush(force: true);
     }
     return _Attempt(
       reason,
-      thinkingText,
-      answer,
+      thinking.toString(),
+      answer.toString(),
       toolCallJson,
       segmenter.isInsideToolCall,
     );
