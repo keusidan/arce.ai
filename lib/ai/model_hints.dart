@@ -82,7 +82,8 @@ abstract final class ModelHints {
   /// The `max_tokens` to send.
   ///
   /// The model's own setting wins. Next, a length the user set in the settings ([requested]);
-  /// otherwise the maker's recommendation, then [requested] (the app's default). The result never
+  /// otherwise the maker's recommendation, then (with [useModelMax]) the model's own largest reply
+  /// ([maxOutput], read from the provider's list), then [requested] (the app's one default for all). The result never
   /// exceeds the model's largest reply ([maxOutput]) or what is left of its [context] after the
   /// prompt ([promptTokens]): a provider refuses a request that does not fit.
   static int resolveMaxTokens({
@@ -93,8 +94,10 @@ abstract final class ModelHints {
     required int? maxOutput,
     required int? context,
     required int promptTokens,
+    bool useModelMax = false,
   }) {
-    var tokens = modelSetting ?? (requestedIsUserSet ? requested : (hint?.maxTokens ?? requested));
+    final own = useModelMax && maxOutput != null && maxOutput > 0 ? maxOutput : null;
+    var tokens = modelSetting ?? (requestedIsUserSet ? requested : (hint?.maxTokens ?? own ?? requested));
     if (maxOutput != null && maxOutput > 0 && tokens > maxOutput) tokens = maxOutput;
     final window = context ?? hint?.contextTokens;
     if (window != null && window > 0) {

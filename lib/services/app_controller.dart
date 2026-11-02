@@ -817,7 +817,12 @@ class AppController extends ChangeNotifier {
     try {
       final provider = providers.build(config, model: model);
       if (provider is! OpenAiCompatibleProvider) return;
-      final found = await modelInfo.fetchFor(provider, model, useHub: settings.value.fetchModelInfoFromHub);
+      List<ModelInfo>? read;
+      // the list the availability check reads is the same one (a Gemini key's own list has the limits): read once
+      final found = await modelInfo.fetchFor(provider, model, useHub: settings.value.fetchModelInfoFromHub, readList: () async {
+        read = await _readKeyModels(config);
+        return read;
+      });
       if (jsonEncode(found.toJson()) == jsonEncode(model.toJson())) return;
       // the provider may have changed while it was being asked
       final current = providers.byId(config.id);
@@ -825,6 +830,9 @@ class AppController extends ChangeNotifier {
       await providers.save(
         current.copyWith(models: [for (final m in current.models) m.id == found.id ? m.mergeInfo(ModelInfo(found.id, contextTokens: found.contextTokens, maxOutputTokens: found.maxOutputTokens, vision: found.vision)) : m]),
       );
+      // saving the provider dropped the lists read for it, but only the limits of a model changed: the list is still the key's
+      final kept = read;
+      if (kept != null) _keyModels[config.id] = kept;
     } catch (e) {
       debugPrint('could not look up ${model.id}: $e');
     }
@@ -979,10 +987,22 @@ class AppController extends ChangeNotifier {
     }
     final provider = providers.build(config);
     if (provider is! OpenAiCompatibleProvider) return null;
-    final list = await provider.fetchKeyModels();
-    _keyModels[config.id] = list;
-    return list;
+    // a read that is under way is the one a second caller waits for (the limits of the model in use and the
+    // check of the models both ask for it when a provider is chosen)
+    final running = _keyModelReads[config.id];
+    if (!refresh && running != null) return running;
+    final read = provider.fetchKeyModels();
+    _keyModelReads[config.id] = read;
+    try {
+      final list = await read;
+      _keyModels[config.id] = list;
+      return list;
+    } finally {
+      if (identical(_keyModelReads[config.id], read)) _keyModelReads.remove(config.id);
+    }
   }
+
+  final _keyModelReads = <String, Future<List<ModelInfo>>>{};
 
   /// Finds out whether this key can use each of [ids] of provider [providerId], and says it model by model
   /// (model id -> a line; the entry '' is a problem with the key or the address, said once).

@@ -365,6 +365,8 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// The models the endpoint offers, with whatever it says about each one's limits and abilities
   /// (see [ModelInfoParser] for the fields that are read). Sorted by id.
   Future<List<ModelInfo>> fetchModelInfos() async {
+    // Gemini's OpenAI-style list has only ids; its own list has each model's token limits
+    if (GeminiModels.isGemini(baseUrl)) return _fetchGeminiModels();
     final response = await _client
         .get(
           _uri('models'),
@@ -384,8 +386,9 @@ class OpenAiCompatibleProvider implements AiProvider {
   /// The models this key can see, to judge a model without asking it (see `ModelListCheck`). For Gemini's
   /// endpoint it is Gemini's own list (`models.list`, which says which methods each model supports, with the
   /// key in the `x-goog-api-key` header), read page by page; for any other it is the OpenAI-style list.
-  Future<List<ModelInfo>> fetchKeyModels() async {
-    if (!GeminiModels.isGemini(baseUrl)) return fetchModelInfos();
+  Future<List<ModelInfo>> fetchKeyModels() => fetchModelInfos();
+
+  Future<List<ModelInfo>> _fetchGeminiModels() async {
     final all = <ModelInfo>[];
     String? token;
     // pageSize is 1000: a second page is rare, and a loop that never ends is worse than a short list

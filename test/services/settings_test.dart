@@ -313,6 +313,14 @@ void main() {
     expect(const AppSettings(onlineMaxTokens: 9000).toGeneration(null, cloud: true).userMaxTokens, 9000);
     expect(const AppSettings(localMaxTokens: 500).toGeneration(null).userMaxTokens, 500);
     expect(const AppSettings(onlineMaxTokens: 9000).toGeneration(null).userMaxTokens, isNull, reason: 'the online setting never reaches the device model');
+
+    // each online model's own largest reply is the default; the device model never takes it
+    expect(d.onlineUseModelMax, isTrue);
+    expect(d.toGeneration(null, cloud: true).useModelMax, isTrue);
+    expect(d.toGeneration(null).useModelMax, isFalse);
+    expect(const AppSettings(onlineUseModelMax: false).toGeneration(null, cloud: true).useModelMax, isFalse);
+    expect(AppSettings.fromJson(const AppSettings(onlineUseModelMax: false).toJson()).onlineUseModelMax, isFalse);
+    expect(AgentSettings.isEditable('onlineUseModelMax'), isTrue, reason: 'the chat may change it, like the other lengths');
   });
 
   test('threads and GPU layers follow HyperLoad and the offload setting', () {

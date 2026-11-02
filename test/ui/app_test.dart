@@ -15,6 +15,7 @@ import 'package:arce_ai/app.dart';
 import 'package:arce_ai/ui/chat_widgets.dart' show PromptTokenLine;
 import 'package:arce_ai/ui/provider_widgets.dart';
 import 'package:arce_ai/ui/theme.dart';
+import 'package:arce_ai/ui/thinking_sheet.dart';
 import 'package:arce_ai/ui/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -479,7 +480,9 @@ void main() {
 
     await tester.tap(find.text('思考'));
     await tester.pumpAndSettle();
-    expect(find.byType(Slider), findsOneWidget);
+    // one in the menu, and the chat's own beside the button (the same setting)
+    expect(find.byType(Slider), findsNWidgets(2));
+    expect(find.descendant(of: find.byType(ThinkingSheet), matching: find.byType(Slider)), findsOneWidget);
     expect(app.settings.value.thinkingExpanded, isTrue);
     await tester.tap(find.byType(ArceSwitch).last, warnIfMissed: false);
     await tester.pumpAndSettle();

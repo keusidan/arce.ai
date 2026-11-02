@@ -42,6 +42,7 @@ void main() {
       int? maxOutput,
       int? context,
       int prompt = 1000,
+      bool useModelMax = false,
     }) => ModelHints.resolveMaxTokens(
       modelSetting: model,
       requestedIsUserSet: userSet,
@@ -50,6 +51,7 @@ void main() {
       maxOutput: maxOutput,
       context: context,
       promptTokens: prompt,
+      useModelMax: useModelMax,
     );
     final hint = ModelHints.of('deepseek-v4-flash');
 
@@ -58,6 +60,20 @@ void main() {
       expect(resolve(userSet: true, requested: 3000, hint: hint), 3000, reason: 'the user set it in the settings');
       expect(resolve(requested: 2048, hint: hint), 262144, reason: '2048 is only the app default, so the recommendation wins');
       expect(resolve(requested: 2048), 2048, reason: 'a model without a recommendation keeps the default');
+    });
+
+    test('何も決めていないとき、モデルごとの最大出力を使う（Gemini の無料枠のモデルも、共通の 2048 に縛らない）', () {
+      expect(resolve(requested: 2048, maxOutput: 65536, useModelMax: true), 65536);
+      expect(resolve(requested: 2048, maxOutput: 8192, useModelMax: true), 8192, reason: 'each model its own');
+      expect(resolve(requested: 2048, maxOutput: 65536), 2048, reason: 'switched off: the shared default as before');
+      expect(resolve(requested: 2048, useModelMax: true), 2048, reason: 'the maximum is not known: the shared default');
+      // what the user or the model's own setting says still wins
+      expect(resolve(model: 4000, maxOutput: 65536, useModelMax: true), 4000);
+      expect(resolve(userSet: true, requested: 3000, maxOutput: 65536, useModelMax: true), 3000);
+      // the maker's card is the next, and it too is cut to what the model can return
+      expect(resolve(hint: hint, maxOutput: 100000, useModelMax: true), 100000);
+      // and a long prompt still takes its room out of the window
+      expect(resolve(requested: 2048, maxOutput: 65536, context: 32768, prompt: 30000, useModelMax: true), 32768 - 30000 - 512);
     });
 
     test('モデルが返せる最大より大きくしない', () {

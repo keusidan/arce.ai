@@ -73,13 +73,16 @@ class SamplingParams {
 /// so the engine needs this to tell "the user chose it" from "nobody chose it" (the maker's
 /// recommendation applies to the second only).
 class UserSampling {
-  const UserSampling({this.temperature, this.topP, this.maxTokens, this.speedAccuracy = 0.5});
+  const UserSampling({this.temperature, this.topP, this.maxTokens, this.speedAccuracy = 0.5, this.useModelMax = false});
 
   final double? temperature;
   final double? topP;
 
   /// The reply length the user set, before "速度と精度" scaled it into [GenerateRequest.maxTokens].
   final int? maxTokens;
+
+  /// With no [maxTokens] set, ask for the model's own largest reply when it is known (online models).
+  final bool useModelMax;
 
   /// The 速度⇔精度 slider (0 fast … 1 accurate), which also sets how hard a reasoning model thinks.
   final double speedAccuracy;

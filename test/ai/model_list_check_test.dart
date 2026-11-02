@@ -100,6 +100,32 @@ void main() {
       expect(models.firstWhere((m) => m.id == 'gemini-2.5-pro').contextTokens, 1048576);
     });
 
+    test('the list that gives a model its limits is Gemini\'s own too: the OpenAI-style one has only ids', () async {
+      late http.Request seen;
+      final provider = OpenAiCompatibleProvider(
+        id: 'g',
+        label: 'Gemini',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        model: 'gemini-2.5-flash',
+        apiKey: 'AIza-key',
+        client: MockClient((request) async {
+          seen = request;
+          return http.Response(
+            jsonEncode({
+              'models': [
+                {'name': 'models/gemini-2.5-flash', 'inputTokenLimit': 1048576, 'outputTokenLimit': 65536, 'supportedGenerationMethods': ['generateContent']},
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+      final infos = await provider.fetchModelInfos();
+      expect(seen.url.path, '/v1beta/models');
+      final flash = infos.single;
+      expect((flash.id, flash.contextTokens, flash.maxOutputTokens), ('gemini-2.5-flash', 1048576, 65536));
+    });
+
     test('any other endpoint reads the OpenAI-style list, with the bearer key', () async {
       late http.Request seen;
       final provider = OpenAiCompatibleProvider(

@@ -110,6 +110,7 @@ class CloudEngine implements InferenceEngine {
         hint: hint,
         maxOutput: model?.maxOutputTokens,
         context: model?.contextTokens,
+        useModelMax: request.user.useModelMax,
         promptTokens: ModelHints.estimateTokens(
           [for (final m in allMessages) m.text].join('\n') + [for (final t in request.tools) '${t.name}${t.description}${t.parameters}'].join(),
         ),

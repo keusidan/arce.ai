@@ -60,6 +60,7 @@ class AppSettings {
     this.onlineTemperature = -1,
     this.onlineTopP = -1,
     this.onlineMaxTokens = 0,
+    this.onlineUseModelMax = true,
     this.onlinePrompt = '',
     this.codingPlanEnabled = false,
     this.plannerModel = '',
@@ -214,6 +215,10 @@ class AppSettings {
   final double onlineTemperature;
   final double onlineTopP;
   final int onlineMaxTokens;
+
+  /// With no length set, an online model's reply may be as long as that model's own largest reply (read from
+  /// the provider's list) instead of the one shared default.
+  final bool onlineUseModelMax;
   final String onlinePrompt;
 
   // ---- coding mode: a design model and a developer model share the work ----
@@ -549,6 +554,7 @@ class AppSettings {
     double? onlineTemperature,
     double? onlineTopP,
     int? onlineMaxTokens,
+    bool? onlineUseModelMax,
     String? onlinePrompt,
     bool? codingPlanEnabled,
     String? plannerModel,
@@ -681,6 +687,7 @@ class AppSettings {
     onlineTemperature: onlineTemperature ?? this.onlineTemperature,
     onlineTopP: onlineTopP ?? this.onlineTopP,
     onlineMaxTokens: onlineMaxTokens ?? this.onlineMaxTokens,
+    onlineUseModelMax: onlineUseModelMax ?? this.onlineUseModelMax,
     onlinePrompt: onlinePrompt ?? this.onlinePrompt,
     codingPlanEnabled: codingPlanEnabled ?? this.codingPlanEnabled,
     plannerModel: plannerModel ?? this.plannerModel,
@@ -815,6 +822,7 @@ class AppSettings {
     'onlineTemperature': onlineTemperature,
     'onlineTopP': onlineTopP,
     'onlineMaxTokens': onlineMaxTokens,
+    'onlineUseModelMax': onlineUseModelMax,
     'onlinePrompt': onlinePrompt,
     'codingPlanEnabled': codingPlanEnabled,
     'plannerModel': plannerModel,
@@ -975,6 +983,7 @@ class AppSettings {
       onlineTemperature: decimal('onlineTemperature', d.onlineTemperature),
       onlineTopP: decimal('onlineTopP', d.onlineTopP),
       onlineMaxTokens: whole('onlineMaxTokens', d.onlineMaxTokens),
+      onlineUseModelMax: flag('onlineUseModelMax', d.onlineUseModelMax),
       onlinePrompt: text('onlinePrompt', d.onlinePrompt),
       codingPlanEnabled: flag('codingPlanEnabled', d.codingPlanEnabled),
       plannerModel: text('plannerModel', d.plannerModel),
@@ -1125,6 +1134,7 @@ class AppSettings {
     extraPrompt: (cloud ? onlinePrompt : localPrompt).trim(),
     dryMultiplier: cloud ? null : _set(localDryMultiplier),
     userMaxTokens: (cloud ? onlineMaxTokens : localMaxTokens) > 0 ? (cloud ? onlineMaxTokens : localMaxTokens) : null,
+    useModelMax: cloud && onlineUseModelMax,
     toolRepeatLimit: toolRepeatLimit.clamp(2, 10),
     compaction: CompactionSettings(
       enabled: compactEnabled,

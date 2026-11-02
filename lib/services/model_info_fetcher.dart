@@ -61,12 +61,18 @@ class ModelInfoFetcher {
     return result;
   }
 
-  /// Reads the provider's list and enriches [model] from it (and the Hub). Errors are not
+  /// Reads the provider's list (or takes it from [readList], which may have it already) and enriches [model] from it (and the Hub). Errors are not
   /// thrown: a provider that does not list its models (or a missing key) just yields no news.
-  Future<ModelConfig> fetchFor(OpenAiCompatibleProvider provider, ModelConfig model, {required bool useHub, bool overwrite = false}) async {
+  Future<ModelConfig> fetchFor(
+    OpenAiCompatibleProvider provider,
+    ModelConfig model, {
+    required bool useHub,
+    bool overwrite = false,
+    Future<List<ModelInfo>?> Function()? readList,
+  }) async {
     List<ModelInfo> listed = const [];
     try {
-      listed = await provider.fetchModelInfos();
+      listed = await readList?.call() ?? await provider.fetchModelInfos();
     } catch (e) {
       debugPrint('could not read the model list of ${provider.label}: $e');
     }

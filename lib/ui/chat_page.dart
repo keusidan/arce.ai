@@ -14,6 +14,7 @@ import 'app_scope.dart';
 import 'chat_widgets.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
+import 'thinking_level_slider.dart';
 import 'thinking_sheet.dart';
 import 'widgets.dart';
 
@@ -282,6 +283,7 @@ class _ChatPageState extends State<ChatPage> {
                 tooltip: '思考の量・送り方・表示',
                 onTap: () => showThinkingSheet(context, app),
               ),
+              ThinkingLevelSlider(app: app),
               _ToolButton(
                 svg: ArceSvg.search,
                 label: '検索',

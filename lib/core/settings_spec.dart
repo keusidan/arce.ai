@@ -185,6 +185,11 @@ abstract final class AgentSettings {
       min: 0,
       max: 1048576,
     ),
+    'onlineUseModelMax': SettingSpec(
+      key: 'onlineUseModelMax',
+      label: 'オンライン: 最大トークンが 0 のとき、モデルごとの最大出力にする',
+      kind: SettingKind.flag,
+    ),
     'onlinePrompt': SettingSpec(
       key: 'onlinePrompt',
       label: 'オンライン: 追加プロンプト',

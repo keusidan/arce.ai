@@ -256,6 +256,7 @@ class GenerationSettings {
     this.minP,
     this.dryMultiplier,
     this.userMaxTokens,
+    this.useModelMax = false,
     this.extraPrompt = '',
     this.toolRepeatLimit = ChatController.repeatToolLimit,
     this.attachments = const AttachmentLimits(),
@@ -277,6 +278,9 @@ class GenerationSettings {
   /// The reply length the user set for the model that answers (null: they set none, so the shared
   /// default is in [maxTokens]).
   final int? userMaxTokens;
+
+  /// Online: with no length set by the user, ask for the model's own largest reply (when it is known).
+  final bool useModelMax;
 
   /// How many identical tool calls in a row count as a loop.
   final int toolRepeatLimit;
@@ -1059,7 +1063,7 @@ class ChatController extends ChangeNotifier {
           for (final turn in _history)
             if (turn is AssistantTurn) turn.reasoning ?? '',
         ],
-        user: UserSampling(temperature: config.temperature, topP: config.topP, maxTokens: config.userMaxTokens, speedAccuracy: config.speedAccuracy),
+        user: UserSampling(temperature: config.temperature, topP: config.topP, maxTokens: config.userMaxTokens, speedAccuracy: config.speedAccuracy, useModelMax: config.useModelMax),
         thinking: thinking,
         maxTokens: config.effectiveMaxTokens(),
         sampling: config.applyTo(

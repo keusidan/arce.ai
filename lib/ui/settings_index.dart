@@ -85,6 +85,7 @@ final List<SettingsSearchEntry> settingsIndex = [
   _row(SettingsSection.online, 'temperature', subtitle: '大きいほど表現がばらつきます（0〜2）', keywords: ['温度', '創造性', 'ランダム', 'online', 'オンライン'], key: 'onlineTemperature'),
   _row(SettingsSection.online, 'top_p', subtitle: '選ぶ言葉の範囲（0〜1）', keywords: ['top p', 'nucleus', 'online', 'オンライン'], key: 'onlineTopP'),
   _row(SettingsSection.online, '最大トークン', subtitle: '1回の返信の長さの基準（思考の分も含みます）。空欄は、モデルの推奨か共通の値', keywords: ['max tokens', 'max_tokens', '返信の長さ', 'online', 'オンライン'], key: 'onlineMaxTokens'),
+  _row(SettingsSection.online, 'モデルごとの最大出力を使う', subtitle: '最大トークンが空欄のとき、そのモデルが返せる最大の長さ（提供元の一覧から取得）で頼みます。取得できなければ共通の値です', keywords: ['max output', '最大出力', 'モデルごと', 'gemini', 'トークン', 'online', 'オンライン'], key: 'onlineUseModelMax'),
   _row(SettingsSection.online, '追加プロンプト', subtitle: 'オンラインのモデルにだけ送る指示（2000文字まで）', keywords: ['prompt', 'system prompt', '指示', 'プロンプト', 'online', 'オンライン'], key: 'onlinePrompt'),
   _row(SettingsSection.online, 'モデルの上限を自動で調べる', subtitle: '使い始めたモデルのコンテキスト長・最大出力・画像対応を、提供元のモデル一覧から調べて保存します', keywords: ['model info', 'コンテキスト', '文脈', '上限', '自動'], key: 'autoFetchModelInfo'),
   _row(SettingsSection.online, 'Hugging Face からも調べる', subtitle: '提供元が上限を返さないとき、モデル名（owner/name）だけを huggingface.co に送って、コンテキスト長を読みます', keywords: ['huggingface', 'hf', 'コンテキスト', 'プライバシー'], key: 'fetchModelInfoFromHub'),

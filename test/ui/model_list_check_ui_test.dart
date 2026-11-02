@@ -64,6 +64,20 @@ Future<AppController> appWith(WidgetTester tester, FakeGemini fake, {bool asks =
 }
 
 void main() {
+  testWidgets('choosing a Gemini model reads its limits from the key\'s own list (once, for the limits and the check together)', (tester) async {
+    final fake = FakeGemini(list: [
+      {'name': 'models/gemini-2.5-flash', 'inputTokenLimit': 1048576, 'outputTokenLimit': 65536, 'supportedGenerationMethods': ['generateContent']},
+    ]);
+    final app = await appWith(tester, fake);
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 300)); // the limits are looked up when the provider is chosen
+      await app.checkModels('gem', ['gemini-2.5-flash']);
+    });
+    final model = app.providers.byId('gem')!.models.firstWhere((m) => m.id == 'gemini-2.5-flash');
+    expect((model.contextTokens, model.maxOutputTokens), (1048576, 65536), reason: 'the limits the app asks for with no length set');
+    expect(fake.listRequests, hasLength(1));
+  });
+
   testWidgets('the key\'s list decides: a model that is not in it, or does no chat, is marked; a listed one is not; no chat request was sent', (tester) async {
     final fake = FakeGemini(list: [entry('gemini-2.5-flash'), entry('gemini-2.5-pro'), entry('text-embedding-004', methods: ['embedContent'])]);
     final app = await appWith(tester, fake);

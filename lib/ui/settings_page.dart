@@ -1110,6 +1110,12 @@ class _SettingsPageState extends State<SettingsPage> {
           max: 1048576,
           onChanged: (v) => set((x) => x.copyWith(onlineMaxTokens: v)),
         ),
+        SettingRow(
+          icon: ArceSvg.file,
+          title: 'モデルごとの最大出力を使う',
+          subtitle: '最大トークンが空欄のとき、そのモデルが返せる最大の長さ（提供元の一覧から取得）で頼みます。取得できなければ共通の値です',
+          trailing: ArceSwitch(value: s.onlineUseModelMax, onChanged: (v) => set((x) => x.copyWith(onlineUseModelMax: v))),
+        ),
         _TextRow(
           icon: ArceSvg.chat,
           title: '追加プロンプト',

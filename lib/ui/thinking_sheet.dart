@@ -52,7 +52,10 @@ class ThinkingSheet extends StatelessWidget {
       };
 
   /// Saves [thinking] as the thinking settings of the model in use.
-  Future<void> _save(ProviderConfig provider, ModelConfig model, ThinkingConfig thinking) {
+  Future<void> _save(ProviderConfig provider, ModelConfig model, ThinkingConfig thinking) => saveThinking(app, provider, model, thinking);
+
+  /// Saves [thinking] as the thinking settings of [model] of [provider] (the sheet and the chat's slider both do).
+  static Future<void> saveThinking(AppController app, ProviderConfig provider, ModelConfig model, ThinkingConfig thinking) {
     return app.providers.save(provider.copyWith(models: [for (final m in provider.models) m.id == model.id ? m.copyWith(thinking: thinking) : m]));
   }
 
