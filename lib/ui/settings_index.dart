@@ -178,6 +178,7 @@ final List<SettingsSearchEntry> settingsIndex = [
   _row(SettingsSection.basic, 'Thinking 表示', subtitle: '生成中の状態と思考プロセスを表示します', keywords: ['thinking', '思考', '表示', 'reasoning'], key: 'thinking'),
   _row(SettingsSection.basic, '思考の内容を開いたまま表示', subtitle: 'オフにすると、思考が終わったあとは折りたたみます（見出しをタップで開け閉めできます）', keywords: ['thinking', '思考', '折りたたみ', '展開'], key: 'thinkingExpanded'),
   _row(SettingsSection.basic, '長いコードブロックを折りたたむ行数', subtitle: 'この行数より長いコードは、最初は折りたたみます（見出しをタップで開け閉めできます）。0 なら折りたたみません', keywords: ['code', 'コード', '折りたたみ', '行数', 'fold'], key: 'codeFoldLines'),
+  _row(SettingsSection.basic, 'HTML・SVG をチャットの中で表示する高さ', subtitle: 'HTML と SVG のコードブロックに「表示」のボタンを出し、押すと、この高さでチャットの中に表示します。0 ならボタンを出しません', keywords: ['html', 'svg', 'preview', 'プレビュー', '表示', 'webview', 'ブラウザ', 'グラフィカル'], key: 'inlinePreviewHeight'),
   _row(SettingsSection.basic, 'タイトルをモデルに考えさせる', subtitle: 'オフにすると、最初の質問がそのままタイトルになります', keywords: ['title', 'タイトル', '履歴', '自動'], key: 'autoTitle'),
   _row(SettingsSection.basic, 'タイトルを考えるモデル', subtitle: '未選択なら、使用中のオンラインモデル（安いモデルにすると節約できます）', keywords: ['title', 'タイトル', 'モデル', '節約'], key: 'titleModel'),
   _row(SettingsSection.basic, 'タイトルの最大文字数', subtitle: '長いタイトルは、この長さで切ります', keywords: ['title', 'タイトル', '文字数'], key: 'titleMaxChars'),

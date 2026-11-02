@@ -95,6 +95,7 @@ class AppSettings {
     this.tokenPrecheck = true,
     this.thinkingExpanded = true,
     this.codeFoldLines = 0,
+    this.inlinePreviewHeight = 360,
     this.errorReportEnabled = true,
     this.errorReportRepo = defaultRepo,
     this.errorReportMinHours = 6,
@@ -313,6 +314,9 @@ class AppSettings {
 
   /// A code block longer than this many lines starts folded (0: no block starts folded).
   final int codeFoldLines;
+
+  /// The height of the page an HTML or SVG code block shows inside the chat; 0 leaves out the button that shows it.
+  final int inlinePreviewHeight;
 
   // ---- error reports: an error goes to a GitHub issue, with the user's own token ----
 
@@ -589,6 +593,7 @@ class AppSettings {
     bool? tokenPrecheck,
     bool? thinkingExpanded,
     int? codeFoldLines,
+    int? inlinePreviewHeight,
     bool? errorReportEnabled,
     String? errorReportRepo,
     int? errorReportMinHours,
@@ -722,6 +727,7 @@ class AppSettings {
     tokenPrecheck: tokenPrecheck ?? this.tokenPrecheck,
     thinkingExpanded: thinkingExpanded ?? this.thinkingExpanded,
     codeFoldLines: codeFoldLines ?? this.codeFoldLines,
+    inlinePreviewHeight: inlinePreviewHeight ?? this.inlinePreviewHeight,
     errorReportEnabled: errorReportEnabled ?? this.errorReportEnabled,
     errorReportRepo: errorReportRepo ?? this.errorReportRepo,
     errorReportMinHours: errorReportMinHours ?? this.errorReportMinHours,
@@ -857,6 +863,7 @@ class AppSettings {
     'tokenPrecheck': tokenPrecheck,
     'thinkingExpanded': thinkingExpanded,
     'codeFoldLines': codeFoldLines,
+    'inlinePreviewHeight': inlinePreviewHeight,
     'errorReportEnabled': errorReportEnabled,
     'errorReportRepo': errorReportRepo,
     'errorReportMinHours': errorReportMinHours,
@@ -1022,6 +1029,7 @@ class AppSettings {
       tokenPrecheck: flag('tokenPrecheck', d.tokenPrecheck),
       thinkingExpanded: flag('thinkingExpanded', d.thinkingExpanded),
       codeFoldLines: whole('codeFoldLines', d.codeFoldLines).clamp(0, 1000),
+      inlinePreviewHeight: whole('inlinePreviewHeight', d.inlinePreviewHeight).clamp(0, 2000),
       errorReportEnabled: flag('errorReportEnabled', d.errorReportEnabled),
       errorReportRepo: text('errorReportRepo', d.errorReportRepo).trim(),
       errorReportMinHours: whole('errorReportMinHours', d.errorReportMinHours).clamp(1, 168),

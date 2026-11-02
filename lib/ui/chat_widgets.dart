@@ -19,6 +19,7 @@ import '../services/app_controller.dart';
 import '../services/settings.dart';
 import 'arce_text_field.dart';
 import 'app_scope.dart';
+import 'embedded_page.dart';
 import 'svg_icons.dart';
 import 'theme.dart';
 import 'thinking_icon.dart';
@@ -347,6 +348,36 @@ class CodeCard extends StatefulWidget {
 class _CodeCardState extends State<CodeCard> {
   bool? _open;
 
+  /// The address of the page shown under the code (an HTML or SVG block, once "表示" is pressed).
+  Uri? _page;
+
+  /// The page of an HTML block, or of an SVG block laid in a plain page. Null for any other block.
+  String? _html() {
+    final block = widget.block;
+    switch (block.language.toLowerCase()) {
+      case 'html':
+        return block.code;
+      case 'svg':
+        return '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<body style="margin:0;background:#fff;display:flex;justify-content:center">${block.code}</body>';
+    }
+    return null;
+  }
+
+  Future<void> _togglePage() async {
+    if (_page != null) {
+      setState(() => _page = null);
+      return;
+    }
+    final app = ArceScope.of(context);
+    try {
+      final uri = await app.preview.publish(_html()!);
+      if (mounted) setState(() => _page = uri);
+    } catch (e) {
+      app.showToast('表示できませんでした');
+    }
+  }
+
   int get _lines => '\n'.allMatches(widget.block.code).length + 1;
 
   @override
@@ -356,6 +387,8 @@ class _CodeCardState extends State<CodeCard> {
     final foldFrom = ArceScope.maybeOf(context)?.settings.value.codeFoldLines ?? 0;
     final open = _open ?? (!block.closed || foldFrom <= 0 || _lines <= foldFrom);
     final isHtml = block.language.toLowerCase() == 'html';
+    final pageHeight = ArceScope.maybeOf(context)?.settings.value.inlinePreviewHeight ?? 0;
+    final canShow = block.closed && _html() != null && pageHeight > 0;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10), border: Border.all(color: c.line)),
@@ -383,8 +416,9 @@ class _CodeCardState extends State<CodeCard> {
                       padding: const EdgeInsets.only(right: 8),
                       child: Text('生成中…', style: ts(context, 10, color: c.muted)),
                     ),
+                  if (canShow) _MiniAction(label: _page == null ? '表示' : '閉じる', svg: ArceSvg.eye, onTap: _togglePage),
                   if (isHtml && block.closed)
-                    _MiniAction(label: 'プレビュー', svg: ArceSvg.eye, onTap: () => previewHtml(context, block.code)),
+                    _MiniAction(label: 'ブラウザ', svg: ArceSvg.eye, onTap: () => previewHtml(context, block.code)),
                   _MiniAction(label: 'コピー', svg: ArceSvg.copy, onTap: () => copyToClipboard(context, block.code)),
                 ]),
               ),
@@ -409,6 +443,8 @@ class _CodeCardState extends State<CodeCard> {
                 ]),
               ),
           ],
+          // the page is drawn by [EmbeddedPage] (a WebView, or what stands in for it)
+          if (_page != null) EmbeddedPage(address: _page!, height: pageHeight.toDouble()),
         ],
       ),
     );

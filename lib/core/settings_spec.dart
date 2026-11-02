@@ -400,6 +400,13 @@ abstract final class AgentSettings {
       min: 0,
       max: 1000,
     ),
+    'inlinePreviewHeight': SettingSpec(
+      key: 'inlinePreviewHeight',
+      label: 'HTML・SVG のコードブロックを、チャットの中で表示するときの高さ（0で表示のボタンを出さない）',
+      kind: SettingKind.whole,
+      min: 0,
+      max: 2000,
+    ),
     'errorReportMinHours': SettingSpec(
       key: 'errorReportMinHours',
       label: 'エラー報告：同じ問題にコメントする間隔（時間）',
